@@ -16,8 +16,6 @@ from datetime import datetime, timedelta
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFont
 import base64
-import requests
-import stripe
 import flask
 
 app = Flask(__name__)
@@ -39,17 +37,6 @@ app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'party@exam
 db = SQLAlchemy(app)
 mail = Mail(app)
 
-# Kimi API configuration
-KIMI_API_KEY = os.getenv('KIMI_API_KEY', '')
-KIMI_API_URL = "https://api.kimi.com/coding/chat/completions"
-
-# Stripe configuration
-stripe.api_key = os.getenv('STRIPE_SECRET_KEY', '')
-STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
-STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
-# Price per ticket in cents (e.g., 2000 = $20.00)
-TICKET_PRICE_CENTS = int(os.getenv('TICKET_PRICE_CENTS', '2000'))
-
 # Admin password (optional, leave empty for no protection)
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', '')
 
@@ -65,6 +52,12 @@ class Guest(db.Model):
     checkin_time = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Manual payment fields
+    payment_method = db.Column(db.String(20))  # zelle, venmo, cash, other
+    transaction_id = db.Column(db.String(100))
+    approved = db.Column(db.Boolean, default=False)
+    approved_at = db.Column(db.DateTime)
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -74,7 +67,11 @@ class Guest(db.Model):
             'qr_code': self.qr_code,
             'checked_in': self.checked_in,
             'band_given': self.band_given,
-            'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None
+            'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None,
+            'payment_method': self.payment_method,
+            'transaction_id': self.transaction_id,
+            'approved': self.approved,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None
         }
 
 class CheckInLog(db.Model):
@@ -83,6 +80,19 @@ class CheckInLog(db.Model):
     action = db.Column(db.String(50))  # 'checkin', 'band_given'
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     device_info = db.Column(db.String(200))
+
+def admin_required(f):
+    """Decorator for admin password protection"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if ADMIN_PASSWORD:
+            auth = request.authorization
+            if not auth or auth.password != ADMIN_PASSWORD:
+                return ('Admin Access Required', 401, {
+                    'WWW-Authenticate': 'Basic realm="Admin"'
+                })
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Routes
 @app.route('/')
@@ -98,14 +108,20 @@ def index():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    """Guest registration form - redirects to Stripe payment"""
+    """Guest registration with manual payment verification"""
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip().lower()
         ticket_count = int(request.form.get('ticket_count', 1))
+        payment_method = request.form.get('payment_method', '').strip().lower()
+        transaction_id = request.form.get('transaction_id', '').strip()
         
         if not name or not email:
             flash('Name and email are required!', 'error')
+            return redirect(url_for('register'))
+        
+        if not payment_method:
+            flash('Please select a payment method!', 'error')
             return redirect(url_for('register'))
         
         # Check if email already registered
@@ -114,51 +130,59 @@ def register():
             flash('Email already registered!', 'error')
             return redirect(url_for('register'))
         
-        # Store registration data in session for after payment
-        import flask
-        flask.session['pending_registration'] = {
-            'name': name,
-            'email': email,
-            'ticket_count': ticket_count
-        }
+        # Create pending guest (QR code will be generated after approval)
+        guest = Guest(
+            name=name,
+            email=email,
+            ticket_count=ticket_count,
+            payment_method=payment_method,
+            transaction_id=transaction_id,
+            approved=False,  # Pending approval
+            qr_code=None     # Will be generated after approval
+        )
+        db.session.add(guest)
+        db.session.commit()
         
-        # If Stripe is not configured, create guest directly (dev mode)
-        if not stripe.api_key:
-            return create_guest_and_redirect(name, email, ticket_count)
-        
-        # Create Stripe Checkout Session
-        try:
-            checkout_session = stripe.checkout.Session.create(
-                line_items=[{
-                    'price_data': {
-                        'currency': 'usd',
-                        'product_data': {
-                            'name': f'Party 2026 Ticket{"s" if ticket_count > 1 else ""}',
-                            'description': f'Admission for {name} - {ticket_count} ticket{"s" if ticket_count > 1 else ""}'
-                        },
-                        'unit_amount': TICKET_PRICE_CENTS,
-                    },
-                    'quantity': ticket_count,
-                }],
-                mode='payment',
-                success_url=request.url_root + 'success?session_id={CHECKOUT_SESSION_ID}',
-                cancel_url=request.url_root + 'cancel',
-                customer_email=email,
-                metadata={
-                    'name': name,
-                    'email': email,
-                    'ticket_count': str(ticket_count)
-                }
-            )
-            return redirect(checkout_session.url, code=303)
-        except Exception as e:
-            flash(f'Payment setup failed: {str(e)}', 'error')
-            return redirect(url_for('register'))
+        flash(f'Registration submitted! Your payment (${ticket_count * 30}) via {payment_method.upper()} is pending verification. You will receive your QR code via email once approved.', 'success')
+        return redirect(url_for('pending'))
     
-    return render_template('register.html', stripe_key=STRIPE_PUBLISHABLE_KEY, ticket_price=TICKET_PRICE_CENTS/100)
+    return render_template('register.html', ticket_price=30)
+
+@app.route('/pending')
+def pending():
+    """Show pending approval message"""
+    return render_template('pending.html')
+
+@app.route('/admin/approve/<int:guest_id>', methods=['POST'])
+@admin_required
+def approve_guest(guest_id):
+    """Approve a pending guest and send QR code"""
+    guest = Guest.query.get_or_404(guest_id)
+    
+    if guest.approved:
+        return jsonify({'success': False, 'error': 'Already approved'}), 400
+    
+    # Generate QR code
+    guest.qr_code = f"PARTY2026-{datetime.now().strftime('%Y%m%d')}-{base64.urlsafe_b64encode(os.urandom(6)).decode()[:8]}"
+    guest.approved = True
+    guest.approved_at = datetime.utcnow()
+    db.session.commit()
+    
+    # Send email with QR code
+    try:
+        send_qr_email(guest)
+        return jsonify({
+            'success': True,
+            'message': f'Approved {guest.name}! QR code sent to {guest.email}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': True,
+            'warning': f'Approved but email failed: {str(e)}'
+        })
 
 def create_guest_and_redirect(name, email, ticket_count):
-    """Create guest after successful payment"""
+    """Create guest directly (for dev/testing)"""
     # Generate unique QR code
     qr_code = f"PARTY2026-{datetime.now().strftime('%Y%m%d')}-{base64.urlsafe_b64encode(os.urandom(6)).decode()[:8]}"
     
@@ -166,7 +190,9 @@ def create_guest_and_redirect(name, email, ticket_count):
         name=name,
         email=email,
         ticket_count=ticket_count,
-        qr_code=qr_code
+        qr_code=qr_code,
+        approved=True,
+        approved_at=datetime.utcnow()
     )
     db.session.add(guest)
     db.session.commit()
@@ -179,91 +205,6 @@ def create_guest_and_redirect(name, email, ticket_count):
         flash(f'Registered but email failed: {str(e)}', 'warning')
     
     return redirect(url_for('view_qr', guest_id=guest.id))
-
-@app.route('/success')
-def success():
-    """Handle successful Stripe payment"""
-    import flask
-    session_id = request.args.get('session_id')
-    
-    if not session_id:
-        flash('Invalid session', 'error')
-        return redirect(url_for('index'))
-    
-    # Retrieve session to verify
-    try:
-        checkout_session = stripe.checkout.Session.retrieve(session_id)
-        if checkout_session.payment_status == 'paid':
-            metadata = checkout_session.metadata
-            name = metadata.get('name')
-            email = metadata.get('email')
-            ticket_count = int(metadata.get('ticket_count', 1))
-            
-            # Check if already created (webhook might have done it)
-            guest = Guest.query.filter_by(email=email).first()
-            if not guest:
-                return create_guest_and_redirect(name, email, ticket_count)
-            
-            flash('Payment successful! Your QR code is ready.', 'success')
-            return redirect(url_for('view_qr', guest_id=guest.id))
-    except Exception as e:
-        flash(f'Error verifying payment: {str(e)}', 'error')
-    
-    return redirect(url_for('index'))
-
-@app.route('/cancel')
-def cancel():
-    """Handle cancelled payment"""
-    flash('Payment cancelled. You can try again.', 'warning')
-    return redirect(url_for('register'))
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Handle Stripe webhooks"""
-    payload = request.get_data()
-    sig_header = request.headers.get('Stripe-Signature')
-    
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
-    except ValueError:
-        return 'Invalid payload', 400
-    except stripe.error.SignatureVerificationError:
-        return 'Invalid signature', 400
-    
-    # Handle successful payment
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        
-        if session.payment_status == 'paid':
-            metadata = session.metadata
-            name = metadata.get('name')
-            email = metadata.get('email')
-            ticket_count = int(metadata.get('ticket_count', 1))
-            
-            # Check if already created
-            existing = Guest.query.filter_by(email=email).first()
-            if not existing:
-                # Generate unique QR code
-                qr_code = f"PARTY2026-{datetime.now().strftime('%Y%m%d')}-{base64.urlsafe_b64encode(os.urandom(6)).decode()[:8]}"
-                
-                guest = Guest(
-                    name=name,
-                    email=email,
-                    ticket_count=ticket_count,
-                    qr_code=qr_code
-                )
-                db.session.add(guest)
-                db.session.commit()
-                
-                # Send email with QR code
-                try:
-                    send_qr_email(guest)
-                except Exception as e:
-                    print(f"Failed to send email: {e}")
-    
-    return '', 200
 
 @app.route('/qr/<int:guest_id>')
 def view_qr(guest_id):
@@ -278,38 +219,32 @@ def scanner():
     """Self check-in scanner page"""
     return render_template('scanner.html')
 
-from functools import wraps
-
-def admin_required(f):
-    """Decorator for admin password protection"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if ADMIN_PASSWORD:
-            auth = request.authorization
-            if not auth or auth.password != ADMIN_PASSWORD:
-                return ('Admin Access Required', 401, {
-                    'WWW-Authenticate': 'Basic realm="Admin"'
-                })
-        return f(*args, **kwargs)
-    return decorated_function
-
 @app.route('/admin')
 @admin_required
 def admin():
     """Admin dashboard"""
-    guests = Guest.query.order_by(Guest.created_at.desc()).all()
+    all_guests = Guest.query.order_by(Guest.created_at.desc()).all()
+    pending_guests = Guest.query.filter_by(approved=False).order_by(Guest.created_at.desc()).all()
+    approved_guests = Guest.query.filter_by(approved=True).order_by(Guest.created_at.desc()).all()
     recent_checkins = Guest.query.filter_by(checked_in=True).order_by(Guest.checkin_time.desc()).limit(10).all()
     
     stats = {
-        'total': len(guests),
-        'checked_in': sum(1 for g in guests if g.checked_in),
-        'bands_given': sum(1 for g in guests if g.band_given),
-        'pending': sum(1 for g in guests if not g.checked_in),
-        'total_tickets': sum(g.ticket_count for g in guests),
-        'tickets_admitted': sum(g.ticket_count for g in guests if g.checked_in)
+        'total': len(all_guests),
+        'checked_in': sum(1 for g in all_guests if g.checked_in),
+        'bands_given': sum(1 for g in all_guests if g.band_given),
+        'pending': sum(1 for g in all_guests if not g.checked_in),
+        'pending_approval': len(pending_guests),
+        'total_tickets': sum(g.ticket_count for g in all_guests),
+        'tickets_admitted': sum(g.ticket_count for g in all_guests if g.checked_in),
+        'total_revenue': sum(g.ticket_count * 30 for g in all_guests if g.approved)
     }
     
-    return render_template('admin.html', guests=guests, recent_checkins=recent_checkins, stats=stats)
+    return render_template('admin.html', 
+                         all_guests=all_guests,
+                         pending_guests=pending_guests,
+                         approved_guests=approved_guests,
+                         recent_checkins=recent_checkins,
+                         stats=stats)
 
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
@@ -389,13 +324,18 @@ def api_stats():
     tickets = db.session.query(db.func.sum(Guest.ticket_count)).scalar() or 0
     admitted_tickets = db.session.query(db.func.sum(Guest.ticket_count)).filter(Guest.checked_in==True).scalar() or 0
     
+    pending_approval = Guest.query.filter_by(approved=False).count()
+    total_revenue = sum(g.ticket_count * 30 for g in Guest.query.filter_by(approved=True).all())
+    
     return jsonify({
         'total_guests': total,
         'checked_in': checked_in,
         'bands_distributed': bands,
         'pending': total - checked_in,
+        'pending_approval': pending_approval,
         'total_tickets': tickets,
-        'admitted_tickets': admitted_tickets
+        'admitted_tickets': admitted_tickets,
+        'total_revenue': total_revenue
     })
 
 @app.route('/download/csv')
@@ -405,11 +345,14 @@ def download_csv():
     
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Name', 'Email', 'Tickets', 'Checked In', 'Band Given', 'Check-in Time'])
+    writer.writerow(['Name', 'Email', 'Tickets', 'Payment', 'Transaction ID', 'Approved', 'Checked In', 'Band Given', 'Check-in Time'])
     
     for g in guests:
         writer.writerow([
             g.name, g.email, g.ticket_count,
+            g.payment_method or '',
+            g.transaction_id or '',
+            'Yes' if g.approved else 'No',
             'Yes' if g.checked_in else 'No',
             'Yes' if g.band_given else 'No',
             g.checkin_time.strftime('%Y-%m-%d %H:%M:%S') if g.checkin_time else ''

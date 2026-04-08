@@ -37,7 +37,7 @@
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 15px;
             margin-bottom: 30px;
         }
@@ -58,13 +58,13 @@
         
         .stat-label {
             color: #666;
-            font-size: 0.9em;
+            font-size: 0.85em;
             margin-top: 5px;
         }
         
         .dashboard-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 20px;
         }
         
@@ -108,27 +108,37 @@
             color: white;
         }
         
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
         .btn-secondary {
             background: #6c757d;
             color: white;
         }
         
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
         .guest-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
         
         .guest-table th {
             text-align: left;
-            padding: 12px;
+            padding: 12px 8px;
             border-bottom: 2px solid #e0e0e0;
             color: #666;
             font-weight: 600;
         }
         
         .guest-table td {
-            padding: 12px;
+            padding: 12px 8px;
             border-bottom: 1px solid #f0f0f0;
         }
         
@@ -136,11 +146,20 @@
             background: #f8f9fa;
         }
         
+        .guest-table tr.pending {
+            background: #fff3cd;
+        }
+        
+        .guest-table tr.pending:hover {
+            background: #ffeeba;
+        }
+        
         .status-badge {
-            padding: 5px 10px;
+            padding: 4px 8px;
             border-radius: 20px;
-            font-size: 0.8em;
+            font-size: 0.75em;
             font-weight: bold;
+            display: inline-block;
         }
         
         .status-pending {
@@ -148,9 +167,14 @@
             color: #856404;
         }
         
-        .status-checked {
+        .status-approved {
             background: #d4edda;
             color: #155724;
+        }
+        
+        .status-checked {
+            background: #d1ecf1;
+            color: #0c5460;
         }
         
         .band-yes {
@@ -161,24 +185,6 @@
         .band-no {
             background: #f8f9fa;
             color: #6c757d;
-        }
-        
-        .recent-item {
-            padding: 15px;
-            border-left: 4px solid #667eea;
-            background: #f8f9fa;
-            margin-bottom: 10px;
-            border-radius: 0 10px 10px 0;
-        }
-        
-        .recent-name {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .recent-time {
-            color: #666;
-            font-size: 0.85em;
         }
         
         .back-link {
@@ -205,20 +211,82 @@
             font-size: 1em;
         }
         
-        @media (max-width: 900px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
+        .section-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
         }
         
-        @media (max-width: 600px) {
+        .section-tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1em;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .section-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .section-content {
+            display: none;
+        }
+        
+        .section-content.active {
+            display: block;
+        }
+        
+        .payment-info {
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        .payment-info strong {
+            color: #333;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .toast.error {
+            background: #dc3545;
+        }
+        
+        .toast.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @media (max-width: 900px) {
             .guest-table {
                 font-size: 0.8em;
             }
             
             .guest-table th,
             .guest-table td {
-                padding: 8px;
+                padding: 8px 4px;
             }
         }
     </style>
@@ -227,67 +295,121 @@
     <div class="container">
         <header>
             <h1>📊 Admin Dashboard</h1>
-            <p>Manage guests and monitor check-ins</p>
+            <p>Manage registrations, payments, and check-ins</p>
         </header>
         
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-number">{{ stats.total }}</div>
+                <div class="stat-number" id="statTotal">{{ stats.total }}</div>
                 <div class="stat-label">Total Guests</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">{{ stats.checked_in }}</div>
+                <div class="stat-number" id="statPending">{{ stats.pending_approval }}</div>
+                <div class="stat-label">Pending Approval</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statChecked">{{ stats.checked_in }}</div>
                 <div class="stat-label">Checked In</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">{{ stats.bands_given }}</div>
+                <div class="stat-number" id="statBands">{{ stats.bands_given }}</div>
                 <div class="stat-label">Bands Given</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">{{ stats.pending }}</div>
-                <div class="stat-label">Pending</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{{ stats.total_tickets }}</div>
+                <div class="stat-number" id="statTickets">{{ stats.total_tickets }}</div>
                 <div class="stat-label">Total Tickets</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number">{{ stats.tickets_admitted }}</div>
-                <div class="stat-label">Admitted</div>
+                <div class="stat-number" id="statRevenue">${{ stats.total_revenue }}</div>
+                <div class="stat-label">Est. Revenue</div>
             </div>
         </div>
         
-        <div class="dashboard-grid">
-            <div class="panel">
-                <h2>All Guests</h2>
+        <div class="panel">
+            <div class="section-tabs">
+                <button class="section-tab active" onclick="showSection('pending')">
+                    ⏳ Pending Approval ({% if pending_guests %}{{ pending_guests|length }}{% else %}0{% endif %})
+                </button>
+                <button class="section-tab" onclick="showSection('approved')">
+                    ✅ Approved Guests
+                </button>
+                <button class="section-tab" onclick="showSection('all')">
+                    📋 All Guests
+                </button>
+            </div>
+            
+            <!-- Pending Approval Section -->
+            <div id="pendingSection" class="section-content active">
+                <h2>Pending Payment Verification</h2>
                 
+                {% if pending_guests %}
+                <div style="overflow-x: auto;">
+                    <table class="guest-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Tickets</th>
+                                <th>Amount</th>
+                                <th>Payment</th>
+                                <th>Transaction ID</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for guest in pending_guests %}
+                            <tr class="pending">
+                                <td><strong>{{ guest.name }}</strong></td>
+                                <td>{{ guest.email }}</td>
+                                <td>{{ guest.ticket_count }}</td>
+                                <td>${{ guest.ticket_count * 30 }}</td>
+                                <td>{{ guest.payment_method|upper }}</td>
+                                <td><code>{{ guest.transaction_id or 'N/A' }}</code></td>
+                                <td>
+                                    <button class="btn btn-success" onclick="approveGuest({{ guest.id }}, '{{ guest.name }}')">
+                                        ✅ Approve & Send QR
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p>No pending registrations. All caught up! 🎉</p>
+                {% endif %}
+            </div>
+            
+            <!-- Approved Guests Section -->
+            <div id="approvedSection" class="section-content">
                 <div class="action-btns">
                     <a href="/register" class="btn btn-primary">+ Add Guest</a>
                     <a href="/download/csv" class="btn btn-success">↓ Download CSV</a>
                 </div>
                 
-                <input type="text" class="search-box" placeholder="Search guests..." id="searchInput">
+                <input type="text" class="search-box" placeholder="Search approved guests..." id="searchApproved">
                 
-                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                <div style="overflow-x: auto;">
                     <table class="guest-table">
                         <thead>
                             <tr>
                                 <th>Name</th>
                                 <th>Tickets</th>
-                                <th>Status</th>
+                                <th>Check-In</th>
                                 <th>Band</th>
+                                <th>QR Code</th>
                             </tr>
                         </thead>
-                        <tbody id="guestTableBody">
-                            {% for guest in guests %}
+                        <tbody>
+                            {% for guest in approved_guests %}
                             <tr>
                                 <td>{{ guest.name }}<br><small style="color: #666;">{{ guest.email }}</small></td>
                                 <td>{{ guest.ticket_count }}</td>
                                 <td>
                                     {% if guest.checked_in %}
-                                    <span class="status-badge status-checked">✓ {{ guest.checkin_time.strftime('%H:%M') if guest.checkin_time else 'Done' }}</span>
+                                    <span class="status-badge status-checked">✓ {{ guest.checkin_time.strftime('%m/%d %H:%M') if guest.checkin_time else 'Done' }}</span>
                                     {% else %}
-                                    <span class="status-badge status-pending">Pending</span>
+                                    <span class="status-badge status-pending">Not yet</span>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -297,6 +419,9 @@
                                     <span class="status-badge band-no">—</span>
                                     {% endif %}
                                 </td>
+                                <td>
+                                    <a href="/qr/{{ guest.id }}" class="btn btn-secondary" style="font-size: 0.8em;">View QR</a>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -304,43 +429,124 @@
                 </div>
             </div>
             
-            <div class="panel">
-                <h2>Recent Check-ins</h2>
+            <!-- All Guests Section -->
+            <div id="allSection" class="section-content">
+                <input type="text" class="search-box" placeholder="Search all guests..." id="searchAll">
                 
-                <div id="recentCheckins">
-                    {% for guest in recent_checkins %}
-                    <div class="recent-item">
-                        <div class="recent-name">{{ guest.name }}</div>
-                        <div class="recent-time">{{ guest.checkin_time.strftime('%I:%M %p') if guest.checkin_time else 'Unknown' }} • {{ guest.ticket_count }} ticket{{ 's' if guest.ticket_count > 1 else '' }}</div>
-                    </div>
-                    {% endfor %}
+                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                    <table class="guest-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Tickets</th>
+                                <th>Status</th>
+                                <th>Payment</th>
+                            </tr>
+                        </thead>
+                        <tbody id="allGuestsTable">
+                            {% for guest in all_guests %}
+                            <tr class="{% if not guest.approved %}pending{% endif %}">
+                                <td><strong>{{ guest.name }}</strong></td>
+                                <td>{{ guest.email }}</td>
+                                <td>{{ guest.ticket_count }}</td>
+                                <td>
+                                    {% if guest.approved %}
+                                    <span class="status-badge status-approved">✅ Approved</span>
+                                    {% else %}
+                                    <span class="status-badge status-pending">⏳ Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ guest.payment_method|upper if guest.payment_method else 'N/A' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
         
         <a href="/" class="back-link">← Back to Home</a>
     </div>
+    
+    <div id="toast" class="toast"></div>
 
     <script>
-        // Search functionality
-        document.getElementById('searchInput').addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const rows = document.querySelectorAll('#guestTableBody tr');
+        // Tab switching
+        function showSection(section) {
+            // Hide all sections
+            document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
             
+            // Show selected
+            document.getElementById(section + 'Section').classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // Approve guest
+        async function approveGuest(guestId, guestName) {
+            if (!confirm(`Approve ${guestName} and send QR code?`)) return;
+            
+            try {
+                const response = await fetch(`/admin/approve/${guestId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`✅ ${guestName} approved! QR code sent.`);
+                    // Remove row from table
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showToast(data.error || 'Approval failed', true);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, true);
+            }
+        }
+        
+        // Show toast
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast' + (isError ? ' error' : '');
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        // Search functionality for approved guests
+        document.getElementById('searchApproved')?.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const rows = document.querySelectorAll('#approvedSection tbody tr');
             rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
+                row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
             });
         });
         
-        // Auto-refresh every 10 seconds
+        // Search functionality for all guests
+        document.getElementById('searchAll')?.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const rows = document.querySelectorAll('#allGuestsTable tr');
+            rows.forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
+            });
+        });
+        
+        // Auto-refresh stats every 30 seconds
         setInterval(() => {
             fetch('/api/stats')
                 .then(r => r.json())
                 .then(stats => {
-                    // Could update stats here if needed
+                    document.getElementById('statTotal').textContent = stats.total_guests;
+                    document.getElementById('statPending').textContent = stats.pending_approval;
+                    document.getElementById('statChecked').textContent = stats.checked_in;
+                    document.getElementById('statBands').textContent = stats.bands_distributed;
+                    document.getElementById('statTickets').textContent = stats.total_tickets;
+                    document.getElementById('statRevenue').textContent = '$' + stats.total_revenue;
                 });
-        }, 10000);
+        }, 30000);
     </script>
 </body>
 </html>

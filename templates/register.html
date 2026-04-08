@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register Guest - Party 2026</title>
+    <title>Register - Party 2026</title>
     <style>
         * {
             margin: 0;
@@ -96,6 +96,35 @@
             border-color: #667eea;
         }
         
+        .payment-options {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .payment-btn {
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .payment-btn:hover {
+            border-color: #667eea;
+            background: #f5f5ff;
+        }
+        
+        .payment-btn.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
         .submit-btn {
             width: 100%;
             padding: 18px;
@@ -160,17 +189,18 @@
         }
         
         .info-box {
-            background: #f8f9fa;
+            background: #e3f2fd;
             padding: 15px;
             border-radius: 10px;
             margin-bottom: 25px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #2196f3;
         }
         
         .info-box p {
             margin: 0;
-            color: #666;
+            color: #1565c0;
             font-size: 0.95em;
+            line-height: 1.5;
         }
         
         .price-box {
@@ -200,6 +230,31 @@
             opacity: 0.8;
         }
         
+        .payment-instructions {
+            background: #fff3e0;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            border-left: 4px solid #ff9800;
+            display: none;
+        }
+        
+        .payment-instructions.active {
+            display: block;
+        }
+        
+        .payment-instructions p {
+            margin: 0;
+            color: #e65100;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        
+        .payment-instructions strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
         @media (max-width: 600px) {
             .form-container {
                 padding: 25px;
@@ -208,14 +263,18 @@
             .ticket-options {
                 grid-template-columns: repeat(2, 1fr);
             }
+            
+            .payment-options {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>📝 Register Guest</h1>
-            <p>Add new guest to the party</p>
+            <h1>🎉 Party Registration</h1>
+            <p>$30 per person • Manual Payment</p>
         </header>
         
         <div class="form-container">
@@ -230,7 +289,12 @@
             {% endwith %}
             
             <div class="info-box">
-                <p>📧 QR code will be sent to your email after payment</p>
+                <p><strong>📝 How it works:</strong><br>
+                1. Fill out your details below<br>
+                2. Send payment via Zelle/Venmo/Cash<br>
+                3. Enter the transaction ID or note<br>
+                4. We'll verify and email your QR code<br>
+                <em>(QR code will be sent after payment verification)</em></p>
             </div>
             
             <form method="POST" action="/register" id="registerForm">
@@ -258,12 +322,38 @@
                 </div>
                 
                 <div class="price-box" id="priceBox">
-                    <div class="price-label">Total</div>
-                    <div class="price-amount">${{ "%.2f"|format(ticket_price) }}</div>
-                    <div class="price-per">${{ "%.2f"|format(ticket_price) }} per ticket</div>
+                    <div class="price-label">Total Amount</div>
+                    <div class="price-amount" id="totalPrice">$30.00</div>
+                    <div class="price-per" id="priceDetail">1 ticket × $30.00</div>
                 </div>
                 
-                <button type="submit" class="submit-btn" id="submitBtn">Pay & Get QR Code →</button>
+                <div class="form-group">
+                    <label>Payment Method *</label>
+                    <input type="hidden" id="payment_method" name="payment_method" value="">
+                    <div class="payment-options">
+                        <button type="button" class="payment-btn" data-value="zelle" data-instruction="Send to: <strong>[YOUR_ZELLE_EMAIL/PHONE]</strong><br>Amount: <span id='zelleAmount'>$30.00</span><br>Note: Include your full name">
+                            💸 Zelle
+                        </button>
+                        <button type="button" class="payment-btn" data-value="venmo" data-instruction="Send to: <strong>@[YOUR_VENMO_HANDLE]</strong><br>Amount: <span id='venmoAmount'>$30.00</span><br>Note: Include your full name">
+                            💳 Venmo
+                        </button>
+                        <button type="button" class="payment-btn" data-value="cash" data-instruction="Pay cash to the host.<br>Amount: <span id='cashAmount'>$30.00</span>">
+                            💵 Cash
+                        </button>
+                    </div>
+                    
+                    <div class="payment-instructions" id="paymentInstructions">
+                        <p id="instructionText"></p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="transaction_id">Transaction ID / Note *</label>
+                    <input type="text" id="transaction_id" name="transaction_id" required
+                           placeholder="e.g., Zelle confirmation #12345 or 'Paid cash to John'">
+                </div>
+                
+                <button type="submit" class="submit-btn">Submit Registration →</button>
             </form>
         </div>
         
@@ -271,13 +361,18 @@
     </div>
 
     <script>
-        const ticketPrice = {{ ticket_price }};
+        const ticketPrice = 30;
         
         function updatePrice(count) {
             const total = (count * ticketPrice).toFixed(2);
-            document.querySelector('.price-amount').textContent = '$' + total;
-            document.querySelector('.price-per').textContent = 
+            document.getElementById('totalPrice').textContent = '$' + total;
+            document.getElementById('priceDetail').textContent = 
                 count + ' ticket' + (count > 1 ? 's' : '') + ' × $' + ticketPrice.toFixed(2);
+            
+            // Update payment instructions
+            document.getElementById('zelleAmount').textContent = '$' + total;
+            document.getElementById('venmoAmount').textContent = '$' + total;
+            document.getElementById('cashAmount').textContent = '$' + total;
         }
         
         // Ticket selection
@@ -289,6 +384,31 @@
                 document.getElementById('ticket_count').value = count;
                 updatePrice(count);
             });
+        });
+        
+        // Payment method selection
+        document.querySelectorAll('.payment-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.payment-btn').forEach(b => b.classList.remove('selected'));
+                this.classList.add('selected');
+                document.getElementById('payment_method').value = this.dataset.value;
+                
+                // Show instructions
+                const instructions = document.getElementById('paymentInstructions');
+                const text = document.getElementById('instructionText');
+                text.innerHTML = this.dataset.instruction;
+                instructions.classList.add('active');
+            });
+        });
+        
+        // Form validation
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            const paymentMethod = document.getElementById('payment_method').value;
+            if (!paymentMethod) {
+                e.preventDefault();
+                alert('Please select a payment method');
+                return false;
+            }
         });
     </script>
 </body>
