@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Party 2026</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            padding: 20px 0;
+        }
+        
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .panel h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+        
+        .action-btns {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .guest-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+        
+        .guest-table th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid #e0e0e0;
+            color: #666;
+            font-weight: 600;
+        }
+        
+        .guest-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .guest-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-checked {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .band-yes {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .band-no {
+            background: #f8f9fa;
+            color: #6c757d;
+        }
+        
+        .recent-item {
+            padding: 15px;
+            border-left: 4px solid #667eea;
+            background: #f8f9fa;
+            margin-bottom: 10px;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .recent-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .recent-time {
+            color: #666;
+            font-size: 0.85em;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            transition: background 0.3s;
+        }
+        
+        .back-link:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 1em;
+        }
+        
+        @media (max-width: 900px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 600px) {
+            .guest-table {
+                font-size: 0.8em;
+            }
+            
+            .guest-table th,
+            .guest-table td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Admin Dashboard</h1>
+            <p>Manage guests and monitor check-ins</p>
+        </header>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.total }}</div>
+                <div class="stat-label">Total Guests</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.checked_in }}</div>
+                <div class="stat-label">Checked In</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.bands_given }}</div>
+                <div class="stat-label">Bands Given</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.pending }}</div>
+                <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.total_tickets }}</div>
+                <div class="stat-label">Total Tickets</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ stats.tickets_admitted }}</div>
+                <div class="stat-label">Admitted</div>
+            </div>
+        </div>
+        
+        <div class="dashboard-grid">
+            <div class="panel">
+                <h2>All Guests</h2>
+                
+                <div class="action-btns">
+                    <a href="/register" class="btn btn-primary">+ Add Guest</a>
+                    <a href="/download/csv" class="btn btn-success">↓ Download CSV</a>
+                </div>
+                
+                <input type="text" class="search-box" placeholder="Search guests..." id="searchInput">
+                
+                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                    <table class="guest-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Tickets</th>
+                                <th>Status</th>
+                                <th>Band</th>
+                            </tr>
+                        </thead>
+                        <tbody id="guestTableBody">
+                            {% for guest in guests %}
+                            <tr>
+                                <td>{{ guest.name }}<br><small style="color: #666;">{{ guest.email }}</small></td>
+                                <td>{{ guest.ticket_count }}</td>
+                                <td>
+                                    {% if guest.checked_in %}
+                                    <span class="status-badge status-checked">✓ {{ guest.checkin_time.strftime('%H:%M') if guest.checkin_time else 'Done' }}</span>
+                                    {% else %}
+                                    <span class="status-badge status-pending">Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if guest.band_given %}
+                                    <span class="status-badge band-yes">Given</span>
+                                    {% else %}
+                                    <span class="status-badge band-no">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2>Recent Check-ins</h2>
+                
+                <div id="recentCheckins">
+                    {% for guest in recent_checkins %}
+                    <div class="recent-item">
+                        <div class="recent-name">{{ guest.name }}</div>
+                        <div class="recent-time">{{ guest.checkin_time.strftime('%I:%M %p') if guest.checkin_time else 'Unknown' }} • {{ guest.ticket_count }} ticket{{ 's' if guest.ticket_count > 1 else '' }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <script>
+        // Search functionality
+        document.getElementById('searchInput').addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const rows = document.querySelectorAll('#guestTableBody tr');
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(searchTerm) ? '' : 'none';
+            });
+        });
+        
+        // Auto-refresh every 10 seconds
+        setInterval(() => {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(stats => {
+                    // Could update stats here if needed
+                });
+        }, 10000);
+    </script>
+</body>
+</html>
