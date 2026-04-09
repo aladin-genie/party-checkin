@@ -82,6 +82,12 @@ class Guest(db.Model):
     disclaimer_agreed = db.Column(db.Boolean, default=False)
     signature_name = db.Column(db.String(100))
     
+    # Payment verification (for admin manual tracking)
+    payment_verified = db.Column(db.Boolean, default=False)
+    payment_verified_at = db.Column(db.DateTime)
+    payment_verified_by = db.Column(db.String(100))
+    payment_notes = db.Column(db.Text)
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -104,6 +110,10 @@ class Guest(db.Model):
             'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None,
             'approved': self.approved,
             'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+            'payment_verified': self.payment_verified,
+            'payment_verified_at': self.payment_verified_at.isoformat() if self.payment_verified_at else None,
+            'payment_verified_by': self.payment_verified_by,
+            'payment_notes': self.payment_notes,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -179,7 +189,10 @@ def register():
         
         name = f"{first_name} {last_name}"
         
-        # Create pending guest (QR code will be generated after approval)
+        # Generate QR code immediately
+        qr_code = f"DBZ2025-{datetime.now().strftime('%m%d')}-{base64.urlsafe_b64encode(os.urandom(6)).decode()[:8].upper()}"
+        
+        # Create guest with immediate approval (QR sent now)
         guest = Guest(
             first_name=first_name,
             last_name=last_name,
@@ -195,16 +208,25 @@ def register():
             payment_method='zelle',
             transaction_id=transaction_id,
             total_amount=total_amount,
-            approved=False,  # Pending approval
-            qr_code=None,    # Will be generated after approval
+            qr_code=qr_code,
+            approved=True,  # Auto-approved, QR sent immediately
+            approved_at=datetime.utcnow(),
             disclaimer_agreed=True,
-            signature_name=signature_name
+            signature_name=signature_name,
+            payment_verified=False,  # Admin will verify later
+            payment_notes=f"Transaction ID: {transaction_id}"
         )
         db.session.add(guest)
         db.session.commit()
         
-        flash(f'Registration submitted! Your payment ({total_amount}) via ZELLE is pending verification. You will receive your QR code via email once approved.', 'success')
-        return redirect(url_for('pending'))
+        # Send QR code email immediately
+        try:
+            send_qr_email(guest)
+            flash(f'✅ Registration successful! QR code sent to {email}. Please check your inbox and bring the QR code to the event.', 'success')
+        except Exception as e:
+            flash(f'⚠️ Registration saved but email failed. Please contact support. Error: {str(e)}', 'warning')
+        
+        return redirect(url_for('view_qr', code=qr_code))
     
     return render_template('register.html')
 
@@ -296,7 +318,9 @@ def admin():
         'pending_approval': len(pending_guests),
         'total_tickets': sum(g.ticket_count for g in all_guests),
         'tickets_admitted': sum(g.ticket_count for g in all_guests if g.checked_in),
-        'total_revenue': sum(g.ticket_count * 30 for g in all_guests if g.approved)
+        'total_revenue': sum(g.ticket_count * 35 for g in all_guests if g.approved),
+        'payment_verified': sum(1 for g in all_guests if g.payment_verified),
+        'payment_unverified': sum(1 for g in all_guests if not g.payment_verified)
     }
     
     return render_template('admin.html', 
@@ -425,6 +449,53 @@ def download_csv():
         as_attachment=True,
         download_name=f'party_guests_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
     )
+
+@app.route('/admin/verify-payment/<int:guest_id>', methods=['POST'])
+@admin_required
+def verify_payment(guest_id):
+    """Manually verify a payment (for admin tracking)"""
+    guest = Guest.query.get_or_404(guest_id)
+    
+    data = request.get_json()
+    verified = data.get('verified', True)
+    notes = data.get('notes', '')
+    
+    if verified:
+        guest.payment_verified = True
+        guest.payment_verified_at = datetime.utcnow()
+        guest.payment_verified_by = request.authorization.username if request.authorization else 'admin'
+        if notes:
+            guest.payment_notes = f"{guest.payment_notes or ''}\nVerified: {notes}".strip()
+    else:
+        guest.payment_verified = False
+        guest.payment_verified_at = None
+        guest.payment_verified_by = None
+        if notes:
+            guest.payment_notes = f"{guest.payment_notes or ''}\nUnverified: {notes}".strip()
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'guest_id': guest_id,
+        'payment_verified': guest.payment_verified,
+        'message': f'Payment for {guest.name} marked as {"verified" if verified else "unverified"}'
+    })
+
+@app.route('/api/stats')
+def api_stats():
+    """Get current stats for dashboard"""
+    guests = Guest.query.all()
+    return jsonify({
+        'total_guests': len(guests),
+        'checked_in': sum(1 for g in guests if g.checked_in),
+        'bands_distributed': sum(1 for g in guests if g.band_given),
+        'total_tickets': sum(g.ticket_count for g in guests),
+        'total_revenue': sum(g.ticket_count * 35 for g in guests if g.approved),
+        'payment_verified': sum(1 for g in guests if g.payment_verified),
+        'payment_unverified': sum(1 for g in guests if not g.payment_verified),
+        'pending_approval': sum(1 for g in guests if not g.approved)
+    })
 
 # Helper Functions
 def generate_qr_image(qr_data, guest_name):

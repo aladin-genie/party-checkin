@@ -304,16 +304,16 @@
                 <div class="stat-label">Total Guests</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number" id="statPending">{{ stats.pending_approval }}</div>
-                <div class="stat-label">Pending Approval</div>
+                <div class="stat-number" id="statVerified">{{ stats.payment_verified }}</div>
+                <div class="stat-label">Payment ✓</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="statUnverified">{{ stats.payment_unverified }}</div>
+                <div class="stat-label">Payment ⏳</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="statChecked">{{ stats.checked_in }}</div>
                 <div class="stat-label">Checked In</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statBands">{{ stats.bands_given }}</div>
-                <div class="stat-label">Bands Given</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="statTickets">{{ stats.total_tickets }}</div>
@@ -327,48 +327,81 @@
         
         <div class="panel">
             <div class="section-tabs">
-                <button class="section-tab active" onclick="showSection('pending')">
-                    ⏳ Pending Approval ({% if pending_guests %}{{ pending_guests|length }}{% else %}0{% endif %})
+                <button class="section-tab active" onclick="showSection('payments')">
+                    💳 Payment Verification ({{ stats.payment_unverified }})
                 </button>
                 <button class="section-tab" onclick="showSection('approved')">
-                    ✅ Approved Guests
+                    ✅ Check-In Status
                 </button>
                 <button class="section-tab" onclick="showSection('all')">
                     📋 All Guests
                 </button>
             </div>
             
-            <!-- Pending Approval Section -->
-            <div id="pendingSection" class="section-content active">
-                <h2>Pending Payment Verification</h2>
+            <!-- Payment Verification Section -->
+            <div id="paymentsSection" class="section-content active">
+                <h2>💳 Payment Verification (Zelle)</h2>
+                <p style="margin-bottom: 20px; color: #666;">
+                    Check your Zelle account and verify each transaction matches the registration details. 
+                    QR codes are already sent to guests - this is for your tracking.
+                </p>
                 
-                {% if pending_guests %}
+                <div class="action-btns">
+                    <a href="https://www.zellepay.com/" target="_blank" class="btn btn-primary">🌐 Open Zelle</a>
+                    <button class="btn btn-success" onclick="window.print()">🖨️ Print List</button>
+                </div>
+                
+                {% if all_guests %}
                 <div style="overflow-x: auto;">
-                    <table class="guest-table">
+                    <table class="guest-table" id="paymentTable">
                         <thead>
                             <tr>
+                                <th>✓</th>
                                 <th>Name</th>
-                                <th>Email</th>
-                                <th>Tickets</th>
+                                <th>Attendees</th>
                                 <th>Amount</th>
-                                <th>Payment</th>
-                                <th>Transaction ID</th>
-                                <th>Action</th>
+                                <th>Zelle Transaction ID</th>
+                                <th>Registrant</th>
+                                <th>Notes</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for guest in pending_guests %}
-                            <tr class="pending">
-                                <td><strong>{{ guest.name }}</strong></td>
-                                <td>{{ guest.email }}</td>
-                                <td>{{ guest.ticket_count }}</td>
-                                <td>${{ guest.ticket_count * 30 }}</td>
-                                <td>{{ guest.payment_method|upper }}</td>
-                                <td><code>{{ guest.transaction_id or 'N/A' }}</code></td>
+                            {% for guest in all_guests %}
+                            <tr class="{% if not guest.payment_verified %}pending{% endif %}" data-guest-id="{{ guest.id }}">
                                 <td>
-                                    <button class="btn btn-success" onclick="approveGuest({{ guest.id }}, '{{ guest.name }}')">
-                                        ✅ Approve & Send QR
-                                    </button>
+                                    <input type="checkbox" 
+                                           id="verify-{{ guest.id }}"
+                                           {% if guest.payment_verified %}checked{% endif %}
+                                           onchange="togglePaymentVerify({{ guest.id }}, this.checked)"
+                                           style="width: 20px; height: 20px; cursor: pointer;">
+                                </td>
+                                <td>
+                                    <strong>{{ guest.name }}</strong><br>
+                                    {% if guest.attendee_names %}
+                                    <small style="color: #666;">+ {{ guest.attendee_names }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ guest.num_attendees }}</td>
+                                <td><strong>{{ guest.total_amount or '$' + (guest.num_attendees * 35)|string }}</strong></td>
+                                <td>
+                                    <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px;">
+                                        {{ guest.transaction_id or 'N/A' }}
+                                    </code>
+                                </td>
+                                <td>
+                                    {{ guest.email }}<br>
+                                    <small style="color: #666;">{{ guest.phone }}</small>
+                                </td>
+                                <td>
+                                    <input type="text" 
+                                           placeholder="Add notes..."
+                                           value="{{ guest.payment_notes or '' }}"
+                                           onblur="saveNotes({{ guest.id }}, this.value)"
+                                           style="padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; width: 150px;">
+                                    {% if guest.payment_verified %}
+                                    <br>
+                                    <small style="color: #28a745;">✓ {{ guest.payment_verified_at.strftime('%m/%d %H:%M') if guest.payment_verified_at else '' }}</small>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -376,7 +409,7 @@
                     </table>
                 </div>
                 {% else %}
-                <p>No pending registrations. All caught up! 🎉</p>
+                <p>No registrations yet. 🎉</p>
                 {% endif %}
             </div>
             
@@ -534,15 +567,64 @@
             });
         });
         
+        // Toggle payment verification
+        async function togglePaymentVerify(guestId, verified) {
+            const row = document.querySelector(`tr[data-guest-id="${guestId}"]`);
+            
+            try {
+                const response = await fetch(`/admin/verify-payment/${guestId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ verified: verified })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update row styling
+                    if (verified) {
+                        row.classList.remove('pending');
+                    } else {
+                        row.classList.add('pending');
+                    }
+                    
+                    showToast(verified ? '✅ Payment verified!' : '⏳ Payment unmarked');
+                    
+                    // Update stats
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    showToast(data.error || 'Verification failed', true);
+                    // Revert checkbox
+                    document.getElementById(`verify-${guestId}`).checked = !verified;
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, true);
+                document.getElementById(`verify-${guestId}`).checked = !verified;
+            }
+        }
+        
+        // Save payment notes
+        async function saveNotes(guestId, notes) {
+            try {
+                await fetch(`/admin/verify-payment/${guestId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes: notes })
+                });
+            } catch (err) {
+                console.error('Failed to save notes:', err);
+            }
+        }
+        
         // Auto-refresh stats every 30 seconds
         setInterval(() => {
             fetch('/api/stats')
                 .then(r => r.json())
                 .then(stats => {
                     document.getElementById('statTotal').textContent = stats.total_guests;
-                    document.getElementById('statPending').textContent = stats.pending_approval;
+                    document.getElementById('statVerified').textContent = stats.payment_verified;
+                    document.getElementById('statUnverified').textContent = stats.payment_unverified;
                     document.getElementById('statChecked').textContent = stats.checked_in;
-                    document.getElementById('statBands').textContent = stats.bands_distributed;
                     document.getElementById('statTickets').textContent = stats.total_tickets;
                     document.getElementById('statRevenue').textContent = '$' + stats.total_revenue;
                 });
