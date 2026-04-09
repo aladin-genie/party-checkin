@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Party Check-In Workflow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: white;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.9);
+            font-size: 1.2em;
+            margin-bottom: 40px;
+        }
+        
+        .workflow {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        
+        .step:last-child {
+            margin-bottom: 0;
+        }
+        
+        .step::after {
+            content: '';
+            position: absolute;
+            left: 35px;
+            top: 70px;
+            width: 3px;
+            height: calc(100% - 40px);
+            background: linear-gradient(to bottom, #667eea, #764ba2);
+        }
+        
+        .step:last-child::after {
+            display: none;
+        }
+        
+        .step-number {
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8em;
+            font-weight: bold;
+            flex-shrink: 0;
+            margin-right: 25px;
+            z-index: 1;
+        }
+        
+        .step-content {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .step-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .step-desc {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+        
+        .step-detail {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 0.95em;
+            color: #666;
+        }
+        
+        .step-detail strong {
+            color: #333;
+        }
+        
+        .arrow {
+            text-align: center;
+            font-size: 2em;
+            color: #667eea;
+            margin: 20px 0;
+        }
+        
+        .party-day {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .party-day h2 {
+            font-size: 1.8em;
+            margin-bottom: 15px;
+        }
+        
+        .party-day p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+        
+        .cost-savings {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .cost-savings h3 {
+            color: #155724;
+            margin-bottom: 10px;
+        }
+        
+        .cost-savings .amount {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #28a745;
+        }
+        
+        .roles {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .role-box {
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+        }
+        
+        .role-guest {
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+        }
+        
+        .role-admin {
+            background: #fff3e0;
+            border: 2px solid #ff9800;
+        }
+        
+        .role-box h3 {
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        
+        .role-guest h3 {
+            color: #1565c0;
+        }
+        
+        .role-admin h3 {
+            color: #e65100;
+        }
+        
+        .footer {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            margin-top: 30px;
+            font-size: 0.9em;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .workflow {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎉 Party 2026 Check-In System</h1>
+        <p class="subtitle">Complete Workflow Guide</p>
+        
+        <div class="workflow">
+            <!-- Step 1 -->
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <div class="step-title">Guest Registration</div>
+                    <div class="step-desc">
+                        Guest visits the registration page and fills out their details.
+                    </div>
+                    <div class="step-detail">
+                        <strong>Required:</strong> Name, Email, Number of Tickets<br>
+                        <strong>Payment Method:</strong> Zelle / Venmo / Cash<br>
+                        <strong>Transaction ID:</strong> Zelle confirmation number or note
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 2 -->
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <div class="step-title">Payment Instructions</div>
+                    <div class="step-desc">
+                        Guest sees payment details based on their selected method.
+                    </div>
+                    <div class="step-detail">
+                        <strong>Zelle:</strong> Send to [YOUR_EMAIL/PHONE]<br>
+                        <strong>Venmo:</strong> Send to @[YOUR_HANDLE]<br>
+                        <strong>Cash:</strong> Pay at the door<br>
+                        <em>Amount: $30 × number of tickets</em>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 3 -->
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <div class="step-title">Pending Approval</div>
+                    <div class="step-desc">
+                        Guest sees confirmation: "Registration submitted! Pending verification."
+                    </div>
+                    <div class="step-detail">
+                        <strong>Guest receives:</strong> Nothing yet (waiting for approval)<br>
+                        <strong>You receive:</strong> Notification of new pending registration<br>
+                        <strong>System:</strong> Stores guest info, waits for admin action
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 4 -->
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <div class="step-title">Admin Verification</div>
+                    <div class="step-desc">
+                        You log into admin dashboard and verify payment in your bank app.
+                    </div>
+                    <div class="step-detail">
+                        <strong>Go to:</strong> /admin (password protected)<br>
+                        <strong>Check:</strong> "Pending Approval" tab<br>
+                        <strong>Verify:</strong> Transaction ID matches in Zelle/Venmo app<br>
+                        <strong>Click:</strong> "✅ Approve & Send QR"
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 5 -->
+            <div class="step">
+                <div class="step-number">5</div>
+                <div class="step-content">
+                    <div class="step-title">QR Code Delivery</div>
+                    <div class="step-desc">
+                        System generates QR code and emails it to the guest automatically.
+                    </div>
+                    <div class="step-detail">
+                        <strong>Guest receives:</strong> Email with QR code attached<br>
+                        <strong>QR contains:</strong> Unique check-in code<br>
+                        <strong>Guest should:</strong> Save QR code (screenshot or print)<br>
+                        <strong>Status:</strong> Ready for party check-in!
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step 6 -->
+            <div class="step">
+                <div class="step-number">6</div>
+                <div class="step-content">
+                    <div class="step-title">Party Day Check-In</div>
+                    <div class="step-desc">
+                        Guest arrives and scans QR code at the entrance.
+                    </div>
+                    <div class="step-detail">
+                        <strong>Guest:</strong> Opens QR code on phone<br>
+                        <strong>Scanner:</strong> Camera reads QR code<br>
+                        <strong>Audio:</strong> "Welcome [Name]! You have [X] tickets."<br>
+                        <strong>Staff:</strong> Hands wristbands based on ticket count<br>
+                        <strong>Done:</strong> Guest enters party! 🎉
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="party-day">
+            <h2>🎊 Party Day Stations</h2>
+            <p><strong>Registration:</strong> your-app.onrender.com/register<br>
+            <strong>Check-In Scanner:</strong> your-app.onrender.com/scanner<br>
+            <strong>Admin Dashboard:</strong> your-app.onrender.com/admin</p>
+        </div>
+        
+        <div class="cost-savings">
+            <h3>💰 Cost Savings (vs Stripe)</h3>
+            <div class="amount">$240 Saved!</div>
+            <p>For 200 guests at $30 each<br>
+            Stripe fees: 2.9% + 30¢ per transaction = ~$240<br>
+            <strong>Our method: $0 fees!</strong></p>
+        </div>
+        
+        <div class="roles">
+            <div class="role-box role-guest">
+                <h3>👤 For Guests</h3>
+                <p>Register → Pay via Zelle → Wait for QR → Show at door</p>
+            </div>
+            <div class="role-box role-admin">
+                <h3>🔐 For Admin (You)</h3>
+                <p>Check pending → Verify payment → Click approve → Done!</p>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Built with ❤️ for Party 2026 | Powered by Render.com</p>
+        </div>
+    </div>
+</body>
+</html>

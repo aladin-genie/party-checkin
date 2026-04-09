@@ -43,35 +43,67 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', '')
 # Database Models
 class Guest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    # Name fields
+    first_name = db.Column(db.String(50), nullable=False)
+    last_name = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(100), nullable=False)  # Combined first + last
+    
+    # Contact
     email = db.Column(db.String(120), nullable=False)
-    ticket_count = db.Column(db.Integer, default=1)
+    phone = db.Column(db.String(20), nullable=False)
+    
+    # Attendance
+    num_attendees = db.Column(db.Integer, default=1)
+    attendee_names = db.Column(db.Text)  # JSON array of names
+    ticket_count = db.Column(db.Integer, default=1)  # Alias for num_attendees
+    
+    # Food preferences
+    veg_count = db.Column(db.Integer, default=0)
+    nonveg_count = db.Column(db.Integer, default=0)
+    
+    # Volunteer
+    volunteer = db.Column(db.String(10))  # 'yes' or 'no'
+    
+    # Payment
+    payment_method = db.Column(db.String(20), default='zelle')  # zelle only for this event
+    transaction_id = db.Column(db.String(100), nullable=False)
+    total_amount = db.Column(db.String(20))
+    
+    # QR Code & Check-in
     qr_code = db.Column(db.String(200), unique=True)
     checked_in = db.Column(db.Boolean, default=False)
     band_given = db.Column(db.Boolean, default=False)
     checkin_time = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Manual payment fields
-    payment_method = db.Column(db.String(20))  # zelle, venmo, cash, other
-    transaction_id = db.Column(db.String(100))
+    # Approval workflow
     approved = db.Column(db.Boolean, default=False)
     approved_at = db.Column(db.DateTime)
+    disclaimer_agreed = db.Column(db.Boolean, default=False)
     
     def to_dict(self):
         return {
             'id': self.id,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
             'name': self.name,
             'email': self.email,
-            'ticket_count': self.ticket_count,
+            'phone': self.phone,
+            'num_attendees': self.num_attendees,
+            'attendee_names': self.attendee_names,
+            'veg_count': self.veg_count,
+            'nonveg_count': self.nonveg_count,
+            'volunteer': self.volunteer,
+            'payment_method': self.payment_method,
+            'transaction_id': self.transaction_id,
+            'total_amount': self.total_amount,
             'qr_code': self.qr_code,
             'checked_in': self.checked_in,
             'band_given': self.band_given,
             'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None,
-            'payment_method': self.payment_method,
-            'transaction_id': self.transaction_id,
             'approved': self.approved,
-            'approved_at': self.approved_at.isoformat() if self.approved_at else None
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 class CheckInLog(db.Model):
@@ -110,18 +142,31 @@ def index():
 def register():
     """Guest registration with manual payment verification"""
     if request.method == 'POST':
-        name = request.form.get('name', '').strip()
+        # Get form data
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
         email = request.form.get('email', '').strip().lower()
-        ticket_count = int(request.form.get('ticket_count', 1))
-        payment_method = request.form.get('payment_method', '').strip().lower()
+        phone = request.form.get('phone', '').strip()
+        num_attendees = int(request.form.get('num_attendees', 1))
+        attendee_names = request.form.get('attendee_names', '').strip()
         transaction_id = request.form.get('transaction_id', '').strip()
+        veg_count = int(request.form.get('veg_count', 0))
+        nonveg_count = int(request.form.get('nonveg_count', 0))
+        volunteer = request.form.get('volunteer', 'no')
+        total_amount = request.form.get('total_amount', '$35.00')
         
-        if not name or not email:
-            flash('Name and email are required!', 'error')
+        # Validation
+        if not first_name or not last_name or not email or not phone:
+            flash('First name, last name, email, and phone are required!', 'error')
             return redirect(url_for('register'))
         
-        if not payment_method:
-            flash('Please select a payment method!', 'error')
+        if not transaction_id:
+            flash('Zelle Transaction ID is required!', 'error')
+            return redirect(url_for('register'))
+        
+        # Check food counts
+        if veg_count + nonveg_count != num_attendees:
+            flash('Vegetarian + Non-vegetarian count must equal number of attendees!', 'error')
             return redirect(url_for('register'))
         
         # Check if email already registered
@@ -130,23 +175,35 @@ def register():
             flash('Email already registered!', 'error')
             return redirect(url_for('register'))
         
+        name = f"{first_name} {last_name}"
+        
         # Create pending guest (QR code will be generated after approval)
         guest = Guest(
+            first_name=first_name,
+            last_name=last_name,
             name=name,
             email=email,
-            ticket_count=ticket_count,
-            payment_method=payment_method,
+            phone=phone,
+            num_attendees=num_attendees,
+            ticket_count=num_attendees,
+            attendee_names=attendee_names,
+            veg_count=veg_count,
+            nonveg_count=nonveg_count,
+            volunteer=volunteer,
+            payment_method='zelle',
             transaction_id=transaction_id,
+            total_amount=total_amount,
             approved=False,  # Pending approval
-            qr_code=None     # Will be generated after approval
+            qr_code=None,    # Will be generated after approval
+            disclaimer_agreed=True
         )
         db.session.add(guest)
         db.session.commit()
         
-        flash(f'Registration submitted! Your payment (${ticket_count * 30}) via {payment_method.upper()} is pending verification. You will receive your QR code via email once approved.', 'success')
+        flash(f'Registration submitted! Your payment ({total_amount}) via ZELLE is pending verification. You will receive your QR code via email once approved.', 'success')
         return redirect(url_for('pending'))
     
-    return render_template('register.html', ticket_price=30)
+    return render_template('register.html')
 
 @app.route('/pending')
 def pending():

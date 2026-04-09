@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - Party 2026</title>
+    <title>Dallas Boyz Party (RCB Theme) - Registration</title>
     <style>
         * {
             margin: 0;
@@ -12,14 +12,14 @@
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 50%, #1a237e 100%);
             min-height: 100vh;
             color: #333;
         }
         
         .container {
-            max-width: 600px;
+            max-width: 700px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -27,12 +27,28 @@
         header {
             text-align: center;
             color: white;
-            padding: 30px 0;
+            padding: 40px 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 20px;
+            margin-bottom: 20px;
         }
         
         header h1 {
-            font-size: 2em;
+            font-size: 2.2em;
             margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        header .subtitle {
+            font-size: 1.3em;
+            opacity: 0.9;
+            margin-bottom: 15px;
+        }
+        
+        header .event-details {
+            font-size: 0.95em;
+            opacity: 0.85;
+            line-height: 1.6;
         }
         
         .form-container {
@@ -50,99 +66,235 @@
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
+            color: #333;
+            font-size: 0.95em;
+        }
+        
+        label .required {
+            color: #d32f2f;
+            margin-left: 2px;
+        }
+        
+        label .hint {
+            font-weight: 400;
+            color: #666;
+            font-size: 0.85em;
+            display: block;
+            margin-top: 3px;
+        }
+        
+        input[type="text"],
+        input[type="email"],
+        input[type="tel"],
+        input[type="number"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            font-family: inherit;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #c62828;
+            box-shadow: 0 0 0 3px rgba(198, 40, 40, 0.1);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .price-banner {
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .price-banner .label {
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.9;
+        }
+        
+        .price-banner .amount {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .price-banner .per-person {
+            font-size: 1em;
+            opacity: 0.85;
+        }
+        
+        .payment-info {
+            background: #fff8e1;
+            border: 2px solid #ffc107;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .payment-info h3 {
+            color: #f57c00;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+        
+        .payment-info p {
+            margin: 8px 0;
+            line-height: 1.5;
             color: #555;
         }
         
-        input, select {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 1em;
-            transition: border-color 0.3s;
+        .payment-info .zelle-id {
+            font-family: monospace;
+            font-size: 1.1em;
+            background: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-top: 5px;
+            border: 1px dashed #ffc107;
         }
         
-        input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .ticket-options {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
+        .payment-info .note {
+            font-size: 0.9em;
+            color: #666;
             margin-top: 10px;
+            font-style: italic;
         }
         
-        .ticket-btn {
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            background: white;
+        .food-counts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             cursor: pointer;
-            font-size: 1.2em;
-            font-weight: bold;
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
             transition: all 0.3s;
         }
         
-        .ticket-btn:hover {
-            border-color: #667eea;
-            background: #f5f5ff;
+        .radio-option:hover {
+            border-color: #c62828;
+            background: #fff5f5;
         }
         
-        .ticket-btn.selected {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
+        .radio-option input[type="radio"] {
+            width: auto;
+            margin: 0;
         }
         
-        .payment-options {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-top: 10px;
+        .radio-option.selected {
+            border-color: #c62828;
+            background: #fff5f5;
         }
         
-        .payment-btn {
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            background: white;
+        .disclaimer-box {
+            background: #fce4ec;
+            border: 2px solid #e91e63;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .disclaimer-box h3 {
+            color: #c2185b;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .disclaimer-text {
+            font-size: 0.85em;
+            line-height: 1.6;
+            color: #555;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .disclaimer-text::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .disclaimer-text::-webkit-scrollbar-thumb {
+            background: #e91e63;
+            border-radius: 3px;
+        }
+        
+        .checkbox-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
             cursor: pointer;
-            font-size: 1em;
-            font-weight: bold;
-            transition: all 0.3s;
         }
         
-        .payment-btn:hover {
-            border-color: #667eea;
-            background: #f5f5ff;
+        .checkbox-option input[type="checkbox"] {
+            width: auto;
+            margin-top: 3px;
+            transform: scale(1.2);
         }
         
-        .payment-btn.selected {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
+        .checkbox-option span {
+            font-size: 0.9em;
+            color: #333;
+            line-height: 1.4;
         }
         
         .submit-btn {
             width: 100%;
             padding: 18px;
-            background: #667eea;
+            background: linear-gradient(135deg, #c62828 0%, #1a237e 100%);
             color: white;
             border: none;
-            border-radius: 10px;
+            border-radius: 12px;
             font-size: 1.2em;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s;
             text-transform: uppercase;
+            letter-spacing: 1px;
         }
         
         .submit-btn:hover {
-            background: #5568d3;
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 10px 30px rgba(198, 40, 40, 0.4);
+        }
+        
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
         
         .flash-messages {
@@ -156,21 +308,15 @@
         }
         
         .flash.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
         }
         
         .flash.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .flash.warning {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
         }
         
         .back-link {
@@ -178,81 +324,26 @@
             margin-top: 20px;
             color: white;
             text-decoration: none;
-            padding: 10px 20px;
+            padding: 12px 24px;
             background: rgba(255,255,255,0.2);
             border-radius: 10px;
             transition: background 0.3s;
+            text-align: center;
         }
         
         .back-link:hover {
             background: rgba(255,255,255,0.3);
         }
         
-        .info-box {
-            background: #e3f2fd;
+        .kannada-text {
+            font-family: 'Noto Sans Kannada', sans-serif;
+            line-height: 1.8;
+            color: #555;
+            margin-bottom: 20px;
             padding: 15px;
+            background: #f5f5f5;
             border-radius: 10px;
-            margin-bottom: 25px;
-            border-left: 4px solid #2196f3;
-        }
-        
-        .info-box p {
-            margin: 0;
-            color: #1565c0;
-            font-size: 0.95em;
-            line-height: 1.5;
-        }
-        
-        .price-box {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 25px;
-            border-radius: 15px;
-            text-align: center;
-            margin: 25px 0;
-        }
-        
-        .price-label {
-            font-size: 0.9em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: 0.9;
-        }
-        
-        .price-amount {
-            font-size: 3em;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        
-        .price-per {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
-        
-        .payment-instructions {
-            background: #fff3e0;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 15px;
-            border-left: 4px solid #ff9800;
-            display: none;
-        }
-        
-        .payment-instructions.active {
-            display: block;
-        }
-        
-        .payment-instructions p {
-            margin: 0;
-            color: #e65100;
-            font-size: 0.9em;
-            line-height: 1.5;
-        }
-        
-        .payment-instructions strong {
-            display: block;
-            margin-bottom: 5px;
+            border-left: 4px solid #c62828;
         }
         
         @media (max-width: 600px) {
@@ -260,12 +351,16 @@
                 padding: 25px;
             }
             
-            .ticket-options {
-                grid-template-columns: repeat(2, 1fr);
+            .form-row {
+                grid-template-columns: 1fr;
             }
             
-            .payment-options {
+            .food-counts {
                 grid-template-columns: 1fr;
+            }
+            
+            header h1 {
+                font-size: 1.6em;
             }
         }
     </style>
@@ -273,8 +368,13 @@
 <body>
     <div class="container">
         <header>
-            <h1>🎉 Party Registration</h1>
-            <p>$30 per person • Manual Payment</p>
+            <h1>🏏 Dallas Boyz Party</h1>
+            <div class="subtitle">RCB Theme - Champions 2025 Celebration</div>
+            <div class="event-details">
+                📅 September 19, 2025 | 6:00 PM - 11:00 PM<br>
+                📍 Elegance Event Center<br>
+                8740 Ohio Dr A1, Plano, TX 75024
+            </div>
         </header>
         
         <div class="form-container">
@@ -288,72 +388,147 @@
                 {% endif %}
             {% endwith %}
             
-            <div class="info-box">
-                <p><strong>📝 How it works:</strong><br>
-                1. Fill out your details below<br>
-                2. Send payment via Zelle/Venmo/Cash<br>
-                3. Enter the transaction ID or note<br>
-                4. We'll verify and email your QR code<br>
-                <em>(QR code will be sent after payment verification)</em></p>
+            <div class="kannada-text">
+                ಅಣ್ತಮ್ಮಾಸ್, ಜೀವನದ ಓಡಾಟದಲ್ಲಿ ಎಲ್ಲರೂ ಬಿಸಿಯಾಗಿದ್ದೀವಿ. ಆದ್ರೆ ಒಂದಷ್ಟು ಹೊತ್ತು ಒಟ್ಟಿಗೆ ಕೂತು ಕನ್ನಡ DJ, ಕುಣಿತ, ಹಾಸ್ಯ, ನಗು, ಸ್ವಾದಿಷ್ಟ ಆಹಾರ, ಇವೆಲ್ಲವನ್ನೂ ಹಂಚಿಕೊಳ್ಳುತ್ತಾ ಒಂದು ಜಾಗದಲ್ಲಿ blast ಮಾಡೋ ಸಮಯ ಬಂದಿದೆ!<br><br>
+                ಇದು just ಪಾರ್ಟಿ ಅಲ್ಲ, ನಮ್ಮ ಒಗ್ಗಟ್ಟಿನ ಹಬ್ಬ! - RCB: Refreshment, Chill, Brotherhood 😊
+            </div>
+            
+            <div class="price-banner">
+                <div class="label">Individual Registration</div>
+                <div class="amount" id="priceDisplay">$35.00</div>
+                <div class="per-person">per person</div>
             </div>
             
             <form method="POST" action="/register" id="registerForm">
-                <div class="form-group">
-                    <label for="name">Full Name *</label>
-                    <input type="text" id="name" name="name" required 
-                           placeholder="Enter your full name">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="first_name">First Name <span class="required">*</span></label>
+                        <input type="text" id="first_name" name="first_name" required 
+                               placeholder="Enter your first name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="last_name">Last Name <span class="required">*</span></label>
+                        <input type="text" id="last_name" name="last_name" required 
+                               placeholder="Enter your last name">
+                    </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="email">Email Address *</label>
-                    <input type="email" id="email" name="email" required
+                    <label for="num_attendees">
+                        Number of People Attending <span class="required">*</span>
+                        <span class="hint">Include yourself if registering for more than 1 person</span>
+                    </label>
+                    <input type="number" id="num_attendees" name="num_attendees" min="1" max="10" value="1" required 
+                           onchange="updateCalculations()">
+                </div>
+                
+                <div class="form-group" id="attendeesNamesGroup">
+                    <label for="attendee_names">
+                        Names of All Attendees
+                        <span class="hint">Please list first and last names of all attendees, separated by commas</span>
+                    </label>
+                    <textarea id="attendee_names" name="attendee_names" 
+                              placeholder="e.g., John Doe, Jane Smith, Mike Johnson"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="total_amount">
+                        Total Zelle Amount ($) <span class="required">*</span>
+                        <span class="hint">Calculated based on number of attendees × $35</span>
+                    </label>
+                    <input type="text" id="total_amount" name="total_amount" readonly 
+                           value="$35.00" style="background: #f5f5f5; font-weight: bold;">
+                </div>
+                
+                <div class="payment-info">
+                    <h3>💳 Payment Instructions</h3>
+                    <p><strong>Zelle to:</strong></p>
+                    <div class="zelle-id">dallashudugaru@gmail.com</div>
+                    <p class="note">
+                        <strong>Important:</strong> Add your name, number of spots, and food preference (Veg or Non-Veg) in Zelle memo
+                    </p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="transaction_id">
+                        Zelle Transaction ID <span class="required">*</span>
+                        <span class="hint">Enter the transaction ID from your Zelle payment</span>
+                    </label>
+                    <input type="text" id="transaction_id" name="transaction_id" required 
+                           placeholder="e.g., Zelle confirmation #12345">
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">
+                        Contact Email ID <span class="required">*</span>
+                        <span class="hint">You will receive QR code at this email ID</span>
+                    </label>
+                    <input type="email" id="email" name="email" required 
                            placeholder="your@email.com">
                 </div>
                 
                 <div class="form-group">
-                    <label>Number of Tickets *</label>
-                    <input type="hidden" id="ticket_count" name="ticket_count" value="1">
-                    <div class="ticket-options">
-                        <button type="button" class="ticket-btn selected" data-value="1">1</button>
-                        <button type="button" class="ticket-btn" data-value="2">2</button>
-                        <button type="button" class="ticket-btn" data-value="3">3</button>
-                        <button type="button" class="ticket-btn" data-value="4">4</button>
-                    </div>
+                    <label for="phone">Contact Number <span class="required">*</span></label>
+                    <input type="tel" id="phone" name="phone" required 
+                           placeholder="(555) 123-4567">
                 </div>
                 
-                <div class="price-box" id="priceBox">
-                    <div class="price-label">Total Amount</div>
-                    <div class="price-amount" id="totalPrice">$30.00</div>
-                    <div class="price-per" id="priceDetail">1 ticket × $30.00</div>
-                </div>
-                
-                <div class="form-group">
-                    <label>Payment Method *</label>
-                    <input type="hidden" id="payment_method" name="payment_method" value="">
-                    <div class="payment-options">
-                        <button type="button" class="payment-btn" data-value="zelle" data-instruction="Send to: <strong>[YOUR_ZELLE_EMAIL/PHONE]</strong><br>Amount: <span id='zelleAmount'>$30.00</span><br>Note: Include your full name">
-                            💸 Zelle
-                        </button>
-                        <button type="button" class="payment-btn" data-value="venmo" data-instruction="Send to: <strong>@[YOUR_VENMO_HANDLE]</strong><br>Amount: <span id='venmoAmount'>$30.00</span><br>Note: Include your full name">
-                            💳 Venmo
-                        </button>
-                        <button type="button" class="payment-btn" data-value="cash" data-instruction="Pay cash to the host.<br>Amount: <span id='cashAmount'>$30.00</span>">
-                            💵 Cash
-                        </button>
+                <div class="food-counts">
+                    <div class="form-group">
+                        <label for="veg_count">
+                            Vegetarian Count <span class="required">*</span>
+                        </label>
+                        <input type="number" id="veg_count" name="veg_count" min="0" value="0" required 
+                               onchange="updateFoodCounts()">
                     </div>
                     
-                    <div class="payment-instructions" id="paymentInstructions">
-                        <p id="instructionText"></p>
+                    <div class="form-group">
+                        <label for="nonveg_count">
+                            Non-Vegetarian Count <span class="required">*</span>
+                        </label>
+                        <input type="number" id="nonveg_count" name="nonveg_count" min="0" value="0" required 
+                               onchange="updateFoodCounts()">
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="transaction_id">Transaction ID / Note *</label>
-                    <input type="text" id="transaction_id" name="transaction_id" required
-                           placeholder="e.g., Zelle confirmation #12345 or 'Paid cash to John'">
+                    <label>Would you like to volunteer on Sept 19th? <span class="required">*</span></label>
+                    <div class="radio-group">
+                        <label class="radio-option" onclick="selectRadio('volunteer_yes')">
+                            <input type="radio" id="volunteer_yes" name="volunteer" value="yes" required>
+                            <span>Yes</span>
+                        </label>
+                        <label class="radio-option" onclick="selectRadio('volunteer_no')">
+                            <input type="radio" id="volunteer_no" name="volunteer" value="no" required>
+                            <span>No</span>
+                        </label>
+                    </div>
                 </div>
                 
-                <button type="submit" class="submit-btn">Submit Registration →</button>
+                <div class="disclaimer-box">
+                    <h3>🍺 Alcohol Disclaimer</h3>
+                    <div class="disclaimer-text">
+                        I (Individual) or We (for all the listed attendees in this form and/or a person who is making group zelle payment representing grp) the undersigned, hereby voluntarily assume all risks associated with participating in the activities related to the Dallas Boyz Party on Sept 19th 2025.<br><br>
+                        
+                        I/We understand that the Dallas Boyz Party organizers will not provide alcohol on-site, and that all alcohol at the event is BYOB (Bring Your Own Beverage). I/We acknowledge that consuming alcohol may impair judgment, motor skills, vision, and other abilities, and can lead to various health risks such as intoxication, nausea, vomiting, drowsiness, and other symptoms. I/We also understand that alcohol consumption can increase aggression and impair decision-making.<br><br>
+                        
+                        I/We acknowledge that it is my responsibility to ensure that no underage or prohibited individuals in my group consume alcohol, and I/We will comply with all local laws regarding alcohol consumption during the event.<br><br>
+                        
+                        I/We understand that the Dallas Boyz Party organizers are not responsible for any property damage, injuries, or fatalities that may result from alcohol consumption or any activities during the event. By participating, I/We hereby release and discharge the Dallas Boyz Party organizers, their owners, employees, volunteers, representatives, and agents from any and all liability for incidents occurring before, during, or after the event, including travel to and from the venue. This waiver includes, but is not limited to, liability arising from negligence.<br><br>
+                        
+                        In consideration of being allowed to participate, I/We further agree to indemnify and hold harmless the Dallas Boyz Party organizers and their representatives from any claims or liabilities resulting from my participation in the event, including any consequences arising from alcohol consumption.<br><br>
+                        
+                        I/We consent to receiving medical treatment deemed necessary in case of injury, accident, or illness during the event. I/We also acknowledge that I/We may be photographed or filmed during the event, and I/We grant permission for my likeness to be used by the event organizers and sponsors for legitimate purposes without compensation.
+                    </div>
+                    
+                    <label class="checkbox-option">
+                        <input type="checkbox" id="disclaimer_agreed" name="disclaimer_agreed" required>
+                        <span>I have read and agree to the alcohol disclaimer and liability waiver above</span>
+                    </label>
+                </div>
+                
+                <button type="submit" class="submit-btn" id="submitBtn">Submit Registration →</button>
             </form>
         </div>
         
@@ -361,55 +536,72 @@
     </div>
 
     <script>
-        const ticketPrice = 30;
+        const PRICE_PER_PERSON = 35;
         
-        function updatePrice(count) {
-            const total = (count * ticketPrice).toFixed(2);
-            document.getElementById('totalPrice').textContent = '$' + total;
-            document.getElementById('priceDetail').textContent = 
-                count + ' ticket' + (count > 1 ? 's' : '') + ' × $' + ticketPrice.toFixed(2);
+        function updateCalculations() {
+            const numAttendees = parseInt(document.getElementById('num_attendees').value) || 1;
+            const totalAmount = (numAttendees * PRICE_PER_PERSON).toFixed(2);
             
-            // Update payment instructions
-            document.getElementById('zelleAmount').textContent = '$' + total;
-            document.getElementById('venmoAmount').textContent = '$' + total;
-            document.getElementById('cashAmount').textContent = '$' + total;
+            document.getElementById('total_amount').value = '$' + totalAmount;
+            
+            // Show/hide attendee names field
+            const namesGroup = document.getElementById('attendeesNamesGroup');
+            if (numAttendees > 1) {
+                namesGroup.style.display = 'block';
+                document.getElementById('attendee_names').required = true;
+            } else {
+                namesGroup.style.display = 'none';
+                document.getElementById('attendee_names').required = false;
+                document.getElementById('attendee_names').value = '';
+            }
+            
+            // Update food counts max
+            updateFoodCounts();
         }
         
-        // Ticket selection
-        document.querySelectorAll('.ticket-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.ticket-btn').forEach(b => b.classList.remove('selected'));
-                this.classList.add('selected');
-                const count = this.dataset.value;
-                document.getElementById('ticket_count').value = count;
-                updatePrice(count);
-            });
-        });
+        function updateFoodCounts() {
+            const numAttendees = parseInt(document.getElementById('num_attendees').value) || 1;
+            const vegCount = parseInt(document.getElementById('veg_count').value) || 0;
+            const nonvegCount = parseInt(document.getElementById('nonveg_count').value) || 0;
+            const totalFood = vegCount + nonvegCount;
+            
+            // Validate food counts match attendees
+            if (totalFood !== numAttendees) {
+                document.getElementById('veg_count').style.borderColor = totalFood === numAttendees ? '#e0e0e0' : '#f44336';
+                document.getElementById('nonveg_count').style.borderColor = totalFood === numAttendees ? '#e0e0e0' : '#f44336';
+            } else {
+                document.getElementById('veg_count').style.borderColor = '#e0e0e0';
+                document.getElementById('nonveg_count').style.borderColor = '#e0e0e0';
+            }
+        }
         
-        // Payment method selection
-        document.querySelectorAll('.payment-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.payment-btn').forEach(b => b.classList.remove('selected'));
-                this.classList.add('selected');
-                document.getElementById('payment_method').value = this.dataset.value;
-                
-                // Show instructions
-                const instructions = document.getElementById('paymentInstructions');
-                const text = document.getElementById('instructionText');
-                text.innerHTML = this.dataset.instruction;
-                instructions.classList.add('active');
-            });
-        });
+        function selectRadio(id) {
+            document.querySelectorAll('.radio-option').forEach(opt => opt.classList.remove('selected'));
+            document.getElementById(id).closest('.radio-option').classList.add('selected');
+        }
         
         // Form validation
         document.getElementById('registerForm').addEventListener('submit', function(e) {
-            const paymentMethod = document.getElementById('payment_method').value;
-            if (!paymentMethod) {
+            const numAttendees = parseInt(document.getElementById('num_attendees').value) || 0;
+            const vegCount = parseInt(document.getElementById('veg_count').value) || 0;
+            const nonvegCount = parseInt(document.getElementById('nonveg_count').value) || 0;
+            const totalFood = vegCount + nonvegCount;
+            
+            if (totalFood !== numAttendees) {
                 e.preventDefault();
-                alert('Please select a payment method');
+                alert('Vegetarian + Non-vegetarian count must equal the number of attendees (' + numAttendees + ')');
+                return false;
+            }
+            
+            if (!document.getElementById('disclaimer_agreed').checked) {
+                e.preventDefault();
+                alert('You must agree to the alcohol disclaimer to register');
                 return false;
             }
         });
+        
+        // Initialize
+        updateCalculations();
     </script>
 </body>
 </html>
