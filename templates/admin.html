@@ -454,6 +454,14 @@
                                 </td>
                                 <td>
                                     <a href="/qr/{{ guest.id }}" class="btn btn-secondary" style="font-size: 0.8em;">View QR</a>
+                                    {% if not guest.band_given %}
+                                    <br><br>
+                                    <button class="btn btn-primary" style="font-size: 0.75em; padding: 6px 12px;"
+                                            onclick="resendQR({{ guest.id }}, '{{ guest.name }}')"
+                                            title="Resend QR code email">
+                                        📧 Resend Email
+                                    </button>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -566,6 +574,28 @@
                 row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
             });
         });
+        
+        // Resend QR code email
+        async function resendQR(guestId, guestName) {
+            if (!confirm(`Resend QR code email to ${guestName}?`)) return;
+            
+            try {
+                const response = await fetch(`/admin/resend-qr/${guestId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`✅ QR code resent to ${guestName}`);
+                } else {
+                    showToast(data.error || 'Failed to resend', true);
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, true);
+            }
+        }
         
         // Toggle payment verification
         async function togglePaymentVerify(guestId, verified) {

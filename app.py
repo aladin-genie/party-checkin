@@ -73,6 +73,7 @@ class Guest(db.Model):
     qr_code = db.Column(db.String(200), unique=True)
     checked_in = db.Column(db.Boolean, default=False)
     band_given = db.Column(db.Boolean, default=False)
+    bands_given_count = db.Column(db.Integer, default=0)  # For partial band collection
     checkin_time = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -107,6 +108,7 @@ class Guest(db.Model):
             'qr_code': self.qr_code,
             'checked_in': self.checked_in,
             'band_given': self.band_given,
+            'bands_given_count': self.bands_given_count or 0,
             'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None,
             'approved': self.approved,
             'approved_at': self.approved_at.isoformat() if self.approved_at else None,
@@ -372,25 +374,56 @@ def api_checkin():
         'message': f'Welcome {guest.name}!'
     })
 
-@app.route('/api/give-band', methods=['POST'])
-def api_give_band():
-    """Mark band as given"""
+@app.route('/api/give-bands', methods=['POST'])
+def api_give_bands():
+    """Give partial or full bands to guest"""
     data = request.get_json()
     guest_id = data.get('guest_id')
+    bands_count = data.get('bands_count', 1)
     
     guest = Guest.query.get(guest_id)
     if not guest:
         return jsonify({'success': False, 'error': 'Guest not found'}), 404
     
-    guest.band_given = True
+    # Calculate how many bands they already have
+    current_bands = getattr(guest, 'bands_given_count', 0) or 0
+    total_tickets = guest.ticket_count or guest.num_attendees or 1
     
-    log = CheckInLog(guest_id=guest.id, action='band_given', device_info=request.user_agent.string[:200])
+    # Validate
+    if current_bands + bands_count > total_tickets:
+        return jsonify({
+            'success': False, 
+            'error': f'Cannot give {bands_count} more bands. Total tickets: {total_tickets}, already given: {current_bands}'
+        }), 400
+    
+    # Update band count
+    guest.bands_given_count = current_bands + bands_count
+    
+    # Mark as checked in if not already
+    if not guest.checked_in:
+        guest.checked_in = True
+        guest.checkin_time = datetime.utcnow()
+    
+    # Mark band_given if all bands are given
+    if guest.bands_given_count >= total_tickets:
+        guest.band_given = True
+    else:
+        guest.band_given = False  # Partial
+    
+    log = CheckInLog(
+        guest_id=guest.id, 
+        action=f'band_given_{bands_count}', 
+        device_info=request.user_agent.string[:200]
+    )
     db.session.add(log)
     db.session.commit()
     
     return jsonify({
         'success': True,
-        'message': f'Band marked as given for {guest.name}'
+        'message': f'Gave {bands_count} band{"s" if bands_count > 1 else ""} to {guest.name}',
+        'bands_given': guest.bands_given_count,
+        'total_bands': total_tickets,
+        'remaining': total_tickets - guest.bands_given_count
     })
 
 @app.route('/api/guests')
@@ -449,6 +482,30 @@ def download_csv():
         as_attachment=True,
         download_name=f'party_guests_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
     )
+
+@app.route('/admin/resend-qr/<int:guest_id>', methods=['POST'])
+@admin_required
+def resend_qr(guest_id):
+    """Resend QR code email to guest"""
+    guest = Guest.query.get_or_404(guest_id)
+    
+    if not guest.qr_code:
+        return jsonify({'success': False, 'error': 'No QR code exists for this guest'}), 400
+    
+    if guest.band_given:
+        return jsonify({'success': False, 'error': 'Bands already collected - cannot resend'}), 400
+    
+    try:
+        send_qr_email(guest)
+        return jsonify({
+            'success': True,
+            'message': f'QR code resent to {guest.email}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to send email: {str(e)}'
+        }), 500
 
 @app.route('/admin/verify-payment/<int:guest_id>', methods=['POST'])
 @admin_required

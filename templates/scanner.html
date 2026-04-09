@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Self Check-In - Party 2026</title>
+    <title>Check-In - Dallas Boyz Party</title>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
         * {
@@ -14,13 +14,13 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 50%, #1a237e 100%);
             min-height: 100vh;
             color: #333;
         }
         
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -56,10 +56,10 @@
         
         .status-area {
             margin-top: 30px;
-            padding: 20px;
+            padding: 30px;
             border-radius: 15px;
             text-align: center;
-            min-height: 200px;
+            min-height: 300px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -71,19 +71,19 @@
         }
         
         .status-success {
-            background: #d4edda;
-            border: 3px solid #28a745;
-            animation: pulse 1s ease-in-out;
+            background: #e8f5e9;
+            border: 3px solid #4caf50;
+            animation: pulse 0.5s ease-in-out;
         }
         
         .status-error {
-            background: #f8d7da;
-            border: 3px solid #dc3545;
+            background: #ffebee;
+            border: 3px solid #f44336;
         }
         
         .status-warning {
-            background: #fff3cd;
-            border: 3px solid #ffc107;
+            background: #fff3e0;
+            border: 3px solid #ff9800;
         }
         
         @keyframes pulse {
@@ -91,17 +91,97 @@
             50% { transform: scale(1.02); }
         }
         
+        .welcome-message {
+            font-size: 1.2em;
+            color: #2e7d32;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
         .guest-name {
-            font-size: 2em;
+            font-size: 2.5em;
             font-weight: bold;
-            color: #333;
+            color: #1a237e;
             margin-bottom: 10px;
         }
         
-        .ticket-count {
-            font-size: 1.5em;
-            color: #667eea;
+        .ticket-info {
+            font-size: 1.3em;
+            color: #555;
             margin-bottom: 20px;
+        }
+        
+        .ticket-info .count {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #c62828;
+        }
+        
+        .band-section {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 15px;
+            padding: 25px;
+            margin: 20px 0;
+            width: 100%;
+            max-width: 500px;
+        }
+        
+        .band-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .band-counter {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .band-counter button {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .band-counter .minus {
+            background: #f44336;
+            color: white;
+        }
+        
+        .band-counter .plus {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .band-counter button:hover {
+            transform: scale(1.1);
+        }
+        
+        .band-counter button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .band-count-display {
+            font-size: 3em;
+            font-weight: bold;
+            color: #1a237e;
+            min-width: 100px;
+        }
+        
+        .band-remaining {
+            color: #666;
+            font-size: 0.95em;
+            margin-top: 10px;
         }
         
         .action-buttons {
@@ -124,22 +204,22 @@
         }
         
         .btn-primary {
-            background: #667eea;
+            background: #1a237e;
             color: white;
         }
         
         .btn-primary:hover {
-            background: #5568d3;
+            background: #0d1642;
             transform: translateY(-2px);
         }
         
         .btn-success {
-            background: #28a745;
+            background: #4caf50;
             color: white;
         }
         
         .btn-success:hover {
-            background: #218838;
+            background: #388e3c;
         }
         
         .icon {
@@ -164,7 +244,7 @@
         
         .manual-entry button {
             padding: 12px 24px;
-            background: #667eea;
+            background: #1a237e;
             color: white;
             border: none;
             border-radius: 8px;
@@ -206,13 +286,42 @@
             font-weight: bold;
         }
         
+        .attendee-list {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            text-align: left;
+            max-width: 500px;
+        }
+        
+        .attendee-list h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .attendee-list ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .attendee-list li {
+            padding: 5px 0;
+            color: #555;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .attendee-list li:last-child {
+            border-bottom: none;
+        }
+        
         @media (max-width: 600px) {
             header h1 {
                 font-size: 1.5em;
             }
             
             .guest-name {
-                font-size: 1.5em;
+                font-size: 1.8em;
             }
             
             .action-buttons {
@@ -222,14 +331,23 @@
             .btn {
                 width: 100%;
             }
+            
+            .band-counter {
+                gap: 10px;
+            }
+            
+            .band-count-display {
+                font-size: 2.5em;
+                min-width: 80px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>📷 Self Check-In</h1>
-            <p>Scan your QR code at the entrance</p>
+            <h1>🏏 Dallas Boyz Party Check-In</h1>
+            <p>Welcome! Scan your QR code to check in</p>
         </header>
         
         <div class="stats-bar">
@@ -239,7 +357,7 @@
             </div>
             <div class="stat">
                 <div class="stat-value" id="total-count">0</div>
-                <div>Total</div>
+                <div>Total Guests</div>
             </div>
         </div>
         
@@ -265,6 +383,9 @@
         let html5QrCode;
         let isProcessing = false;
         let lastScanned = null;
+        let currentGuestId = null;
+        let currentBandsGiven = 0;
+        let currentTotalTickets = 0;
         
         // Initialize scanner
         function startScanner() {
@@ -293,20 +414,17 @@
         
         function onScanSuccess(decodedText, decodedResult) {
             if (isProcessing) return;
-            if (lastScanned === decodedText) return; // Prevent double scan
+            if (lastScanned === decodedText) return;
             
             lastScanned = decodedText;
             isProcessing = true;
             
-            // Pause scanning
             html5QrCode.pause();
-            
-            // Process check-in
             processCheckIn(decodedText);
         }
         
         function onScanFailure(error) {
-            // Silent fail - keep scanning
+            // Silent fail
         }
         
         async function processCheckIn(qrCode) {
@@ -334,34 +452,164 @@
             const statusArea = document.getElementById('status-area');
             const guest = data.guest;
             
+            currentGuestId = guest.id;
+            currentTotalTickets = guest.ticket_count || guest.num_attendees || 1;
+            currentBandsGiven = guest.bands_given || 0;
+            
+            // Parse attendee names if available
+            let attendeeListHTML = '';
+            if (guest.attendee_names) {
+                const names = guest.attendee_names.split(',').map(n => n.trim()).filter(n => n);
+                if (names.length > 0) {
+                    attendeeListHTML = `
+                        <div class="attendee-list">
+                            <h4>👥 Attendees (${names.length + 1} total):</h4>
+                            <ul>
+                                <li>👤 ${guest.name} (Primary)</li>
+                                ${names.map(n => `<li>👤 ${n}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+            }
+            
             if (data.already_checked_in) {
-                // Already checked in
+                // Already checked in - show update bands option
                 statusArea.className = 'status-area status-warning';
                 statusArea.innerHTML = `
-                    <div class="icon">⚠️</div>
+                    <div class="icon">👋</div>
+                    <div class="welcome-message">Welcome back! 👋</div>
                     <div class="guest-name">${guest.name}</div>
-                    <div class="ticket-count">Already checked in at ${new Date(guest.checkin_time).toLocaleTimeString()}</div>
+                    <div class="ticket-info">
+                        Total tickets: <span class="count">${currentTotalTickets}</span>
+                    </div>
+                    
+                    ${attendeeListHTML}
+                    
+                    <div class="band-section">
+                        <h3>🎫 Update Bands Given</h3>
+                        <p style="color: #666; margin-bottom: 15px;">
+                            How many bands are you collecting now?
+                        </p>
+                        <div class="band-counter">
+                            <button class="minus" onclick="adjustBands(-1)">−</button>
+                            <div class="band-count-display" id="bandCount">1</div>
+                            <button class="plus" onclick="adjustBands(1)">+</button>
+                        </div>
+                        <div class="band-remaining">
+                            Total: <strong>${currentTotalTickets}</strong> | 
+                            Already given: <strong>${currentBandsGiven}</strong> | 
+                            Remaining: <strong>${currentTotalTickets - currentBandsGiven}</strong>
+                        </div>
+                    </div>
+                    
                     <div class="action-buttons">
+                        <button class="btn btn-success" onclick="saveBands()">✓ Give Bands</button>
                         <button class="btn btn-primary" onclick="resumeScanning()">Scan Next</button>
                     </div>
                 `;
-                speak(`${guest.name} already checked in`);
             } else {
-                // Successful check-in
+                // First check-in
                 statusArea.className = 'status-area status-success';
                 statusArea.innerHTML = `
                     <div class="icon">🎉</div>
+                    <div class="welcome-message">Welcome to Dallas Boyz Party! 🎉</div>
                     <div class="guest-name">${guest.name}</div>
-                    <div class="ticket-count">${guest.ticket_count} ticket${guest.ticket_count > 1 ? 's' : ''}</div>
+                    <div class="ticket-info">
+                        Total tickets: <span class="count">${currentTotalTickets}</span>
+                    </div>
+                    
+                    ${attendeeListHTML}
+                    
+                    <div class="band-section">
+                        <h3>🎫 Bands to Give Now</h3>
+                        <p style="color: #666; margin-bottom: 15px;">
+                            How many bands are you collecting right now?
+                            (You can collect more later)
+                        </p>
+                        <div class="band-counter">
+                            <button class="minus" onclick="adjustBands(-1)" id="minusBtn">−</button>
+                            <div class="band-count-display" id="bandCount">${Math.min(1, currentTotalTickets)}</div>
+                            <button class="plus" onclick="adjustBands(1)" id="plusBtn">+</button>
+                        </div>
+                        <div class="band-remaining">
+                            Total bands: <strong>${currentTotalTickets}</strong> | 
+                            Taking now: <strong id="takingNow">${Math.min(1, currentTotalTickets)}</strong> | 
+                            Can collect later: <strong id="canCollectLater">${currentTotalTickets - Math.min(1, currentTotalTickets)}</strong>
+                        </div>
+                    </div>
+                    
                     <div class="action-buttons">
-                        <button class="btn btn-success" onclick="markBandGiven(${guest.id})">✓ Band Given</button>
-                        <button class="btn btn-primary" onclick="resumeScanning()">Scan Next</button>
+                        <button class="btn btn-success" onclick="saveBands()">✓ Check In & Give Bands</button>
+                        <button class="btn btn-primary" onclick="resumeScanning()">Cancel</button>
                     </div>
                 `;
+            }
+            
+            updateButtonStates();
+        }
+        
+        let bandsToGive = 1;
+        
+        function adjustBands(delta) {
+            const maxCanGive = currentTotalTickets - currentBandsGiven;
+            bandsToGive = Math.max(0, Math.min(bandsToGive + delta, maxCanGive));
+            
+            document.getElementById('bandCount').textContent = bandsToGive;
+            
+            const takingNowEl = document.getElementById('takingNow');
+            const canCollectLaterEl = document.getElementById('canCollectLater');
+            if (takingNowEl) takingNowEl.textContent = bandsToGive;
+            if (canCollectLaterEl) canCollectLaterEl.textContent = currentTotalTickets - currentBandsGiven - bandsToGive;
+            
+            updateButtonStates();
+        }
+        
+        function updateButtonStates() {
+            const maxCanGive = currentTotalTickets - currentBandsGiven;
+            const minusBtn = document.getElementById('minusBtn');
+            const plusBtn = document.getElementById('plusBtn');
+            
+            if (minusBtn) minusBtn.disabled = bandsToGive <= 0;
+            if (plusBtn) plusBtn.disabled = bandsToGive >= maxCanGive;
+        }
+        
+        async function saveBands() {
+            if (bandsToGive <= 0) {
+                alert('Please select at least 1 band to give');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/give-bands', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        guest_id: currentGuestId,
+                        bands_count: bandsToGive
+                    })
+                });
                 
-                // Announce
-                const announcement = data.announcement || `Welcome ${guest.name}! You have ${guest.ticket_count} tickets.`;
-                speak(announcement);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Show confirmation
+                    const statusArea = document.getElementById('status-area');
+                    statusArea.innerHTML = `
+                        <div class="icon">✅</div>
+                        <div class="welcome-message">${data.message}</div>
+                        <div class="ticket-info" style="margin-top: 20px;">
+                            Bands given: <span class="count">${data.bands_given}</span> / ${data.total_bands}
+                        </div>
+                        <div class="action-buttons" style="margin-top: 30px;">
+                            <button class="btn btn-primary" onclick="resumeScanning()">Scan Next Guest →</button>
+                        </div>
+                    `;
+                } else {
+                    alert(data.error || 'Failed to save');
+                }
+            } catch (error) {
+                alert('Network error. Please try again.');
             }
         }
         
@@ -375,31 +623,15 @@
                     <button class="btn btn-primary" onclick="resumeScanning()">Try Again</button>
                 </div>
             `;
-            speak("Check in failed. Please try again.");
-        }
-        
-        async function markBandGiven(guestId) {
-            try {
-                const response = await fetch('/api/give-band', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ guest_id: guestId })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    speak("Band marked as given");
-                    resumeScanning();
-                }
-            } catch (error) {
-                console.error('Failed to mark band:', error);
-            }
         }
         
         function resumeScanning() {
             isProcessing = false;
             lastScanned = null;
+            currentGuestId = null;
+            currentBandsGiven = 0;
+            currentTotalTickets = 0;
+            bandsToGive = 1;
             
             const statusArea = document.getElementById('status-area');
             statusArea.className = 'status-area status-waiting';
@@ -416,16 +648,6 @@
             if (code) {
                 processCheckIn(code);
                 document.getElementById('manual-code').value = '';
-            }
-        }
-        
-        function speak(text) {
-            // Use browser's speech synthesis
-            if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = 0.9;
-                utterance.pitch = 1.0;
-                window.speechSynthesis.speak(utterance);
             }
         }
         
