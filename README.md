@@ -1,55 +1,176 @@
-# 🎉 Party Check-In System
+# Dallas Boyz Party Check-In System 🏏🎉
 
-A complete event registration and check-in system with Stripe payments, QR codes, and audio announcements. Supports 200+ guests with self check-in.
+**Event:** Dallas Boyz Party (RCB Theme)  
+**Date:** September 19, 2025  
+**Location:** Elegance Event Center, 8740 Ohio Dr A1, Plano, TX 75024  
+**Time:** 6:00 PM - 11:00 PM
 
-## ✨ Features
+---
 
-| Feature | Description |
-|---------|-------------|
-| 💳 **Stripe Payments** | Secure payment processing per ticket |
-| 📧 **Auto QR Email** | QR codes sent automatically after payment |
-| 📷 **Self Check-In** | Guests scan their own QR codes |
-| 🔊 **Audio Announcement** | Speaks name + ticket count for staff |
-| 🎨 **Wristband Tracking** | Prevents double distribution |
-| 📊 **Admin Dashboard** | Real-time stats and guest management |
-| 📥 **CSV Export** | Download guest list anytime |
+## Overview
 
-## 🚀 Quick Start (Local)
+A complete event registration and check-in system for 200+ guests with:
+- ✅ Online registration with Zelle payment
+- ✅ QR code generation and email delivery
+- ✅ Self check-in with partial band collection
+- ✅ Email lookup for lost QR codes
+- ✅ Admin dashboard for payment tracking
+- ✅ Real-time statistics and reporting
 
-```bash
-cd party-checkin
-./run.sh
+---
+
+## Features
+
+### For Guests
+
+#### 1. Registration (`/register`)
+- First Name + Last Name
+- Number of attendees (1-10)
+- Names of all attendees (for group registrations)
+- Contact email and phone
+- Zelle Transaction ID
+- Food preferences (Veg/Non-Veg count)
+- Volunteer option
+- Alcohol disclaimer agreement with digital signature
+- **Price:** $35 per person
+- **Payment:** Zelle to dallashudugaru@gmail.com
+
+#### 2. QR Code Delivery
+- QR code generated immediately upon registration
+- Email sent instantly with QR code attachment
+- View QR code online at `/qr/<code>`
+- Print or save option available
+
+#### 3. Self Check-In (`/scanner`)
+**Option 1 - QR Code:**
+- Scan QR code at entrance
+- Welcome message displayed on screen
+- Select how many bands to collect now
+- Collect bands from staff
+
+**Option 2 - Email Lookup:**
+- Enter email address if QR code lost
+- System finds registration
+- Same check-in flow as QR
+
+**Partial Collection Support:**
+- Bought 5 tickets but only 2 people arrived? Give 2 bands now, 3 later
+- Counter shows: Total / Taking now / Can collect later
+- Return later for remaining bands
+
+---
+
+### For Admin
+
+#### Admin Dashboard (`/admin`)
+Protected by password (set via `ADMIN_PASSWORD` env var)
+
+**Stats Overview:**
+- Total Guests
+- Payment Verified ✅
+- Payment Unverified ⏳
+- Checked In
+- Total Tickets
+- Estimated Revenue
+
+**Payment Verification Tab:**
+- List of all registrations with Zelle Transaction IDs
+- Checkbox to mark payment as verified
+- Notes field for each payment
+- "Open Zelle" button for quick access
+- Shows registrant details and all attendee names
+
+**Check-In Status Tab:**
+- Who has checked in
+- How many bands given
+- "Resend QR Email" button (for undelivered emails)
+- View QR code option
+
+**All Guests Tab:**
+- Complete guest list
+- Search functionality
+- Payment method and status
+
+**Export:**
+- Download CSV of all guests
+- Includes: Name, Email, Tickets, Payment, Transaction ID, Check-in status
+
+---
+
+## Technical Stack
+
+- **Backend:** Flask (Python)
+- **Database:** SQLite (with Render disk persistence)
+- **QR Codes:** qrcode library (PIL)
+- **Email:** Flask-Mail (SMTP)
+- **Frontend:** HTML5, CSS3, Vanilla JS
+- **QR Scanning:** html5-qrcode library
+- **Hosting:** Render.com (free tier)
+
+---
+
+## Database Schema
+
+### Guest Model
+```python
+- id: Primary key
+- first_name, last_name, name: Guest name
+- email, phone: Contact info
+- num_attendees, ticket_count: Number of tickets
+- attendee_names: Comma-separated list of all attendees
+- veg_count, nonveg_count: Food preferences
+- volunteer: Yes/No
+- payment_method: zelle (default)
+- transaction_id: Zelle confirmation
+- total_amount: Total paid
+- qr_code: Unique QR code string
+- checked_in: Boolean
+- band_given: Boolean (all bands given)
+- bands_given_count: Integer (partial tracking)
+- checkin_time: Timestamp
+- approved: Boolean (auto-true)
+- disclaimer_agreed: Boolean
+- signature_name: Digital signature
+- payment_verified: Boolean (admin tracking)
+- payment_verified_at: Timestamp
+- payment_verified_by: Admin name
+- payment_notes: Admin notes
+- created_at: Timestamp
 ```
 
-Open http://localhost:5000
+### CheckInLog Model
+```python
+- id: Primary key
+- guest_id: Foreign key
+- action: 'checkin', 'band_given_X'
+- timestamp: When action occurred
+- device_info: User agent string
+```
 
-The script will use Gunicorn if available, otherwise falls back to Flask dev server.
+---
 
-## 🌐 Deploy to Render.com
+## Deployment
 
 ### 1. Create Render Account
-- Go to [render.com](https://render.com)
+- Go to [dashboard.render.com](https://dashboard.render.com)
 - Sign up with GitHub
 
-### 2. Create New Web Service
-1. Click "New +" → "Web Service"
-2. Connect your GitHub repo
-3. Select the party-checkin folder
+### 2. Deploy Web Service
+1. Click **New +** → **Web Service**
+2. Connect GitHub → Select `aladin-genie/party-checkin`
+3. Render auto-detects `render.yaml`
+4. Set environment variables (see below)
+5. Click **Create Web Service**
 
-### 3. Configure Environment Variables
+### 3. Environment Variables
 
-In Render dashboard → Your Service → Environment:
+```bash
+# Required
+SECRET_KEY=your-random-secret-key-here
+DATABASE_PATH=/opt/render/project/src/data/party_guests.db
+ADMIN_PASSWORD=your-admin-password
 
-```
-SECRET_KEY=(auto-generated or random string)
-TICKET_PRICE_CENTS=2000
-
-# Stripe (required for payments)
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Email (optional but recommended)
+# Email Configuration (for QR code emails)
 MAIL_SERVER=smtp.gmail.com
 MAIL_PORT=587
 MAIL_USE_TLS=true
@@ -58,148 +179,199 @@ MAIL_PASSWORD=your-app-password
 MAIL_DEFAULT_SENDER=your-email@gmail.com
 ```
 
-### 4. Deploy
-Click "Deploy" - Render will build and deploy automatically!
+**Note:** For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833), not your regular password.
+
+### 4. Disk Setup (Render)
+Render automatically creates a disk at `/opt/render/project/src/data/` for SQLite persistence.
 
 ---
 
-## 💳 Stripe Setup
+## Local Development
 
-### 1. Create Stripe Account
-- Go to [stripe.com](https://stripe.com)
-- Complete onboarding
-
-### 2. Get API Keys
-- Dashboard → Developers → API keys
-- Copy **Publishable key** (starts with `pk_`)
-- Copy **Secret key** (starts with `sk_`)
-
-### 3. Set Up Webhook
-1. Dashboard → Developers → Webhooks
-2. Add endpoint: `https://your-app.onrender.com/webhook`
-3. Select event: `checkout.session.completed`
-4. Copy **Signing secret** (starts with `whsec_`)
-
-### 4. Test Payment
-Use Stripe test card:
-- Card: `4242 4242 4242 4242`
-- Date: Any future date
-- CVC: Any 3 digits
-
----
-
-## 📧 Email Setup (Gmail)
-
-### 1. Enable 2FA
-- Google Account → Security → 2-Step Verification
-
-### 2. Create App Password
-- Google Account → Security → App passwords
-- Select "Mail" + "Other (Custom name)"
-- Name: "Party Check-In"
-- Copy the 16-character password
-
-### 3. Configure in Render
-```
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=xxxx xxxx xxxx xxxx (the app password)
-MAIL_DEFAULT_SENDER=your-email@gmail.com
-```
-
----
-
-## 🎨 Party Day Workflow
-
-### Setup (Before Party)
+### Setup
 ```bash
-# Deploy and verify
-https://your-app.onrender.com/admin
+# Clone repository
+git clone https://github.com/aladin-genie/party-checkin.git
+cd party-checkin
 
-# Test registration with Stripe test card
-https://your-app.onrender.com/register
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export SECRET_KEY="dev-secret-key"
+export DATABASE_PATH="party_guests.db"
+export ADMIN_PASSWORD="admin123"
+export MAIL_USERNAME="your-email@gmail.com"
+export MAIL_PASSWORD="your-app-password"
+
+# Run locally
+python app.py
 ```
 
-### At the Party
-1. **Check-In Station**: Open `/scanner` on a tablet/laptop with camera
-2. **Volume Up**: Ensure audio is audible for wristband staff
-3. **Admin Access**: Keep `/admin` open on organizer's phone for monitoring
+### Access Locally
+- Home: http://localhost:5000
+- Register: http://localhost:5000/register
+- Scanner: http://localhost:5000/scanner
+- Admin: http://localhost:5000/admin (password required)
 
-### Guest Flow
+---
+
+## API Endpoints
+
+### Public Endpoints
 ```
-Guest arrives → Scans QR code
-                ↓
-Audio: "Welcome Sarah! You have 3 tickets."
-                ↓
-Staff hands 3 wristbands
-                ↓
-Staff clicks "Mark Band Given"
-                ↓
-Guest enters! 🎉
+POST /register          # Submit registration
+GET  /qr/<code>         # View QR code
+GET  /scanner           # Self check-in page
+```
+
+### API Endpoints (JSON)
+```
+POST /api/checkin               # QR code check-in
+POST /api/lookup-by-email       # Email lookup
+POST /api/give-bands            # Give partial bands
+GET  /api/stats                 # Get statistics
+```
+
+### Admin Endpoints (Password Protected)
+```
+GET  /admin                     # Admin dashboard
+POST /admin/verify-payment/<id> # Mark payment verified
+POST /admin/resend-qr/<id>      # Resend QR email
+GET  /download/csv              # Export guest list
 ```
 
 ---
 
-## 💰 Pricing Configuration
+## Workflow
 
-Change ticket price by setting `TICKET_PRICE_CENTS`:
+### Guest Journey
+1. **Register** at `/register`
+   - Fill form, enter Zelle transaction ID
+   - Agree to alcohol disclaimer
+   - Submit
 
-| Price | Value |
-|-------|-------|
-| $10 | 1000 |
-| $20 | 2000 |
-| $50 | 5000 |
-| Free | 0 (skips payment) |
+2. **Receive QR Code**
+   - QR code generated immediately
+   - Email sent with QR code attachment
+   - Can view/print at `/qr/<code>`
+
+3. **Check-In at Event**
+   - Go to `/scanner` on phone
+   - Scan QR code (or enter email)
+   - Select bands to collect now
+   - Show confirmation to staff
+   - Collect wristbands
+
+### Admin Journey
+1. **Track Payments**
+   - Log in to `/admin`
+   - Go to "Payment Verification" tab
+   - Open Zelle, check each transaction
+   - Mark verified ✅ or add notes
+
+2. **Resend QR Codes** (if needed)
+   - Find guest in "Check-In Status" tab
+   - Click "📧 Resend Email" button
+   - Only available if bands not collected yet
+
+3. **Monitor Check-Ins**
+   - Real-time stats on dashboard
+   - See who checked in, bands given
+   - Export CSV for records
 
 ---
 
-## 🔒 Security Notes
+## Important Notes
 
-- **Never commit `.env` files** with real keys
-- **Stripe webhooks verify signatures** - tamper-proof
-- **Admin page** is public - consider adding password protection for production
-- **SQLite database** persists on Render's disk
+### Zelle Payments
+- Guests send payment to: `dallashudugaru@gmail.com`
+- Must include: Name, number of spots, food preference in memo
+- Admin verifies manually in dashboard
+
+### Partial Band Collection
+- Groups can arrive at different times
+- System tracks: total / given / remaining
+- Can check in multiple times for remaining bands
+
+### Lost QR Codes
+- Guests can use email lookup at scanner
+- Admin can resend QR code email
+- No bands collected yet = can resend
+
+### Privacy
+- All data stored in SQLite database
+- Email addresses used only for QR delivery
+- No data shared with third parties
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Payment not working
-- Check Stripe keys are set in Render
-- Verify webhook URL is correct
-- Check Render logs: Dashboard → Logs
+### Email Not Sending
+- Check MAIL_USERNAME and MAIL_PASSWORD
+- For Gmail: Use App Password, not regular password
+- Check spam/junk folders
+- Use admin "Resend Email" feature
 
-### Email not sending
-- Verify app password (not regular Gmail password)
-- Check spam folders
-- Test with Mailtrap for development
+### Database Issues
+- On Render: Check DATABASE_PATH is set correctly
+- Ensure disk is mounted at `/opt/render/project/src/data/`
+- Local: SQLite file created in project directory
 
-### QR codes not scanning
+### QR Code Not Scanning
 - Ensure good lighting
 - Hold phone steady
-- Try manual entry as fallback
+- Try manual email lookup as backup
+- Check if QR code is blurred in email
+
+### Payment Verification
+- Transaction ID is required field
+- Check Zelle app for exact transaction ID
+- Admin can add notes if partial payment
 
 ---
 
-## 📁 Project Structure
+## File Structure
 
 ```
 party-checkin/
-├── app.py                 # Flask backend
+├── app.py                 # Flask application
 ├── requirements.txt       # Python dependencies
 ├── render.yaml           # Render deployment config
+├── gunicorn.conf.py      # Production server config
 ├── run.sh                # Local startup script
 ├── README.md             # This file
-├── party_guests.db       # SQLite database
-└── templates/
-    ├── index.html        # Home page
-    ├── register.html     # Registration + payment
-    ├── scanner.html      # Self check-in
-    ├── view_qr.html      # QR code display
-    └── admin.html        # Dashboard
+├── templates/            # HTML templates
+│   ├── index.html        # Home page
+│   ├── register.html     # Registration form
+│   ├── scanner.html      # Self check-in
+│   ├── admin.html        # Admin dashboard
+│   ├── view_qr.html      # QR code display
+│   └── pending.html      # Registration success
+└── uploads/              # File uploads (if any)
 ```
 
 ---
 
-## 📝 License
+## Support
 
-MIT - Use for your parties! 🎊
+For issues or questions:
+1. Check this README
+2. Review GitHub issues: https://github.com/aladin-genie/party-checkin/issues
+3. Contact: [Your Contact Info]
+
+---
+
+## License
+
+MIT License - Feel free to modify and reuse for your events!
+
+---
+
+**Built with ❤️ for Dallas Boyz Party 2025**  
+🏏 RCB: Refreshment, Chill, Brotherhood 😊
