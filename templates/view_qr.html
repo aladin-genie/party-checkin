@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your QR Code - Party 2026</title>
+    <title>Your QR Code - Dallas Boyz Party</title>
     <style>
         * {
             margin: 0;
@@ -13,12 +13,13 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 50%, #1a237e 100%);
             min-height: 100vh;
             color: #333;
             display: flex;
             justify-content: center;
             align-items: center;
+            padding: 20px;
         }
         
         .card {
@@ -27,20 +28,28 @@
             padding: 40px;
             text-align: center;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 400px;
+            max-width: 450px;
             width: 90%;
         }
         
         .party-title {
             font-size: 1.5em;
-            color: #667eea;
-            margin-bottom: 10px;
+            color: #c62828;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .party-subtitle {
+            color: #1a237e;
+            font-size: 1em;
+            margin-bottom: 20px;
         }
         
         .guest-name {
             font-size: 2em;
             font-weight: bold;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
+            color: #333;
         }
         
         .ticket-info {
@@ -53,7 +62,7 @@
             background: white;
             padding: 20px;
             border-radius: 15px;
-            border: 3px dashed #667eea;
+            border: 3px dashed #1a237e;
             margin-bottom: 25px;
         }
         
@@ -63,36 +72,66 @@
         }
         
         .instructions {
-            background: #f8f9fa;
-            padding: 15px;
+            background: #fff8e1;
+            padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
-            font-size: 0.95em;
+            border-left: 4px solid #ff9800;
+        }
+        
+        .instructions h3 {
+            color: #e65100;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .instructions ol {
+            text-align: left;
+            margin-left: 20px;
             color: #555;
+            line-height: 1.8;
+        }
+        
+        .instructions li {
+            margin-bottom: 5px;
+        }
+        
+        .instructions strong {
+            color: #333;
         }
         
         .btn {
             display: inline-block;
             padding: 15px 30px;
-            background: #667eea;
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 100%);
             color: white;
             text-decoration: none;
             border-radius: 10px;
             font-weight: bold;
-            transition: background 0.3s;
+            transition: all 0.3s;
         }
         
         .btn:hover {
-            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
         .download-btn {
-            background: #28a745;
+            background: linear-gradient(135deg, #c62828 0%, #1a237e 100%);
             margin-left: 10px;
         }
         
-        .download-btn:hover {
-            background: #218838;
+        .event-details {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+        }
+        
+        .event-details p {
+            margin: 5px 0;
+            color: #555;
         }
         
         @media print {
@@ -110,21 +149,38 @@
 </head>
 <body>
     <div class="card">
-        <div class="party-title">🎉 Party 2026</div>
+        <div class="party-title">🏏 Dallas Boyz Party</div>
+        <div class="party-subtitle">RCB Champions 2025 Celebration</div>
+        
         <div class="guest-name">{{ guest.name }}</div>
-        <div class="ticket-info">{{ guest.ticket_count }} Ticket{{ 's' if guest.ticket_count > 1 else '' }}</div>
+        <div class="ticket-info">{{ guest.num_attendees or guest.ticket_count or 1 }} Ticket{{ 's' if (guest.num_attendees or guest.ticket_count or 1) > 1 else '' }}</div>
+        
+        <div class="event-details">
+            <p>📅 <strong>September 19, 2025</strong></p>
+            <p>🕕 <strong>6:00 PM - 11:00 PM</strong></p>
+            <p>📍 <strong>Elegance Event Center, Plano</strong></p>
+        </div>
         
         <div class="qr-container">
             <img src="data:image/png;base64,{{ qr_image }}" alt="QR Code">
         </div>
         
         <div class="instructions">
-            📱 Show this QR code at the entrance for check-in
+            <h3>🎯 How to Check In</h3>
+            <ol>
+                <li><strong>At the entrance,</strong> find the self-check-in scanner</li>
+                <li><strong>Scan this QR code</strong> on your phone (or enter your email)</li>
+                <li><strong>Select how many bands</strong> you're collecting now</li>
+                <li><strong>Show the confirmation</strong> to staff and collect your bands!</li>
+            </ol>
+            <p style="margin-top: 15px; font-size: 0.9em; color: #666; text-align: center;">
+                💡 <em>Lost your QR code? No problem! Just enter your email at the check-in scanner.</em>
+            </p>
         </div>
         
         <div class="no-print">
             <a href="/" class="btn">← Back</a>
-            <button class="btn download-btn" onclick="window.print()">🖨️ Print</button>
+            <button class="btn download-btn" onclick="window.print()">🖨️ Print / Save</button>
         </div>
     </div>
 </body>
