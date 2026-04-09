@@ -3,143 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Party 2026 - Check-In System</title>
+    <title>Dallas Boyz Party – Check-In System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --navy:   #1a237e;
+            --red:    #c62828;
+            --gold:   #ffc107;
+            --light:  #f4f5f9;
+            --white:  #ffffff;
+            --text:   #1c1c2e;
+            --muted:  #6b7280;
+            --radius: 16px;
+            --shadow: 0 4px 24px rgba(0,0,0,.12);
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(145deg, var(--navy) 0%, #311b92 40%, var(--red) 100%);
             min-height: 100vh;
-            color: #333;
+            color: var(--text);
         }
-        
+
         .container {
-            max-width: 1200px;
+            max-width: 1100px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 32px 20px 48px;
         }
-        
-        header {
+
+        /* ── Hero ─────────────────────────────────────── */
+        .hero {
             text-align: center;
+            color: var(--white);
+            padding: 48px 20px 40px;
+        }
+        .hero-badge {
+            display: inline-block;
+            background: rgba(255,255,255,.15);
+            border: 1px solid rgba(255,255,255,.3);
+            backdrop-filter: blur(8px);
             color: white;
-            padding: 40px 0;
+            font-size: .75rem;
+            font-weight: 600;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            padding: 6px 16px;
+            border-radius: 100px;
+            margin-bottom: 20px;
         }
-        
-        header h1 {
-            font-size: 3em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        .hero h1 {
+            font-size: clamp(2rem, 6vw, 3.6rem);
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -.02em;
+            margin-bottom: 8px;
         }
-        
-        header p {
-            font-size: 1.2em;
-            opacity: 0.9;
+        .hero .tagline {
+            font-size: 1.1rem;
+            opacity: .85;
+            margin-bottom: 28px;
+            font-weight: 400;
         }
-        
+        .event-pill {
+            display: inline-flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px 24px;
+            background: rgba(255,255,255,.12);
+            border: 1px solid rgba(255,255,255,.2);
+            backdrop-filter: blur(10px);
+            border-radius: 100px;
+            padding: 12px 28px;
+            font-size: .9rem;
+            color: rgba(255,255,255,.95);
+        }
+        .event-pill span { display: flex; align-items: center; gap: 6px; }
+
+        /* ── Stats ────────────────────────────────────── */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 30px 0;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin: 36px 0;
         }
-        
         .stat-card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            text-align: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: transform 0.3s;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-5px);
-        }
-        
-        .stat-number {
-            font-size: 2.5em;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .stat-label {
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .nav-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 40px 0;
-        }
-        
-        .nav-card {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            text-align: center;
-            text-decoration: none;
-            color: #333;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: all 0.3s;
-            border: 3px solid transparent;
-        }
-        
-        .nav-card:hover {
-            transform: translateY(-5px);
-            border-color: #667eea;
-        }
-        
-        .nav-icon {
-            font-size: 3em;
-            margin-bottom: 15px;
-        }
-        
-        .nav-card h2 {
-            color: #667eea;
-            margin-bottom: 10px;
-        }
-        
-        .nav-card p {
-            color: #666;
-            font-size: 0.9em;
-        }
-        
-        .footer {
+            background: rgba(255,255,255,.1);
+            border: 1px solid rgba(255,255,255,.2);
+            backdrop-filter: blur(12px);
+            border-radius: var(--radius);
+            padding: 24px 16px;
             text-align: center;
             color: white;
-            padding: 30px 0;
-            opacity: 0.8;
+            transition: transform .2s, background .2s;
         }
-        
-        @media (max-width: 600px) {
-            header h1 {
-                font-size: 2em;
-            }
-            
-            .stat-number {
-                font-size: 2em;
-            }
+        .stat-card:hover { transform: translateY(-4px); background: rgba(255,255,255,.18); }
+        .stat-number {
+            font-size: 2.4rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .stat-label { font-size: .8rem; font-weight: 500; opacity: .8; text-transform: uppercase; letter-spacing: .06em; }
+
+        /* ── Nav cards ────────────────────────────────── */
+        .nav-section-title {
+            color: rgba(255,255,255,.7);
+            font-size: .75rem;
+            font-weight: 600;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .nav-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 32px 24px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--text);
+            box-shadow: var(--shadow);
+            border: 2px solid transparent;
+            transition: all .25s;
+            position: relative;
+            overflow: hidden;
+        }
+        .nav-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--navy), var(--red));
+            opacity: 0;
+            transition: opacity .25s;
+        }
+        .nav-card:hover { border-color: var(--navy); transform: translateY(-6px); box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+        .nav-card:hover::before { opacity: .04; }
+        .nav-icon {
+            font-size: 2.6rem;
+            margin-bottom: 14px;
+            display: block;
+        }
+        .nav-card h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--navy);
+            margin-bottom: 8px;
+        }
+        .nav-card p { color: var(--muted); font-size: .875rem; line-height: 1.5; }
+        .nav-card .arrow {
+            display: inline-block;
+            margin-top: 16px;
+            font-size: .8rem;
+            font-weight: 600;
+            color: var(--red);
+            letter-spacing: .03em;
+        }
+
+        /* ── Footer ───────────────────────────────────── */
+        .footer {
+            text-align: center;
+            color: rgba(255,255,255,.5);
+            font-size: .8rem;
+            padding-top: 8px;
+        }
+
+        /* ── Responsive ───────────────────────────────── */
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .nav-grid   { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .stat-number { font-size: 1.9rem; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🎉 Party 2026</h1>
-            <p>QR Code Check-In System</p>
-        </header>
-        
+        <div class="hero">
+            <div class="hero-badge">🏏 RCB Champions 2025</div>
+            <h1>Dallas Boyz Party</h1>
+            <p class="tagline">Check-In System</p>
+            <div class="event-pill">
+                <span>📅 September 19, 2025</span>
+                <span>🕕 6:00 PM – 11:00 PM</span>
+                <span>📍 Elegance Event Center, Plano TX</span>
+            </div>
+        </div>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-number">{{ stats.total_guests }}</div>
-                <div class="stat-label">Total Registered</div>
+                <div class="stat-label">Registered</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number">{{ stats.checked_in }}</div>
@@ -154,30 +219,30 @@
                 <div class="stat-label">Total Tickets</div>
             </div>
         </div>
-        
+
+        <p class="nav-section-title">Quick Access</p>
         <div class="nav-grid">
             <a href="/register" class="nav-card">
-                <div class="nav-icon">📝</div>
-                <h2>Register Guest</h2>
-                <p>Add new guests and send QR codes via email</p>
+                <span class="nav-icon">📝</span>
+                <h2>Register</h2>
+                <p>New guest sign-up with Zelle payment and instant QR delivery</p>
+                <span class="arrow">Register now →</span>
             </a>
-            
             <a href="/scanner" class="nav-card">
-                <div class="nav-icon">📷</div>
-                <h2>Self Check-In</h2>
-                <p>Guests scan their QR code at the entrance</p>
+                <span class="nav-icon">📷</span>
+                <h2>Check-In Scanner</h2>
+                <p>QR code scanner for guest check-in and wristband tracking</p>
+                <span class="arrow">Open scanner →</span>
             </a>
-            
             <a href="/admin" class="nav-card">
-                <div class="nav-icon">📊</div>
+                <span class="nav-icon">📊</span>
                 <h2>Admin Dashboard</h2>
-                <p>View all guests, check-ins, and download reports</p>
+                <p>Payments, guest list, charts, and CSV reports</p>
+                <span class="arrow">Open dashboard →</span>
             </a>
         </div>
-        
-        <div class="footer">
-            <p>Ready for 200+ guests | Auto-announcements | Wristband tracking</p>
-        </div>
+
+        <div class="footer">Dallas Boyz Party 2025 · Built for 200+ guests · QR Check-In System</div>
     </div>
 </body>
 </html>

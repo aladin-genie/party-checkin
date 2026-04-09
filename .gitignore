@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Database (never commit prod data)
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+# Environment secrets
+.env
+.env.*
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+
+# Uploads (user-uploaded files)
+uploads/
+
+# Local scripts
+start_local.sh

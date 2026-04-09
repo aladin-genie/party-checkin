@@ -3,667 +3,842 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Party 2026</title>
+    <title>Admin Dashboard – Dallas Boyz Party</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --navy:    #1a237e;
+            --red:     #c62828;
+            --green:   #2e7d32;
+            --amber:   #f59e0b;
+            --light:   #f4f5f9;
+            --white:   #ffffff;
+            --text:    #1c1c2e;
+            --muted:   #6b7280;
+            --border:  #e5e7eb;
+            --radius:  14px;
+            --shadow:  0 2px 16px rgba(0,0,0,.08);
+            --shadow-lg: 0 8px 32px rgba(0,0,0,.12);
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--light);
+            color: var(--text);
             min-height: 100vh;
-            color: #333;
         }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        header {
-            text-align: center;
+
+        /* ── Topbar ──────────────────────────────────── */
+        .topbar {
+            background: linear-gradient(135deg, var(--navy) 0%, #311b92 60%, var(--red) 100%);
             color: white;
-            padding: 20px 0;
-        }
-        
-        header h1 {
-            font-size: 2em;
-            margin-bottom: 10px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: white;
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .stat-label {
-            color: #666;
-            font-size: 0.85em;
-            margin-top: 5px;
-        }
-        
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-        }
-        
-        .panel {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        
-        .panel h2 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.3em;
-        }
-        
-        .action-btns {
+            padding: 0 28px;
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 16px rgba(0,0,0,.25);
         }
-        
-        .btn {
-            padding: 10px 20px;
-            border: none;
+        .topbar-brand { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+        .topbar-brand span { opacity: .6; font-weight: 400; margin-left: 6px; font-size: .85rem; }
+        .topbar-actions { display: flex; gap: 10px; }
+        .topbar-btn {
+            padding: 7px 16px;
             border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.9em;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        
-        .btn-success {
-            background: #28a745;
-            color: white;
-        }
-        
-        .btn-warning {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .guest-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85em;
-        }
-        
-        .guest-table th {
-            text-align: left;
-            padding: 12px 8px;
-            border-bottom: 2px solid #e0e0e0;
-            color: #666;
+            font-size: .8rem;
             font-weight: 600;
-        }
-        
-        .guest-table td {
-            padding: 12px 8px;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        
-        .guest-table tr:hover {
-            background: #f8f9fa;
-        }
-        
-        .guest-table tr.pending {
-            background: #fff3cd;
-        }
-        
-        .guest-table tr.pending:hover {
-            background: #ffeeba;
-        }
-        
-        .status-badge {
-            padding: 4px 8px;
-            border-radius: 20px;
-            font-size: 0.75em;
-            font-weight: bold;
-            display: inline-block;
-        }
-        
-        .status-pending {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status-approved {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status-checked {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .band-yes {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .band-no {
-            background: #f8f9fa;
-            color: #6c757d;
-        }
-        
-        .back-link {
-            display: inline-block;
-            margin-top: 20px;
-            color: white;
+            font-family: inherit;
+            cursor: pointer;
             text-decoration: none;
-            padding: 10px 20px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 10px;
-            transition: background 0.3s;
+            border: 1.5px solid rgba(255,255,255,.4);
+            color: white;
+            background: rgba(255,255,255,.12);
+            transition: background .2s;
         }
-        
-        .back-link:hover {
-            background: rgba(255,255,255,0.3);
+        .topbar-btn:hover { background: rgba(255,255,255,.22); }
+        .topbar-btn.solid { background: white; color: var(--navy); border-color: white; }
+        .topbar-btn.solid:hover { background: #f0f2ff; }
+
+        /* ── Layout ──────────────────────────────────── */
+        .page { max-width: 1440px; margin: 0 auto; padding: 28px 24px 48px; }
+
+        /* ── KPI grid ─────────────────────────────────── */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+            gap: 14px;
+            margin-bottom: 28px;
         }
-        
-        .search-box {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            font-size: 1em;
+        .kpi-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 20px 18px 16px;
+            box-shadow: var(--shadow);
+            border-top: 3px solid var(--border);
+            transition: transform .2s, box-shadow .2s;
         }
-        
-        .section-tabs {
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+        .kpi-card.c-navy  { border-top-color: var(--navy); }
+        .kpi-card.c-red   { border-top-color: var(--red); }
+        .kpi-card.c-green { border-top-color: #4caf50; }
+        .kpi-card.c-amber { border-top-color: var(--amber); }
+        .kpi-card.c-teal  { border-top-color: #0097a7; }
+        .kpi-card.c-purple{ border-top-color: #7c3aed; }
+        .kpi-card.c-lime  { border-top-color: #65a30d; }
+        .kpi-card.c-orange{ border-top-color: #ea580c; }
+        .kpi-card.c-pink  { border-top-color: #db2777; }
+        .kpi-val {
+            font-size: 1.9rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 4px;
+            color: var(--text);
+        }
+        .kpi-label { font-size: .72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+        /* ── Charts row ───────────────────────────────── */
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 2fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .chart-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 22px 20px;
+            box-shadow: var(--shadow);
+        }
+        .chart-card h3 {
+            font-size: .8rem;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            margin-bottom: 16px;
+        }
+        .chart-wrap { position: relative; }
+        .donut-wrap { max-width: 180px; margin: 0 auto; }
+        .chart-legend {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 10px;
+            flex-direction: column;
+            gap: 7px;
+            margin-top: 14px;
         }
-        
-        .section-tab {
-            padding: 10px 20px;
+        .legend-item { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: var(--text); }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .legend-val { margin-left: auto; font-weight: 700; }
+
+        /* ── Panel ────────────────────────────────────── */
+        .panel {
+            background: var(--white);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .panel-tabs {
+            display: flex;
+            border-bottom: 2px solid var(--border);
+            overflow-x: auto;
+        }
+        .panel-tab {
+            padding: 14px 22px;
             background: none;
             border: none;
-            cursor: pointer;
-            font-size: 1em;
-            color: #666;
             border-bottom: 2px solid transparent;
-            transition: all 0.3s;
+            margin-bottom: -2px;
+            cursor: pointer;
+            font-size: .875rem;
+            font-weight: 600;
+            font-family: inherit;
+            color: var(--muted);
+            white-space: nowrap;
+            transition: color .2s, border-color .2s;
         }
-        
-        .section-tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
+        .panel-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+        .panel-tab:hover:not(.active) { color: var(--text); }
+
+        .tab-content { display: none; padding: 24px; }
+        .tab-content.active { display: block; }
+
+        /* ── Toolbar ─────────────────────────────────── */
+        .toolbar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+        .search-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 9px 14px;
+            border: 1.5px solid var(--border);
+            border-radius: 9px;
+            font-size: .875rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color .2s;
         }
-        
-        .section-content {
-            display: none;
+        .search-input:focus { border-color: var(--navy); }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 18px;
+            border-radius: 9px;
+            font-size: .8rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: none;
+            border: 1.5px solid transparent;
+            transition: all .2s;
+            white-space: nowrap;
         }
-        
-        .section-content.active {
-            display: block;
+        .btn-primary  { background: var(--navy);  color: white; }
+        .btn-primary:hover  { background: #151b6b; }
+        .btn-success  { background: var(--green); color: white; }
+        .btn-success:hover  { background: #1b5e20; }
+        .btn-ghost    { background: var(--light); color: var(--text); border-color: var(--border); }
+        .btn-ghost:hover    { background: #e8e9f0; }
+        .btn-sm { padding: 5px 12px; font-size: .75rem; }
+
+        /* ── Table ────────────────────────────────────── */
+        .table-wrap { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .84rem;
         }
-        
-        .payment-info {
-            font-size: 0.85em;
-            color: #666;
+        th {
+            text-align: left;
+            padding: 11px 12px;
+            font-size: .72rem;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            border-bottom: 2px solid var(--border);
+            background: #fafafa;
+            position: sticky;
+            top: 0;
         }
-        
-        .payment-info strong {
-            color: #333;
+        td {
+            padding: 11px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
         }
-        
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #f8f9ff; }
+        tr.unverified td { background: #fffbeb; }
+        tr.unverified:hover td { background: #fef3c7; }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 100px;
+            font-size: .72rem;
+            font-weight: 700;
+        }
+        .badge-green  { background: #dcfce7; color: #166534; }
+        .badge-yellow { background: #fef3c7; color: #92400e; }
+        .badge-blue   { background: #dbeafe; color: #1e40af; }
+        .badge-gray   { background: #f3f4f6; color: #374151; }
+
+        code.txid {
+            background: var(--light);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: .78rem;
+            color: var(--navy);
+        }
+
+        .notes-input {
+            padding: 5px 9px;
+            border: 1.5px solid var(--border);
+            border-radius: 7px;
+            font-size: .78rem;
+            font-family: inherit;
+            width: 160px;
+            outline: none;
+            transition: border-color .2s;
+        }
+        .notes-input:focus { border-color: var(--navy); }
+
+        .verify-check {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: var(--green);
+        }
+
+        /* ── Toast ────────────────────────────────────── */
         .toast {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #28a745;
+            bottom: 24px;
+            right: 24px;
+            background: var(--text);
             color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            display: none;
-            z-index: 1000;
+            padding: 13px 22px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.25);
+            font-size: .875rem;
+            font-weight: 500;
+            opacity: 0;
+            transform: translateY(12px);
+            transition: opacity .25s, transform .25s;
+            z-index: 200;
+            pointer-events: none;
         }
-        
-        .toast.error {
-            background: #dc3545;
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.error { background: #dc2626; }
+
+        /* ── Back link ────────────────────────────────── */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 24px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: .85rem;
+            font-weight: 500;
+            transition: color .2s;
         }
-        
-        .toast.show {
-            display: block;
-            animation: slideIn 0.3s ease;
+        .back-link:hover { color: var(--text); }
+
+        /* ── Responsive ───────────────────────────────── */
+        @media (max-width: 1100px) {
+            .charts-row { grid-template-columns: 1fr 1fr; }
         }
-        
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+        @media (max-width: 700px) {
+            .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+            .charts-row { grid-template-columns: 1fr; }
+            .topbar { padding: 0 16px; }
+            .page { padding: 16px 12px 40px; }
         }
-        
-        @media (max-width: 900px) {
-            .guest-table {
-                font-size: 0.8em;
-            }
-            
-            .guest-table th,
-            .guest-table td {
-                padding: 8px 4px;
-            }
+        @media (max-width: 440px) {
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📊 Admin Dashboard</h1>
-            <p>Manage registrations, payments, and check-ins</p>
-        </header>
-        
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-number" id="statTotal">{{ stats.total }}</div>
-                <div class="stat-label">Total Guests</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statVerified">{{ stats.payment_verified }}</div>
-                <div class="stat-label">Payment ✓</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statUnverified">{{ stats.payment_unverified }}</div>
-                <div class="stat-label">Payment ⏳</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statChecked">{{ stats.checked_in }}</div>
-                <div class="stat-label">Checked In</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statTickets">{{ stats.total_tickets }}</div>
-                <div class="stat-label">Total Tickets</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="statRevenue">${{ stats.total_revenue }}</div>
-                <div class="stat-label">Est. Revenue</div>
-            </div>
-        </div>
-        
-        <div class="panel">
-            <div class="section-tabs">
-                <button class="section-tab active" onclick="showSection('payments')">
-                    💳 Payment Verification ({{ stats.payment_unverified }})
-                </button>
-                <button class="section-tab" onclick="showSection('approved')">
-                    ✅ Check-In Status
-                </button>
-                <button class="section-tab" onclick="showSection('all')">
-                    📋 All Guests
-                </button>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <a href="/reports/registration" class="btn btn-primary">📊 View Registration Report</a>
-                <a href="/download/csv" class="btn btn-success">↓ Download CSV</a>
-            </div>
-            
-            <!-- Payment Verification Section -->
-            <div id="paymentsSection" class="section-content active">
-                <h2>💳 Payment Verification (Zelle)</h2>
-                <p style="margin-bottom: 20px; color: #666;">
-                    Check your Zelle account and verify each transaction matches the registration details. 
-                    QR codes are already sent to guests - this is for your tracking.
-                </p>
-                
-                <div class="action-btns">
-                    <a href="https://www.zellepay.com/" target="_blank" class="btn btn-primary">🌐 Open Zelle</a>
-                    <button class="btn btn-success" onclick="window.print()">🖨️ Print List</button>
-                </div>
-                
-                {% if all_guests %}
-                <div style="overflow-x: auto;">
-                    <table class="guest-table" id="paymentTable">
-                        <thead>
-                            <tr>
-                                <th>✓</th>
-                                <th>Name</th>
-                                <th>Attendees</th>
-                                <th>Amount</th>
-                                <th>Zelle Transaction ID</th>
-                                <th>Registrant</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for guest in all_guests %}
-                            <tr class="{% if not guest.payment_verified %}pending{% endif %}" data-guest-id="{{ guest.id }}">
-                                <td>
-                                    <input type="checkbox" 
-                                           id="verify-{{ guest.id }}"
-                                           {% if guest.payment_verified %}checked{% endif %}
-                                           onchange="togglePaymentVerify({{ guest.id }}, this.checked)"
-                                           style="width: 20px; height: 20px; cursor: pointer;">
-                                </td>
-                                <td>
-                                    <strong>{{ guest.name }}</strong><br>
-                                    {% if guest.attendee_names %}
-                                    <small style="color: #666;">+ {{ guest.attendee_names }}</small>
-                                    {% endif %}
-                                </td>
-                                <td>{{ guest.num_attendees }}</td>
-                                <td><strong>{{ guest.total_amount or '$' + (guest.num_attendees * 35)|string }}</strong></td>
-                                <td>
-                                    <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px;">
-                                        {{ guest.transaction_id or 'N/A' }}
-                                    </code>
-                                </td>
-                                <td>
-                                    {{ guest.email }}<br>
-                                    <small style="color: #666;">{{ guest.phone }}</small>
-                                </td>
-                                <td>
-                                    <input type="text" 
-                                           placeholder="Add notes..."
-                                           value="{{ guest.payment_notes or '' }}"
-                                           onblur="saveNotes({{ guest.id }}, this.value)"
-                                           style="padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; width: 150px;">
-                                    {% if guest.payment_verified %}
-                                    <br>
-                                    <small style="color: #28a745;">✓ {{ guest.payment_verified_at.strftime('%m/%d %H:%M') if guest.payment_verified_at else '' }}</small>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p>No registrations yet. 🎉</p>
-                {% endif %}
-            </div>
-            
-            <!-- Approved Guests Section -->
-            <div id="approvedSection" class="section-content">
-                <div class="action-btns">
-                    <a href="/register" class="btn btn-primary">+ Add Guest</a>
-                    <a href="/download/csv" class="btn btn-success">↓ Download CSV</a>
-                </div>
-                
-                <input type="text" class="search-box" placeholder="Search approved guests..." id="searchApproved">
-                
-                <div style="overflow-x: auto;">
-                    <table class="guest-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Tickets</th>
-                                <th>Check-In</th>
-                                <th>Band</th>
-                                <th>QR Code</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for guest in approved_guests %}
-                            <tr>
-                                <td>{{ guest.name }}<br><small style="color: #666;">{{ guest.email }}</small></td>
-                                <td>{{ guest.ticket_count }}</td>
-                                <td>
-                                    {% if guest.checked_in %}
-                                    <span class="status-badge status-checked">✓ {{ guest.checkin_time.strftime('%m/%d %H:%M') if guest.checkin_time else 'Done' }}</span>
-                                    {% else %}
-                                    <span class="status-badge status-pending">Not yet</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if guest.band_given %}
-                                    <span class="status-badge band-yes">Given</span>
-                                    {% else %}
-                                    <span class="status-badge band-no">—</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <a href="/qr/{{ guest.id }}" class="btn btn-secondary" style="font-size: 0.8em;">View QR</a>
-                                    {% if not guest.band_given %}
-                                    <br><br>
-                                    <button class="btn btn-primary" style="font-size: 0.75em; padding: 6px 12px;"
-                                            onclick="resendQR({{ guest.id }}, '{{ guest.name }}')"
-                                            title="Resend QR code email">
-                                        📧 Resend Email
-                                    </button>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <!-- All Guests Section -->
-            <div id="allSection" class="section-content">
-                <input type="text" class="search-box" placeholder="Search all guests..." id="searchAll">
-                
-                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
-                    <table class="guest-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Tickets</th>
-                                <th>Status</th>
-                                <th>Payment</th>
-                            </tr>
-                        </thead>
-                        <tbody id="allGuestsTable">
-                            {% for guest in all_guests %}
-                            <tr class="{% if not guest.approved %}pending{% endif %}">
-                                <td><strong>{{ guest.name }}</strong></td>
-                                <td>{{ guest.email }}</td>
-                                <td>{{ guest.ticket_count }}</td>
-                                <td>
-                                    {% if guest.approved %}
-                                    <span class="status-badge status-approved">✅ Approved</span>
-                                    {% else %}
-                                    <span class="status-badge status-pending">⏳ Pending</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ guest.payment_method|upper if guest.payment_method else 'N/A' }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
-        <a href="/" class="back-link">← Back to Home</a>
-    </div>
-    
-    <div id="toast" class="toast"></div>
 
-    <script>
-        // Tab switching
-        function showSection(section) {
-            // Hide all sections
-            document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
-            
-            // Show selected
-            document.getElementById(section + 'Section').classList.add('active');
-            event.target.classList.add('active');
-        }
-        
-        // Approve guest
-        async function approveGuest(guestId, guestName) {
-            if (!confirm(`Approve ${guestName} and send QR code?`)) return;
-            
-            try {
-                const response = await fetch(`/admin/approve/${guestId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showToast(`✅ ${guestName} approved! QR code sent.`);
-                    // Remove row from table
-                    setTimeout(() => location.reload(), 1500);
-                } else {
-                    showToast(data.error || 'Approval failed', true);
-                }
-            } catch (err) {
-                showToast('Error: ' + err.message, true);
-            }
-        }
-        
-        // Show toast
-        function showToast(message, isError = false) {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast' + (isError ? ' error' : '');
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-        
-        // Search functionality for approved guests
-        document.getElementById('searchApproved')?.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const rows = document.querySelectorAll('#approvedSection tbody tr');
-            rows.forEach(row => {
-                row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
-            });
+<div class="topbar">
+    <div class="topbar-brand">
+        🏏 Dallas Boyz Party
+        <span>Admin Dashboard</span>
+    </div>
+    <div class="topbar-actions">
+        <a href="/reports/registration" class="topbar-btn">📈 Report</a>
+        <a href="/download/csv" class="topbar-btn solid">↓ CSV</a>
+    </div>
+</div>
+
+<div class="page">
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid">
+        <div class="kpi-card c-navy">
+            <div class="kpi-val" id="statTotal">{{ stats.total }}</div>
+            <div class="kpi-label">Total Guests</div>
+        </div>
+        <div class="kpi-card c-green">
+            <div class="kpi-val" id="statChecked">{{ stats.checked_in }}</div>
+            <div class="kpi-label">Checked In</div>
+        </div>
+        <div class="kpi-card c-amber">
+            <div class="kpi-val" id="statTickets">{{ stats.total_tickets }}</div>
+            <div class="kpi-label">Total Tickets</div>
+        </div>
+        <div class="kpi-card c-teal">
+            <div class="kpi-val" id="statRevenue">${{ stats.total_revenue }}</div>
+            <div class="kpi-label">Est. Revenue</div>
+        </div>
+        <div class="kpi-card c-green">
+            <div class="kpi-val" id="statVerified">{{ stats.payment_verified }}</div>
+            <div class="kpi-label">Payment ✓</div>
+        </div>
+        <div class="kpi-card c-red">
+            <div class="kpi-val" id="statUnverified">{{ stats.payment_unverified }}</div>
+            <div class="kpi-label">Unverified</div>
+        </div>
+        <div class="kpi-card c-lime">
+            <div class="kpi-val" id="statVeg">{{ stats.total_veg }}</div>
+            <div class="kpi-label">Veg Meals</div>
+        </div>
+        <div class="kpi-card c-orange">
+            <div class="kpi-val" id="statNonVeg">{{ stats.total_nonveg }}</div>
+            <div class="kpi-label">Non-Veg</div>
+        </div>
+        <div class="kpi-card c-purple">
+            <div class="kpi-val" id="statVolunteers">{{ stats.total_volunteers }}</div>
+            <div class="kpi-label">Volunteers</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+        <!-- Check-in progress donut -->
+        <div class="chart-card">
+            <h3>Check-In Progress</h3>
+            <div class="chart-wrap donut-wrap">
+                <canvas id="chartCheckin"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#2e7d32"></div>
+                    Checked In
+                    <span class="legend-val" id="lgCheckedIn">{{ stats.checked_in }}</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#e5e7eb"></div>
+                    Not Yet
+                    <span class="legend-val" id="lgPending">{{ stats.total - stats.checked_in }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment status donut -->
+        <div class="chart-card">
+            <h3>Payment Status</h3>
+            <div class="chart-wrap donut-wrap">
+                <canvas id="chartPayment"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#1a237e"></div>
+                    Verified
+                    <span class="legend-val" id="lgVerified">{{ stats.payment_verified }}</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#fca5a5"></div>
+                    Unverified
+                    <span class="legend-val" id="lgUnverified">{{ stats.payment_unverified }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Food preference donut -->
+        <div class="chart-card">
+            <h3>Food Preferences</h3>
+            <div class="chart-wrap donut-wrap">
+                <canvas id="chartFood"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#65a30d"></div>
+                    Vegetarian
+                    <span class="legend-val" id="lgVeg">{{ stats.total_veg }}</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#ea580c"></div>
+                    Non-Veg
+                    <span class="legend-val" id="lgNonVeg">{{ stats.total_nonveg }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Registrations per day bar chart -->
+        <div class="chart-card">
+            <h3>Registrations Over Time</h3>
+            <div class="chart-wrap" style="height:200px">
+                <canvas id="chartTimeline"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabbed panel -->
+    <div class="panel">
+        <div class="panel-tabs">
+            <button class="panel-tab active" id="tabPayments" onclick="showTab('payments', this)">
+                💳 Payment Verification&nbsp;<span id="tabUnverifiedCount" style="background:#fee2e2;color:#dc2626;border-radius:100px;padding:1px 8px;font-size:.75rem">{{ stats.payment_unverified }}</span>
+            </button>
+            <button class="panel-tab" onclick="showTab('checkin', this)">✅ Check-In Status</button>
+            <button class="panel-tab" onclick="showTab('all', this)">📋 All Guests</button>
+        </div>
+
+        <!-- ── Payment Verification ──────────────── -->
+        <div id="tab-payments" class="tab-content active">
+            <div class="toolbar">
+                <p style="font-size:.875rem;color:var(--muted)">
+                    Cross-check each transaction with your Zelle account. QR codes are already delivered.
+                </p>
+                <a href="https://www.zellepay.com/" target="_blank" class="btn btn-primary btn-sm">🌐 Open Zelle</a>
+                <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print</button>
+            </div>
+
+            {% if all_guests %}
+            <div class="table-wrap">
+                <table id="paymentTable">
+                    <thead>
+                        <tr>
+                            <th style="width:40px">✓</th>
+                            <th>Guest</th>
+                            <th>Attendees</th>
+                            <th>Amount</th>
+                            <th>Transaction ID</th>
+                            <th>Contact</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for guest in all_guests %}
+                        <tr class="{% if not guest.payment_verified %}unverified{% endif %}" data-guest-id="{{ guest.id }}">
+                            <td>
+                                <input type="checkbox" class="verify-check"
+                                       id="verify-{{ guest.id }}"
+                                       {% if guest.payment_verified %}checked{% endif %}
+                                       onchange="togglePaymentVerify({{ guest.id }}, this.checked)">
+                            </td>
+                            <td>
+                                <strong>{{ guest.name }}</strong>
+                                {% if guest.attendee_names %}
+                                <br><small style="color:var(--muted)">+ {{ guest.attendee_names }}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ guest.num_attendees }}</td>
+                            <td><strong>{{ guest.total_amount or '$' + (guest.num_attendees * 35)|string }}</strong></td>
+                            <td><code class="txid">{{ guest.transaction_id or '—' }}</code></td>
+                            <td>
+                                {{ guest.email }}<br>
+                                <small style="color:var(--muted)">{{ guest.phone }}</small>
+                            </td>
+                            <td>
+                                <input type="text" class="notes-input"
+                                       placeholder="Add note…"
+                                       value="{{ guest.payment_notes or '' }}"
+                                       onblur="saveNotes({{ guest.id }}, this.value)">
+                                {% if guest.payment_verified and guest.payment_verified_at %}
+                                <br><small style="color:#2e7d32;font-size:.7rem">✓ {{ guest.payment_verified_at.strftime('%m/%d %H:%M') }}</small>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p style="color:var(--muted);padding:20px 0">No registrations yet.</p>
+            {% endif %}
+        </div>
+
+        <!-- ── Check-In Status ───────────────────── -->
+        <div id="tab-checkin" class="tab-content">
+            <div class="toolbar">
+                <input type="text" class="search-input" placeholder="Search guests…" id="searchCheckin">
+                <a href="/register" class="btn btn-primary btn-sm">+ Add Guest</a>
+                <a href="/download/csv" class="btn btn-success btn-sm">↓ CSV</a>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Tickets</th>
+                            <th>Food</th>
+                            <th>Check-In</th>
+                            <th>Band</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="checkinTableBody">
+                        {% for guest in approved_guests %}
+                        <tr>
+                            <td>
+                                <div style="font-weight:600">{{ guest.name }}</div>
+                                <div style="font-size:.78rem;color:var(--muted)">{{ guest.email }}</div>
+                            </td>
+                            <td>{{ guest.ticket_count }}</td>
+                            <td>
+                                <span style="font-size:.78rem">
+                                    🥦 {{ guest.veg_count or 0 }} &nbsp;
+                                    🍗 {{ guest.nonveg_count or 0 }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if guest.checked_in %}
+                                <span class="badge badge-green">✓ {{ guest.checkin_time.strftime('%H:%M') if guest.checkin_time else 'Done' }}</span>
+                                {% else %}
+                                <span class="badge badge-yellow">Not yet</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if guest.band_given %}
+                                <span class="badge badge-blue">Given</span>
+                                {% elif guest.bands_given_count %}
+                                <span class="badge badge-yellow">{{ guest.bands_given_count }}/{{ guest.ticket_count }}</span>
+                                {% else %}
+                                <span class="badge badge-gray">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="/qr/{{ guest.id }}" class="btn btn-ghost btn-sm">QR</a>
+                                {% if not guest.band_given %}
+                                <button class="btn btn-ghost btn-sm" onclick="resendQR({{ guest.id }}, '{{ guest.name }}')">📧</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ── All Guests ────────────────────────── -->
+        <div id="tab-all" class="tab-content">
+            <div class="toolbar">
+                <input type="text" class="search-input" placeholder="Search all guests…" id="searchAll">
+            </div>
+
+            <div class="table-wrap" style="max-height:520px;overflow-y:auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Tickets</th>
+                            <th>Veg / NV</th>
+                            <th>Volunteer</th>
+                            <th>Status</th>
+                            <th>Payment</th>
+                        </tr>
+                    </thead>
+                    <tbody id="allGuestsTable">
+                        {% for guest in all_guests %}
+                        <tr>
+                            <td><strong>{{ guest.name }}</strong></td>
+                            <td style="color:var(--muted);font-size:.82rem">{{ guest.email }}</td>
+                            <td>{{ guest.ticket_count }}</td>
+                            <td style="font-size:.8rem">{{ guest.veg_count or 0 }} / {{ guest.nonveg_count or 0 }}</td>
+                            <td>
+                                {% if guest.volunteer == 'yes' %}
+                                <span class="badge badge-green">Yes</span>
+                                {% else %}
+                                <span class="badge badge-gray">No</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if guest.approved %}
+                                <span class="badge badge-green">Approved</span>
+                                {% else %}
+                                <span class="badge badge-yellow">Pending</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if guest.payment_verified %}
+                                <span class="badge badge-blue">Verified</span>
+                                {% else %}
+                                <span class="badge badge-yellow">Unverified</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <a href="/" class="back-link">← Back to Home</a>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+    /* ── Tab switching ─────────────────────── */
+    function showTab(name, btn) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.panel-tab').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + name).classList.add('active');
+        btn.classList.add('active');
+    }
+
+    /* ── Toast ─────────────────────────────── */
+    function showToast(msg, isError = false) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (isError ? ' error' : '');
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    /* ── Search ────────────────────────────── */
+    document.getElementById('searchCheckin')?.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#checkinTableBody tr').forEach(r => {
+            r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
         });
-        
-        // Search functionality for all guests
-        document.getElementById('searchAll')?.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const rows = document.querySelectorAll('#allGuestsTable tr');
-            rows.forEach(row => {
-                row.style.display = row.textContent.toLowerCase().includes(searchTerm) ? '' : 'none';
-            });
+    });
+    document.getElementById('searchAll')?.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#allGuestsTable tr').forEach(r => {
+            r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
         });
-        
-        // Resend QR code email
-        async function resendQR(guestId, guestName) {
-            if (!confirm(`Resend QR code email to ${guestName}?`)) return;
-            
-            try {
-                const response = await fetch(`/admin/resend-qr/${guestId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showToast(`✅ QR code resent to ${guestName}`);
-                } else {
-                    showToast(data.error || 'Failed to resend', true);
-                }
-            } catch (err) {
-                showToast('Error: ' + err.message, true);
-            }
+    });
+
+    /* ── Approve ───────────────────────────── */
+    async function approveGuest(id, name) {
+        if (!confirm(`Approve ${name} and send QR code?`)) return;
+        const r = await fetch(`/admin/approve/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const d = await r.json();
+        d.success ? (showToast(`✅ ${name} approved!`), setTimeout(() => location.reload(), 1500))
+                  : showToast(d.error || 'Failed', true);
+    }
+
+    /* ── Resend QR ─────────────────────────── */
+    async function resendQR(id, name) {
+        if (!confirm(`Resend QR to ${name}?`)) return;
+        const r = await fetch(`/admin/resend-qr/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const d = await r.json();
+        d.success ? showToast(`✅ QR resent to ${name}`) : showToast(d.error || 'Failed', true);
+    }
+
+    /* ── Payment verify ────────────────────── */
+    async function togglePaymentVerify(id, verified) {
+        const row = document.querySelector(`tr[data-guest-id="${id}"]`);
+        const r = await fetch(`/admin/verify-payment/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ verified })
+        });
+        const d = await r.json();
+        if (d.success) {
+            row.classList.toggle('unverified', !verified);
+            showToast(verified ? '✅ Payment verified!' : '⏳ Marked unverified');
+            setTimeout(refreshStats, 500);
+        } else {
+            showToast(d.error || 'Failed', true);
+            document.getElementById(`verify-${id}`).checked = !verified;
         }
-        
-        // Toggle payment verification
-        async function togglePaymentVerify(guestId, verified) {
-            const row = document.querySelector(`tr[data-guest-id="${guestId}"]`);
-            
-            try {
-                const response = await fetch(`/admin/verify-payment/${guestId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ verified: verified })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Update row styling
-                    if (verified) {
-                        row.classList.remove('pending');
-                    } else {
-                        row.classList.add('pending');
+    }
+
+    /* ── Save notes ────────────────────────── */
+    async function saveNotes(id, notes) {
+        const verified = document.getElementById(`verify-${id}`).checked;
+        await fetch(`/admin/verify-payment/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ verified, notes })
+        });
+    }
+
+    /* ── Charts ────────────────────────────── */
+    const donutOpts = {
+        type: 'doughnut',
+        options: {
+            responsive: true,
+            cutout: '72%',
+            plugins: { legend: { display: false }, tooltip: { callbacks: {
+                label: ctx => ` ${ctx.label}: ${ctx.parsed}`
+            }}},
+            animation: { animateScale: true }
+        }
+    };
+
+    function makeDonut(id, labels, data, colors) {
+        return new Chart(document.getElementById(id), {
+            ...donutOpts,
+            data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] }
+        });
+    }
+
+    const checkinChart = makeDonut('chartCheckin',
+        ['Checked In', 'Not Yet'],
+        [{{ stats.checked_in }}, {{ stats.total - stats.checked_in }}],
+        ['#2e7d32', '#e5e7eb']
+    );
+
+    const paymentChart = makeDonut('chartPayment',
+        ['Verified', 'Unverified'],
+        [{{ stats.payment_verified }}, {{ stats.payment_unverified }}],
+        ['#1a237e', '#fca5a5']
+    );
+
+    const foodChart = makeDonut('chartFood',
+        ['Vegetarian', 'Non-Veg'],
+        [{{ stats.total_veg }}, {{ stats.total_nonveg }}],
+        ['#65a30d', '#ea580c']
+    );
+
+    /* Registration timeline bar chart */
+    let timelineChart;
+    fetch('/api/reports/daily')
+        .then(r => r.json())
+        .then(rows => {
+            const labels = rows.map(r => {
+                const d = new Date(r.date + 'T00:00:00');
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+            const data = rows.map(r => r.registrations);
+            timelineChart = new Chart(document.getElementById('chartTimeline'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Registrations',
+                        data,
+                        backgroundColor: 'rgba(26,35,126,.75)',
+                        borderRadius: 6,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { family: 'Inter', size: 11 } } },
+                        y: { grid: { color: '#f3f4f6' }, ticks: { font: { family: 'Inter', size: 11 }, precision: 0 } }
                     }
-                    
-                    showToast(verified ? '✅ Payment verified!' : '⏳ Payment unmarked');
-                    
-                    // Update stats
-                    setTimeout(() => location.reload(), 500);
-                } else {
-                    showToast(data.error || 'Verification failed', true);
-                    // Revert checkbox
-                    document.getElementById(`verify-${guestId}`).checked = !verified;
                 }
-            } catch (err) {
-                showToast('Error: ' + err.message, true);
-                document.getElementById(`verify-${guestId}`).checked = !verified;
-            }
-        }
-        
-        // Save payment notes
-        async function saveNotes(guestId, notes) {
-            try {
-                await fetch(`/admin/verify-payment/${guestId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ notes: notes })
-                });
-            } catch (err) {
-                console.error('Failed to save notes:', err);
-            }
-        }
-        
-        // Auto-refresh stats every 30 seconds
-        setInterval(() => {
-            fetch('/api/stats')
-                .then(r => r.json())
-                .then(stats => {
-                    document.getElementById('statTotal').textContent = stats.total_guests;
-                    document.getElementById('statVerified').textContent = stats.payment_verified;
-                    document.getElementById('statUnverified').textContent = stats.payment_unverified;
-                    document.getElementById('statChecked').textContent = stats.checked_in;
-                    document.getElementById('statTickets').textContent = stats.total_tickets;
-                    document.getElementById('statRevenue').textContent = '$' + stats.total_revenue;
-                });
-        }, 30000);
-    </script>
+            });
+        })
+        .catch(() => {});
+
+    /* ── Live stats refresh (30s) ──────────── */
+    function refreshStats() {
+        fetch('/api/stats').then(r => r.json()).then(s => {
+            // KPIs
+            document.getElementById('statTotal').textContent     = s.total_guests;
+            document.getElementById('statChecked').textContent   = s.checked_in;
+            document.getElementById('statTickets').textContent   = s.total_tickets;
+            document.getElementById('statRevenue').textContent   = '$' + s.total_revenue;
+            document.getElementById('statVerified').textContent  = s.payment_verified;
+            document.getElementById('statUnverified').textContent = s.payment_unverified;
+            document.getElementById('statVeg').textContent       = s.total_veg;
+            document.getElementById('statNonVeg').textContent    = s.total_nonveg;
+            document.getElementById('statVolunteers').textContent = s.total_volunteers;
+            document.getElementById('tabUnverifiedCount').textContent = s.payment_unverified;
+
+            // Legend numbers
+            document.getElementById('lgCheckedIn').textContent  = s.checked_in;
+            document.getElementById('lgPending').textContent    = s.total_guests - s.checked_in;
+            document.getElementById('lgVerified').textContent   = s.payment_verified;
+            document.getElementById('lgUnverified').textContent = s.payment_unverified;
+            document.getElementById('lgVeg').textContent        = s.total_veg;
+            document.getElementById('lgNonVeg').textContent     = s.total_nonveg;
+
+            // Update donut charts
+            checkinChart.data.datasets[0].data = [s.checked_in, s.total_guests - s.checked_in];
+            checkinChart.update('none');
+
+            paymentChart.data.datasets[0].data = [s.payment_verified, s.payment_unverified];
+            paymentChart.update('none');
+
+            foodChart.data.datasets[0].data = [s.total_veg, s.total_nonveg];
+            foodChart.update('none');
+        });
+    }
+
+    setInterval(refreshStats, 30000);
+</script>
 </body>
 </html>

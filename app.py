@@ -228,7 +228,7 @@ def register():
         except Exception as e:
             flash(f'⚠️ Registration saved but email failed. Please contact support. Error: {str(e)}', 'warning')
         
-        return redirect(url_for('view_qr', code=qr_code))
+        return redirect(url_for('view_qr', guest_id=guest.id))
     
     return render_template('register.html')
 
@@ -322,9 +322,12 @@ def admin():
         'tickets_admitted': sum(g.ticket_count for g in all_guests if g.checked_in),
         'total_revenue': sum(g.ticket_count * 35 for g in all_guests if g.approved),
         'payment_verified': sum(1 for g in all_guests if g.payment_verified),
-        'payment_unverified': sum(1 for g in all_guests if not g.payment_verified)
+        'payment_unverified': sum(1 for g in all_guests if not g.payment_verified),
+        'total_veg': sum(g.veg_count or 0 for g in all_guests),
+        'total_nonveg': sum(g.nonveg_count or 0 for g in all_guests),
+        'total_volunteers': sum(1 for g in all_guests if g.volunteer == 'yes')
     }
-    
+
     return render_template('admin.html', 
                          all_guests=all_guests,
                          pending_guests=pending_guests,
@@ -467,8 +470,15 @@ def api_stats():
     admitted_tickets = db.session.query(db.func.sum(Guest.ticket_count)).filter(Guest.checked_in==True).scalar() or 0
     
     pending_approval = Guest.query.filter_by(approved=False).count()
-    total_revenue = sum(g.ticket_count * 30 for g in Guest.query.filter_by(approved=True).all())
-    
+    approved_guests = Guest.query.filter_by(approved=True).all()
+    total_revenue = sum(g.ticket_count * 35 for g in approved_guests)
+    payment_verified = Guest.query.filter_by(payment_verified=True).count()
+    payment_unverified = total - payment_verified
+    all_guests = Guest.query.all()
+    total_veg = sum(g.veg_count or 0 for g in all_guests)
+    total_nonveg = sum(g.nonveg_count or 0 for g in all_guests)
+    total_volunteers = sum(1 for g in all_guests if g.volunteer == 'yes')
+
     return jsonify({
         'total_guests': total,
         'checked_in': checked_in,
@@ -477,7 +487,12 @@ def api_stats():
         'pending_approval': pending_approval,
         'total_tickets': tickets,
         'admitted_tickets': admitted_tickets,
-        'total_revenue': total_revenue
+        'total_revenue': total_revenue,
+        'payment_verified': payment_verified,
+        'payment_unverified': payment_unverified,
+        'total_veg': total_veg,
+        'total_nonveg': total_nonveg,
+        'total_volunteers': total_volunteers
     })
 
 @app.route('/download/csv')
@@ -487,17 +502,27 @@ def download_csv():
     
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Name', 'Email', 'Tickets', 'Payment', 'Transaction ID', 'Approved', 'Checked In', 'Band Given', 'Check-in Time'])
-    
+    writer.writerow([
+        'Name', 'Email', 'Phone', 'Tickets', 'Veg', 'Non-Veg',
+        'Attendee Names', 'Volunteer', 'Payment', 'Transaction ID',
+        'Payment Verified', 'Approved', 'Checked In', 'Band Given',
+        'Check-in Time', 'Registered At'
+    ])
+
     for g in guests:
         writer.writerow([
-            g.name, g.email, g.ticket_count,
+            g.name, g.email, g.phone or '', g.ticket_count,
+            g.veg_count or 0, g.nonveg_count or 0,
+            g.attendee_names or '',
+            g.volunteer or '',
             g.payment_method or '',
             g.transaction_id or '',
+            'Yes' if g.payment_verified else 'No',
             'Yes' if g.approved else 'No',
             'Yes' if g.checked_in else 'No',
             'Yes' if g.band_given else 'No',
-            g.checkin_time.strftime('%Y-%m-%d %H:%M:%S') if g.checkin_time else ''
+            g.checkin_time.strftime('%Y-%m-%d %H:%M:%S') if g.checkin_time else '',
+            g.created_at.strftime('%Y-%m-%d %H:%M:%S') if g.created_at else ''
         ])
     
     output.seek(0)
@@ -545,7 +570,7 @@ def verify_payment(guest_id):
     if verified:
         guest.payment_verified = True
         guest.payment_verified_at = datetime.utcnow()
-        guest.payment_verified_by = request.authorization.username if request.authorization else 'admin'
+        guest.payment_verified_by = (request.authorization.username if request.authorization else None) or 'admin'
         if notes:
             guest.payment_notes = f"{guest.payment_notes or ''}\nVerified: {notes}".strip()
     else:
@@ -582,11 +607,20 @@ def generate_qr_image(qr_data, guest_name):
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
-    # Add text below QR code
-    # Try to use a nice font, fallback to default
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-    except:
+    # Add text below QR code — try platform fonts before tiny bitmap fallback
+    font = None
+    for font_path in [
+        "/System/Library/Fonts/Helvetica.ttc",           # macOS
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux (Debian/Ubuntu)
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux (RHEL/CentOS)
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",        # Linux (Fedora)
+    ]:
+        try:
+            font = ImageFont.truetype(font_path, 20)
+            break
+        except (IOError, OSError):
+            continue
+    if font is None:
         font = ImageFont.load_default()
     
     # Create new image with space for text
@@ -595,7 +629,7 @@ def generate_qr_image(qr_data, guest_name):
     new_img.paste(img, (0, 0))
     
     draw = ImageDraw.Draw(new_img)
-    text = f"Party 2026 - {guest_name}"
+    text = f"Dallas Boyz Party - {guest_name}"
     
     # Center text
     bbox = draw.textbbox((0, 0), text, font=font)
@@ -620,19 +654,23 @@ def send_qr_email(guest):
     qr_image = generate_qr_image(guest.qr_code, guest.name)
     
     msg = Message(
-        subject='🎉 Your Party 2026 QR Code!',
+        subject='🏏 Your Dallas Boyz Party QR Code!',
         recipients=[guest.email],
         body=f"""Hi {guest.name}!
 
-You're registered for Party 2026!
+You're registered for the Dallas Boyz Party - RCB Champions 2025 Celebration!
 
-📅 Date: [Add your party date]
-📍 Location: [Add your party location]
+📅 Date: September 19, 2025
+🕕 Time: 6:00 PM – 11:00 PM
+📍 Venue: Elegance Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 🎫 Tickets: {guest.ticket_count}
 
-Your QR code is attached. Please show this at the entrance for check-in.
+Your QR code is attached to this email. Please show it at the entrance for check-in.
 
-See you there!
+No QR code? No problem — you can also check in with your email at the scanner.
+
+See you there! 🎉
+– The Dallas Boyz Team
 """
     )
     
@@ -746,7 +784,9 @@ def api_daily_registrations():
     
     return jsonify(data)
 
+# Initialize DB tables on startup (works with gunicorn and Flask dev server)
+with app.app_context():
+    db.create_all()
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
