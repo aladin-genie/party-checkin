@@ -564,21 +564,6 @@ def verify_payment(guest_id):
         'message': f'Payment for {guest.name} marked as {"verified" if verified else "unverified"}'
     })
 
-@app.route('/api/stats')
-def api_stats():
-    """Get current stats for dashboard"""
-    guests = Guest.query.all()
-    return jsonify({
-        'total_guests': len(guests),
-        'checked_in': sum(1 for g in guests if g.checked_in),
-        'bands_distributed': sum(1 for g in guests if g.band_given),
-        'total_tickets': sum(g.ticket_count for g in guests),
-        'total_revenue': sum(g.ticket_count * 35 for g in guests if g.approved),
-        'payment_verified': sum(1 for g in guests if g.payment_verified),
-        'payment_unverified': sum(1 for g in guests if not g.payment_verified),
-        'pending_approval': sum(1 for g in guests if not g.approved)
-    })
-
 # Helper Functions
 def generate_qr_image(qr_data, guest_name):
     """Generate QR code image"""
