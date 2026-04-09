@@ -374,6 +374,31 @@ def api_checkin():
         'message': f'Welcome {guest.name}!'
     })
 
+@app.route('/api/lookup-by-email', methods=['POST'])
+def api_lookup_by_email():
+    """Look up guest by email for manual check-in"""
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({'success': False, 'error': 'Email required'}), 400
+    
+    guest = Guest.query.filter_by(email=email).first()
+    
+    if not guest:
+        return jsonify({'success': False, 'error': 'Email not found'}), 404
+    
+    if not guest.approved:
+        return jsonify({'success': False, 'error': 'Registration not approved yet'}), 403
+    
+    # Return guest info for check-in
+    return jsonify({
+        'success': True,
+        'guest': guest.to_dict(),
+        'already_checked_in': guest.checked_in,
+        'message': f'Found {guest.name}'
+    })
+
 @app.route('/api/give-bands', methods=['POST'])
 def api_give_bands():
     """Give partial or full bands to guest"""

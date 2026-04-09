@@ -370,9 +370,21 @@
             </div>
             
             <div class="manual-entry">
-                <p>Or enter your ticket ID manually:</p>
-                <input type="text" id="manual-code" placeholder="Enter ticket ID" >
-                <button onclick="checkInManual()">Check In</button>
+                <p><strong>Don't have your QR code?</strong></p>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-size: 0.9em;">
+                        Enter your email address:
+                    </label>
+                    <input type="email" id="manual-email" placeholder="your@email.com" style="margin-bottom: 10px;">
+                    <button onclick="checkInByEmail()" style="background: #c62828;">🔍 Find by Email</button>
+                </div>
+                <div style="border-top: 1px dashed #ddd; padding-top: 15px; margin-top: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-size: 0.9em;">
+                        Or enter your ticket ID:
+                    </label>
+                    <input type="text" id="manual-code" placeholder="Enter ticket ID">
+                    <button onclick="checkInManual()">Check In</button>
+                </div>
             </div>
         </div>
         
@@ -623,6 +635,45 @@
                     <button class="btn btn-primary" onclick="resumeScanning()">Try Again</button>
                 </div>
             `;
+        }
+        
+        async function checkInByEmail() {
+            const email = document.getElementById('manual-email').value.trim().toLowerCase();
+            
+            if (!email) {
+                alert('Please enter your email address');
+                return;
+            }
+            
+            if (!email.includes('@')) {
+                alert('Please enter a valid email address');
+                return;
+            }
+            
+            isProcessing = true;
+            html5QrCode.pause();
+            
+            try {
+                const response = await fetch('/api/lookup-by-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Found guest, proceed with check-in
+                    displayResult(data);
+                    updateStats();
+                } else {
+                    showError(data.error || 'Email not found. Please check your email or contact staff.');
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            }
+            
+            document.getElementById('manual-email').value = '';
         }
         
         function resumeScanning() {
