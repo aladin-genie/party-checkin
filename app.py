@@ -80,6 +80,7 @@ class Guest(db.Model):
     approved = db.Column(db.Boolean, default=False)
     approved_at = db.Column(db.DateTime)
     disclaimer_agreed = db.Column(db.Boolean, default=False)
+    signature_name = db.Column(db.String(100))
     
     def to_dict(self):
         return {
@@ -153,6 +154,7 @@ def register():
         veg_count = int(request.form.get('veg_count', 0))
         nonveg_count = int(request.form.get('nonveg_count', 0))
         volunteer = request.form.get('volunteer', 'no')
+        signature_name = request.form.get('signature_name', '').strip()
         total_amount = request.form.get('total_amount', '$35.00')
         
         # Validation
@@ -195,7 +197,8 @@ def register():
             total_amount=total_amount,
             approved=False,  # Pending approval
             qr_code=None,    # Will be generated after approval
-            disclaimer_agreed=True
+            disclaimer_agreed=True,
+            signature_name=signature_name
         )
         db.session.add(guest)
         db.session.commit()

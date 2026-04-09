@@ -522,10 +522,24 @@
                         I/We consent to receiving medical treatment deemed necessary in case of injury, accident, or illness during the event. I/We also acknowledge that I/We may be photographed or filmed during the event, and I/We grant permission for my likeness to be used by the event organizers and sponsors for legitimate purposes without compensation.
                     </div>
                     
-                    <label class="checkbox-option">
+                    <p style="font-size: 0.9em; color: #333; margin: 15px 0; font-weight: 500;">
+                        By selecting "I/We Agree" below, I/We certify that I/We have read and understood this disclaimer and release of liability. I/We voluntarily agree to its terms and confirm that my participation is entirely voluntary.
+                        <span class="required">*</span>
+                    </p>
+                    
+                    <label class="checkbox-option" style="margin-bottom: 15px;">
                         <input type="checkbox" id="disclaimer_agreed" name="disclaimer_agreed" required>
-                        <span>I have read and agree to the alcohol disclaimer and liability waiver above</span>
+                        <span><strong>I/We Agree</strong></span>
                     </label>
+                    
+                    <div class="form-group" id="signatureNameGroup" style="display: none;">
+                        <label for="signature_name">
+                            Name: <span class="required">*</span>
+                            <span class="hint">Type your full name as signature</span>
+                        </label>
+                        <input type="text" id="signature_name" name="signature_name" 
+                               placeholder="Enter your full name">
+                    </div>
                 </div>
                 
                 <button type="submit" class="submit-btn" id="submitBtn">Submit Registration →</button>
@@ -580,6 +594,20 @@
             document.getElementById(id).closest('.radio-option').classList.add('selected');
         }
         
+        // Disclaimer checkbox - show/hide signature field
+        document.getElementById('disclaimer_agreed').addEventListener('change', function() {
+            const sigGroup = document.getElementById('signatureNameGroup');
+            const sigInput = document.getElementById('signature_name');
+            if (this.checked) {
+                sigGroup.style.display = 'block';
+                sigInput.required = true;
+            } else {
+                sigGroup.style.display = 'none';
+                sigInput.required = false;
+                sigInput.value = '';
+            }
+        });
+        
         // Form validation
         document.getElementById('registerForm').addEventListener('submit', function(e) {
             const numAttendees = parseInt(document.getElementById('num_attendees').value) || 0;
@@ -596,6 +624,12 @@
             if (!document.getElementById('disclaimer_agreed').checked) {
                 e.preventDefault();
                 alert('You must agree to the alcohol disclaimer to register');
+                return false;
+            }
+            
+            if (!document.getElementById('signature_name').value.trim()) {
+                e.preventDefault();
+                alert('Please enter your name as signature');
                 return false;
             }
         });
