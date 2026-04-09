@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Report - Party 2025</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 50%, #1a237e 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            padding: 40px 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 20px;
+            margin-bottom: 20px;
+        }
+        
+        header h1 {
+            font-size: 2.2em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        header .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .stats-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #1a237e;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .panel h2 {
+            color: #1a237e;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95em;
+        }
+        
+        .report-table th {
+            text-align: left;
+            padding: 15px 12px;
+            border-bottom: 2px solid #1a237e;
+            color: #1a237e;
+            font-weight: 600;
+            background: #f8f9fa;
+        }
+        
+        .report-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .report-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .report-table tr.event-day {
+            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+            font-weight: bold;
+        }
+        
+        .report-table tr.event-day td {
+            border-bottom: 2px solid #ffc107;
+        }
+        
+        .event-badge {
+            background: #ffc107;
+            color: #333;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+        
+        .number-cell {
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .cumulative {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .zero {
+            color: #999;
+        }
+        
+        .date-cell {
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        
+        .attendees-list {
+            max-height: 100px;
+            overflow-y: auto;
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        .attendees-list .name {
+            display: inline-block;
+            background: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin: 2px;
+        }
+        
+        .action-btns {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.95em;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 100%);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #1a237e 0%, #c62828 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            transition: width 0.3s;
+        }
+        
+        .timeline-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .timeline-info p {
+            margin: 5px 0;
+            color: #555;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            transition: background 0.3s;
+        }
+        
+        .back-link:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        @media (max-width: 768px) {
+            .report-table {
+                font-size: 0.85em;
+            }
+            
+            .report-table th,
+            .report-table td {
+                padding: 8px 6px;
+            }
+            
+            .attendees-list {
+                max-width: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Registration Report</h1>
+            <div class="subtitle">
+                Daily registration tracking leading up to the event<br>
+                <strong>September 19, 2025</strong>
+            </div>
+        </header>
+        
+        <div class="stats-overview">
+            <div class="stat-card">
+                <div class="stat-number">{{ total_guests }}</div>
+                <div class="stat-label">Total Registrations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ total_tickets }}</div>
+                <div class="stat-label">Total Tickets</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ daily_stats|length }}</div>
+                <div class="stat-label">Days Tracked</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ days_until_event }}</div>
+                <div class="stat-label">Days Until Event</div>
+            </div>
+        </div>
+        
+        {% if daily_stats %}
+        <div class="panel">
+            <div class="timeline-info">
+                <p><strong>📅 Event Date:</strong> Friday, September 19, 2025</p>
+                <p><strong>📍 Location:</strong> Elegance Event Center, Plano, TX</p>
+                <p><strong>🎯 Capacity:</strong> 200+ guests expected</p>
+            </div>
+            
+            <div class="action-btns">
+                <button class="btn btn-primary" onclick="window.print()">🖨️ Print Report</button>
+                <a href="/download/csv" class="btn btn-secondary">↓ Download CSV</a>
+                <a href="/admin" class="btn btn-secondary">← Back to Admin</a>
+            </div>
+            
+            <h2>📈 Daily Registration Timeline</h2>
+            
+            <div style="overflow-x: auto;">
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>New Registrations</th>
+                            <th>New Tickets</th>
+                            <th>Cumulative Guests</th>
+                            <th>Cumulative Tickets</th>
+                            <th>Registrants</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for day in daily_stats %}
+                        <tr class="{% if day.is_event_day %}event-day{% endif %}">
+                            <td class="date-cell">
+                                {{ day.date_str }}
+                                {% if day.is_event_day %}
+                                <span class="event-badge">🎉 EVENT DAY</span>
+                                {% endif %}
+                            </td>
+                            <td class="number-cell {% if day.new_registrations == 0 %}zero{% endif %}">
+                                {{ day.new_registrations }}
+                            </td>
+                            <td class="number-cell {% if day.new_tickets == 0 %}zero{% endif %}">
+                                {{ day.new_tickets }}
+                            </td>
+                            <td class="number-cell cumulative">
+                                {{ day.cumulative_guests }}
+                            </td>
+                            <td class="number-cell cumulative">
+                                {{ day.cumulative_tickets }}
+                            </td>
+                            <td>
+                                {% if day.attendees %}
+                                <div class="attendees-list">
+                                    {% for attendee in day.attendees %}
+                                    <span class="name">{{ attendee.name }} ({{ attendee.tickets }})</span>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <span class="zero">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="panel" style="text-align: center; padding: 60px;">
+            <h2>No Registrations Yet</h2>
+            <p style="color: #666; margin: 20px 0;">Registration data will appear here once guests start signing up.</p>
+            <a href="/register" class="btn btn-primary">Go to Registration Page</a>
+        </div>
+        {% endif %}
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+</body>
+</html>

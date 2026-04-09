@@ -9,14 +9,7 @@ services:
         value: 3.11.0
       - key: SECRET_KEY
         sync: false  # Set a persistent secret in Render dashboard
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_PUBLISHABLE_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: TICKET_PRICE_CENTS
-        value: 2000
+
       - key: MAIL_SERVER
         value: smtp.gmail.com
       - key: MAIL_PORT

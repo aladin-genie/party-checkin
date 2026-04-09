@@ -33,7 +33,7 @@ A complete event registration and check-in system for 200+ guests with:
 - Volunteer option
 - Alcohol disclaimer agreement with digital signature
 - **Price:** $35 per person
-- **Payment:** Zelle to dallashudugaru@gmail.com
+- **Payment:** Zelle to dallashudugaru@gmail.com (manual verification)
 
 #### 2. QR Code Delivery
 - QR code generated immediately upon registration

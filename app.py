@@ -665,6 +665,102 @@ def generate_welcome_announcement(name, ticket_count):
     else:
         return f"Welcome {name}! You have {ticket_count} tickets. Enjoy the party!"
 
+@app.route('/reports/registration')
+def registration_report():
+    """Show daily registration counts leading up to the event"""
+    from sqlalchemy import func
+    
+    # Event date: September 19, 2025
+    event_date = datetime(2025, 9, 19)
+    
+    # Get all guests ordered by creation date
+    guests = Guest.query.order_by(Guest.created_at).all()
+    
+    if not guests:
+        return render_template('registration_report.html', 
+                             daily_stats=[],
+                             total_guests=0,
+                             total_tickets=0,
+                             event_date=event_date,
+                             days_until_event=(event_date - datetime.utcnow()).days)
+    
+    # Build daily registration stats
+    from collections import defaultdict
+    daily_registrations = defaultdict(lambda: {'count': 0, 'tickets': 0, 'attendees': []})
+    
+    for guest in guests:
+        date_key = guest.created_at.date()
+        daily_registrations[date_key]['count'] += 1
+        daily_registrations[date_key]['tickets'] += guest.ticket_count or guest.num_attendees or 1
+        daily_registrations[date_key]['attendees'].append({
+            'name': guest.name,
+            'tickets': guest.ticket_count or guest.num_attendees or 1
+        })
+    
+    # Build complete timeline from first registration to event date
+    first_date = min(daily_registrations.keys())
+    current_date = first_date
+    end_date = event_date.date()
+    
+    daily_stats = []
+    running_total_guests = 0
+    running_total_tickets = 0
+    
+    while current_date <= end_date:
+        day_data = daily_registrations.get(current_date, {'count': 0, 'tickets': 0, 'attendees': []})
+        running_total_guests += day_data['count']
+        running_total_tickets += day_data['tickets']
+        
+        daily_stats.append({
+            'date': current_date,
+            'date_str': current_date.strftime('%A, %B %d, %Y'),
+            'new_registrations': day_data['count'],
+            'new_tickets': day_data['tickets'],
+            'cumulative_guests': running_total_guests,
+            'cumulative_tickets': running_total_tickets,
+            'attendees': day_data['attendees'],
+            'is_event_day': current_date == end_date
+        })
+        
+        current_date += timedelta(days=1)
+    
+    return render_template('registration_report.html',
+                         daily_stats=daily_stats,
+                         total_guests=running_total_guests,
+                         total_tickets=running_total_tickets,
+                         event_date=event_date,
+                         days_until_event=(event_date - datetime.utcnow()).days)
+
+@app.route('/api/reports/daily')
+def api_daily_registrations():
+    """API endpoint for daily registration data"""
+    from sqlalchemy import func
+    
+    # Get date range from query params or default to all
+    start_date = request.args.get('start')
+    end_date = request.args.get('end')
+    
+    query = db.session.query(
+        func.date(Guest.created_at).label('date'),
+        func.count(Guest.id).label('registrations'),
+        func.sum(Guest.ticket_count).label('tickets')
+    ).group_by(func.date(Guest.created_at))
+    
+    if start_date:
+        query = query.filter(func.date(Guest.created_at) >= start_date)
+    if end_date:
+        query = query.filter(func.date(Guest.created_at) <= end_date)
+    
+    results = query.order_by(func.date(Guest.created_at)).all()
+    
+    data = [{
+        'date': r.date.isoformat(),
+        'registrations': r.registrations,
+        'tickets': int(r.tickets) if r.tickets else 0
+    } for r in results]
+    
+    return jsonify(data)
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
