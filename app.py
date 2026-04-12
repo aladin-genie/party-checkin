@@ -22,9 +22,16 @@ import flask
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or os.urandom(32).hex()
-# Use DATABASE_PATH env var for Render disk, fallback to local
-db_path = os.getenv('DATABASE_PATH', 'party_guests.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+# Support PostgreSQL (Railway) via DATABASE_URL, or SQLite (Render/local) via DATABASE_PATH
+_database_url = os.getenv('DATABASE_URL')
+if _database_url:
+    # Railway/Heroku inject postgres:// but SQLAlchemy 1.4+ requires postgresql://
+    if _database_url.startswith('postgres://'):
+        _database_url = _database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = _database_url
+else:
+    db_path = os.getenv('DATABASE_PATH', 'party_guests.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 
