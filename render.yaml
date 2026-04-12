@@ -4,11 +4,15 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    # Free tier: no persistent disk — database is hosted on Supabase (PostgreSQL)
+    # Upgrade to a paid Render plan whenever you need the app always-on (no cold starts)
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: SECRET_KEY
         sync: false  # Set a persistent secret in Render dashboard
+      - key: DATABASE_URL
+        sync: false  # Paste your Supabase connection string here (Settings > Database > URI)
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_PUBLISHABLE_KEY
@@ -32,9 +36,3 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
         value: ""
-      - key: DATABASE_PATH
-        value: /opt/render/project/src/data/party_guests.db
-    disk:
-      name: data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
