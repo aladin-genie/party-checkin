@@ -6,9 +6,9 @@ A complete event registration and check-in system with Stripe payments, QR codes
 
 | Feature | Description |
 |---------|-------------|
-| **Stripe Payments** | Secure payment processing per ticket |
-| **Auto QR Email** | QR codes sent automatically after payment |
-| **Self Check-In** | Guests scan their own QR codes |
+| **Zelle Payments** | Guests pay via Zelle then submit their transaction reference |
+| **Auto QR Email** | QR codes sent automatically after registration |
+| **Self Check-In** | Guests scan their own QR codes at the door |
 | **Audio Announcement** | Speaks name + ticket count for staff |
 | **Wristband Tracking** | Prevents double distribution |
 | **Admin Dashboard** | Real-time stats and guest management |
@@ -71,20 +71,22 @@ Share these links with your team:
 ## Guest Flow
 
 ```
-  Guest registers online
+  Organiser shares Zelle details + registration link with guests
           |
           v
-  Stripe payment page
-          |
-    Payment success
+  Guest sends Zelle payment
           |
           v
-  QR code emailed to guest
+  Guest opens /register
+  Fills in: Name, Email, Tickets, Zelle Transaction ID
+          |
+          v
+  QR code emailed to guest instantly
           |
    Night of the party
           |
           v
-  Guest shows QR code
+  Guest shows QR code (phone or printout)
           |
           v
   Staff scans at /scanner
@@ -139,16 +141,12 @@ DATABASE_URL        = postgresql://postgres:...@db.xxxx.supabase.co:5432/postgre
 
 SECRET_KEY          = (any long random string, e.g. mysupersecretkey123)
 
-STRIPE_SECRET_KEY   = sk_test_...
-STRIPE_PUBLISHABLE_KEY = pk_test_...
-STRIPE_WEBHOOK_SECRET  = whsec_...
-
 MAIL_USERNAME       = your-gmail@gmail.com
 MAIL_PASSWORD       = xxxx xxxx xxxx xxxx  (Gmail app password)
 MAIL_DEFAULT_SENDER = your-gmail@gmail.com
 
-TICKET_PRICE_CENTS  = 2000   (= $20 per ticket)
-ADMIN_PASSWORD      = (optional, protects /admin)
+TICKET_PRICE_CENTS  = 2000   (= $20 per ticket, shown on registration form)
+ADMIN_PASSWORD      = (optional, protects /admin page)
 ```
 
 6. Click **Deploy** — done. Tables are created automatically on first boot.
@@ -170,24 +168,30 @@ Supabase stays free either way.
 
 ---
 
-## Stripe Setup
+## Zelle Payment Setup
 
-### Get API Keys
-1. [stripe.com](https://stripe.com) → Developers → API keys
-2. Copy **Publishable key** (`pk_...`) and **Secret key** (`sk_...`)
+No third-party payment account needed. Zelle works directly through your bank app.
 
-### Set Up Webhook
-1. Stripe Dashboard → Developers → Webhooks → Add endpoint
-2. URL: `https://your-app.onrender.com/webhook`
-3. Event: `checkout.session.completed`
-4. Copy **Signing secret** (`whsec_...`)
+### How It Works
+1. You share your Zelle details (phone number or email) with guests along with the registration link
+2. Guest sends payment via Zelle in their banking app
+3. Guest opens the registration form, fills in their details + Zelle transaction reference
+4. You can cross-check the transaction reference in your bank app against the guest list in `/admin`
 
-### Test Payment
+### Recommended Message to Share with Guests
 ```
-Card:  4242 4242 4242 4242
-Date:  Any future date
-CVC:   Any 3 digits
+Hi! Here's how to register for the party:
+
+1. Send $20 per ticket via Zelle to: [your-zelle-phone-or-email]
+2. Register here: https://your-app.onrender.com/register
+   (Enter your Zelle transaction reference number in the form)
+3. You'll receive your QR code by email — bring it on the night!
 ```
+
+### Verifying Payments at the Door
+- Open `/admin` on your phone
+- Guest list shows the Zelle transaction reference each guest submitted
+- Cross-check against your bank app if needed
 
 ---
 
@@ -203,8 +207,8 @@ CVC:   Any 3 digits
 ## Party Day Checklist
 
 **1 hour before:**
-- [ ] Open `https://your-app.onrender.com` to wake it from sleep
-- [ ] Log in to `/admin` and verify guest list looks correct
+- [ ] Open `https://your-app.onrender.com` to wake it from sleep (free tier cold start)
+- [ ] Log in to `/admin` and verify guest list and Zelle references look correct
 - [ ] Open `/scanner` on the check-in tablet and test camera
 
 **At the door:**
@@ -218,16 +222,16 @@ CVC:   Any 3 digits
 
 ---
 
-## Pricing Configuration
+## Ticket Price Configuration
 
-Change ticket price by setting `TICKET_PRICE_CENTS` in Render dashboard:
+The price displayed on the registration form is controlled by `TICKET_PRICE_CENTS` in your Render environment variables. This is display only — it tells guests how much to send via Zelle.
 
-| Price | Value |
+| Ticket Price | Value to Set |
 |-------|-------|
 | $10 | `1000` |
 | $20 | `2000` |
 | $50 | `5000` |
-| Free | `0` (skips payment) |
+| Free event | `0` |
 
 ---
 
@@ -271,10 +275,10 @@ Normal on Render free tier — it was sleeping. Open it a minute before guests a
 **Supabase project is paused**
 Log in to supabase.com → click your project → Restore. Takes ~30 seconds. Happens after 7 days of no activity.
 
-**Payment not working**
-- Check Stripe keys are set in Render environment variables
-- Verify webhook URL matches your Render URL exactly
-- Check Render logs: Dashboard → your service → Logs
+**Guest says they registered but no QR code received**
+- Check `/admin` to confirm their registration is there
+- Ask them to check spam/junk folder
+- Verify `MAIL_USERNAME` and `MAIL_PASSWORD` are set correctly in Render
 
 **Email not sending**
 - Make sure you used the Gmail *app password* (not your normal login password)
