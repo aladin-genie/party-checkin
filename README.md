@@ -1,205 +1,293 @@
-# 🎉 Party Check-In System
+# Party Check-In System
 
 A complete event registration and check-in system with Stripe payments, QR codes, and audio announcements. Supports 200+ guests with self check-in.
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| 💳 **Stripe Payments** | Secure payment processing per ticket |
-| 📧 **Auto QR Email** | QR codes sent automatically after payment |
-| 📷 **Self Check-In** | Guests scan their own QR codes |
-| 🔊 **Audio Announcement** | Speaks name + ticket count for staff |
-| 🎨 **Wristband Tracking** | Prevents double distribution |
-| 📊 **Admin Dashboard** | Real-time stats and guest management |
-| 📥 **CSV Export** | Download guest list anytime |
+| **Stripe Payments** | Secure payment processing per ticket |
+| **Auto QR Email** | QR codes sent automatically after payment |
+| **Self Check-In** | Guests scan their own QR codes |
+| **Audio Announcement** | Speaks name + ticket count for staff |
+| **Wristband Tracking** | Prevents double distribution |
+| **Admin Dashboard** | Real-time stats and guest management |
+| **CSV Export** | Download guest list anytime |
 
-## 🚀 Quick Start (Local)
+---
+
+## How It Works (Architecture)
+
+```
+                        INTERNET
+                            |
+                    [ Your Guests ]
+                            |
+              https://party-checkin.onrender.com
+                            |
+                +-----------+----------+
+                |                      |
+         [ Render.com ]         [ Supabase ]
+         Runs the app            Stores data
+         Flask + Python          PostgreSQL DB
+         FREE tier               FREE tier
+         (sleeps when idle)      (500MB storage)
+                |                      |
+                +-----------+----------+
+                            |
+                    Your Party App!
+```
+
+**What each part does:**
+
+| Part | Role | Cost | URL |
+|------|------|------|-----|
+| **Render** | Runs your Flask app in the cloud | Free | `party-checkin.onrender.com` |
+| **Supabase** | Stores guest list & check-in data | Free | No URL — internal database only |
+| **Domain** | Custom web address (optional) | ~$12/yr | e.g. `myparty.com` — not needed |
+
+> **Free tier note:** On Render's free plan the app sleeps after 15 min of inactivity and takes ~30 seconds to wake up on the next visit. This is fine — just open the app a minute before guests arrive to pre-warm it. Upgrade to Render Starter ($7/mo) anytime for always-on.
+
+---
+
+## Your App URL
+
+Once deployed, your app lives at:
+
+```
+https://<your-service-name>.onrender.com
+```
+
+Share these links with your team:
+
+| Link | Who uses it |
+|------|-------------|
+| `https://your-app.onrender.com/register` | Guests — to register and pay |
+| `https://your-app.onrender.com/scanner` | Check-in staff — scan QR codes |
+| `https://your-app.onrender.com/admin` | Organiser — live dashboard |
+
+---
+
+## Guest Flow
+
+```
+  Guest registers online
+          |
+          v
+  Stripe payment page
+          |
+    Payment success
+          |
+          v
+  QR code emailed to guest
+          |
+   Night of the party
+          |
+          v
+  Guest shows QR code
+          |
+          v
+  Staff scans at /scanner
+          |
+          v
+  Audio: "Welcome Sarah! 2 tickets."
+          |
+          v
+  Staff hands wristbands
+          |
+  Click "Mark Band Given"
+          |
+          v
+  Guest enters the party!
+```
+
+---
+
+## Deploy: Render Free + Supabase Free
+
+### Step 1 — Set Up Supabase (database)
+
+1. Go to [supabase.com](https://supabase.com) → **Start your project** (free)
+2. Create a new project — pick any name and region
+3. Wait ~2 minutes for it to provision
+4. Go to **Settings → Database → Connection string → URI**
+5. Copy the URI — it looks like:
+   ```
+   postgresql://postgres:[YOUR-PASSWORD]@db.xxxx.supabase.co:5432/postgres
+   ```
+   Keep this — you'll paste it into Render in Step 2.
+
+> Supabase free tier: 500MB storage (enough for thousands of guests), 2 free projects. Project pauses after 7 days of inactivity — just log in and unpause before your next event.
+
+---
+
+### Step 2 — Deploy on Render (app host)
+
+1. Go to [render.com](https://render.com) → sign up with GitHub
+2. Click **New + → Web Service**
+3. Connect your GitHub repo (`party-checkin`)
+4. Render auto-detects `render.yaml` — confirm the settings:
+   - **Runtime**: Python
+   - **Build command**: `pip install -r requirements.txt`
+   - **Start command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2`
+   - **Plan**: Free
+5. Set these environment variables in the dashboard:
+
+```
+DATABASE_URL        = postgresql://postgres:...@db.xxxx.supabase.co:5432/postgres
+                      (paste your Supabase URI from Step 1)
+
+SECRET_KEY          = (any long random string, e.g. mysupersecretkey123)
+
+STRIPE_SECRET_KEY   = sk_test_...
+STRIPE_PUBLISHABLE_KEY = pk_test_...
+STRIPE_WEBHOOK_SECRET  = whsec_...
+
+MAIL_USERNAME       = your-gmail@gmail.com
+MAIL_PASSWORD       = xxxx xxxx xxxx xxxx  (Gmail app password)
+MAIL_DEFAULT_SENDER = your-gmail@gmail.com
+
+TICKET_PRICE_CENTS  = 2000   (= $20 per ticket)
+ADMIN_PASSWORD      = (optional, protects /admin)
+```
+
+6. Click **Deploy** — done. Tables are created automatically on first boot.
+
+Your app is live at `https://<service-name>.onrender.com`
+
+---
+
+### Upgrade Path (when you need always-on)
+
+No code changes needed — just change the Render plan:
+
+```
+Render Free ($0)  →  Render Starter ($7/mo)
+  sleeps when idle      always on, no cold start
+```
+
+Supabase stays free either way.
+
+---
+
+## Stripe Setup
+
+### Get API Keys
+1. [stripe.com](https://stripe.com) → Developers → API keys
+2. Copy **Publishable key** (`pk_...`) and **Secret key** (`sk_...`)
+
+### Set Up Webhook
+1. Stripe Dashboard → Developers → Webhooks → Add endpoint
+2. URL: `https://your-app.onrender.com/webhook`
+3. Event: `checkout.session.completed`
+4. Copy **Signing secret** (`whsec_...`)
+
+### Test Payment
+```
+Card:  4242 4242 4242 4242
+Date:  Any future date
+CVC:   Any 3 digits
+```
+
+---
+
+## Gmail Setup
+
+1. Google Account → Security → **2-Step Verification** (enable)
+2. Google Account → Security → **App passwords**
+3. Select App: Mail / Device: Other → name it "Party Check-In"
+4. Copy the 16-character password → use as `MAIL_PASSWORD`
+
+---
+
+## Party Day Checklist
+
+**1 hour before:**
+- [ ] Open `https://your-app.onrender.com` to wake it from sleep
+- [ ] Log in to `/admin` and verify guest list looks correct
+- [ ] Open `/scanner` on the check-in tablet and test camera
+
+**At the door:**
+- [ ] `/scanner` open on check-in tablet (camera facing guests)
+- [ ] `/admin` open on organiser phone for live view
+- [ ] Volume up on scanner device for audio announcements
+
+**After the party:**
+- [ ] Download CSV from `/admin` for records
+- [ ] Optionally pause/delete Supabase project and Render service
+
+---
+
+## Pricing Configuration
+
+Change ticket price by setting `TICKET_PRICE_CENTS` in Render dashboard:
+
+| Price | Value |
+|-------|-------|
+| $10 | `1000` |
+| $20 | `2000` |
+| $50 | `5000` |
+| Free | `0` (skips payment) |
+
+---
+
+## Local Development
 
 ```bash
 cd party-checkin
 ./run.sh
 ```
 
-Open http://localhost:5000
-
-The script will use Gunicorn if available, otherwise falls back to Flask dev server.
-
-## 🌐 Deploy to Render.com
-
-### 1. Create Render Account
-- Go to [render.com](https://render.com)
-- Sign up with GitHub
-
-### 2. Create New Web Service
-1. Click "New +" → "Web Service"
-2. Connect your GitHub repo
-3. Select the party-checkin folder
-
-### 3. Configure Environment Variables
-
-In Render dashboard → Your Service → Environment:
-
-```
-SECRET_KEY=(auto-generated or random string)
-TICKET_PRICE_CENTS=2000
-
-# Stripe (required for payments)
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_PUBLISHABLE_KEY=pk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Email (optional but recommended)
-MAIL_SERVER=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USE_TLS=true
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=your-app-password
-MAIL_DEFAULT_SENDER=your-email@gmail.com
-```
-
-### 4. Deploy
-Click "Deploy" - Render will build and deploy automatically!
+Open `http://localhost:5000` — uses SQLite locally, no Supabase needed.
 
 ---
 
-## 💳 Stripe Setup
-
-### 1. Create Stripe Account
-- Go to [stripe.com](https://stripe.com)
-- Complete onboarding
-
-### 2. Get API Keys
-- Dashboard → Developers → API keys
-- Copy **Publishable key** (starts with `pk_`)
-- Copy **Secret key** (starts with `sk_`)
-
-### 3. Set Up Webhook
-1. Dashboard → Developers → Webhooks
-2. Add endpoint: `https://your-app.onrender.com/webhook`
-3. Select event: `checkout.session.completed`
-4. Copy **Signing secret** (starts with `whsec_`)
-
-### 4. Test Payment
-Use Stripe test card:
-- Card: `4242 4242 4242 4242`
-- Date: Any future date
-- CVC: Any 3 digits
-
----
-
-## 📧 Email Setup (Gmail)
-
-### 1. Enable 2FA
-- Google Account → Security → 2-Step Verification
-
-### 2. Create App Password
-- Google Account → Security → App passwords
-- Select "Mail" + "Other (Custom name)"
-- Name: "Party Check-In"
-- Copy the 16-character password
-
-### 3. Configure in Render
-```
-MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=xxxx xxxx xxxx xxxx (the app password)
-MAIL_DEFAULT_SENDER=your-email@gmail.com
-```
-
----
-
-## 🎨 Party Day Workflow
-
-### Setup (Before Party)
-```bash
-# Deploy and verify
-https://your-app.onrender.com/admin
-
-# Test registration with Stripe test card
-https://your-app.onrender.com/register
-```
-
-### At the Party
-1. **Check-In Station**: Open `/scanner` on a tablet/laptop with camera
-2. **Volume Up**: Ensure audio is audible for wristband staff
-3. **Admin Access**: Keep `/admin` open on organizer's phone for monitoring
-
-### Guest Flow
-```
-Guest arrives → Scans QR code
-                ↓
-Audio: "Welcome Sarah! You have 3 tickets."
-                ↓
-Staff hands 3 wristbands
-                ↓
-Staff clicks "Mark Band Given"
-                ↓
-Guest enters! 🎉
-```
-
----
-
-## 💰 Pricing Configuration
-
-Change ticket price by setting `TICKET_PRICE_CENTS`:
-
-| Price | Value |
-|-------|-------|
-| $10 | 1000 |
-| $20 | 2000 |
-| $50 | 5000 |
-| Free | 0 (skips payment) |
-
----
-
-## 🔒 Security Notes
-
-- **Never commit `.env` files** with real keys
-- **Stripe webhooks verify signatures** - tamper-proof
-- **Admin page** is public - consider adding password protection for production
-- **SQLite database** persists on Render's disk
-
----
-
-## 🐛 Troubleshooting
-
-### Payment not working
-- Check Stripe keys are set in Render
-- Verify webhook URL is correct
-- Check Render logs: Dashboard → Logs
-
-### Email not sending
-- Verify app password (not regular Gmail password)
-- Check spam folders
-- Test with Mailtrap for development
-
-### QR codes not scanning
-- Ensure good lighting
-- Hold phone steady
-- Try manual entry as fallback
-
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 party-checkin/
-├── app.py                 # Flask backend
-├── requirements.txt       # Python dependencies
-├── render.yaml           # Render deployment config
-├── run.sh                # Local startup script
-├── README.md             # This file
-├── party_guests.db       # SQLite database
+├── app.py              # Flask app (routes, models, logic)
+├── requirements.txt    # Python dependencies
+├── render.yaml         # Render deployment config (free tier + Supabase)
+├── railway.toml        # Railway deployment config (alternative)
+├── gunicorn.conf.py    # Production server config
+├── run.sh              # Local dev startup script
+├── README.md           # This file
 └── templates/
-    ├── index.html        # Home page
-    ├── register.html     # Registration + payment
-    ├── scanner.html      # Self check-in
-    ├── view_qr.html      # QR code display
-    └── admin.html        # Dashboard
+    ├── index.html      # Home / stats page
+    ├── register.html   # Registration + Stripe payment
+    ├── scanner.html    # Self check-in QR scanner
+    ├── view_qr.html    # QR code display
+    └── admin.html      # Live admin dashboard
 ```
 
 ---
 
-## 📝 License
+## Troubleshooting
 
-MIT - Use for your parties! 🎊
+**App takes 30 seconds to load**
+Normal on Render free tier — it was sleeping. Open it a minute before guests arrive.
+
+**Supabase project is paused**
+Log in to supabase.com → click your project → Restore. Takes ~30 seconds. Happens after 7 days of no activity.
+
+**Payment not working**
+- Check Stripe keys are set in Render environment variables
+- Verify webhook URL matches your Render URL exactly
+- Check Render logs: Dashboard → your service → Logs
+
+**Email not sending**
+- Make sure you used the Gmail *app password* (not your normal login password)
+- Check spam folder
+- Verify `MAIL_USERNAME` and `MAIL_DEFAULT_SENDER` match
+
+**QR code not scanning**
+- Ensure good lighting at the check-in station
+- Hold camera steady and wait 1-2 seconds
+- Use manual guest lookup as fallback
+
+---
+
+## License
+
+MIT — use it for your parties!
