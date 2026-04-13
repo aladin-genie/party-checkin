@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Event Check-In{% endblock %}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            color: #333;
+        }
+        .flash-wrap { max-width: 900px; margin: 16px auto; padding: 0 20px; }
+        .flash {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+        .flash.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .flash.error   { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .flash.warning { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        .flash.info    { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-wrap">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block body %}{% endblock %}
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

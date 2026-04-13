@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check-In Scanner — {{ event.name }}</title>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        header { text-align: center; color: white; padding: 16px 0 20px; }
+        header h1 { font-size: 1.6em; font-weight: 800; }
+        header p  { opacity: 0.75; font-size: 0.9em; margin-top: 4px; }
+
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 16px;
+            color: white;
+        }
+        .stat { text-align: center; }
+        .stat-val { font-size: 1.5em; font-weight: 800; }
+        .stat-lbl { font-size: 0.78em; opacity: 0.8; }
+
+        .scanner-card {
+            background: white;
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        }
+
+        #reader { width: 100% !important; border: none !important; }
+        #reader video { border-radius: 10px; }
+
+        .status-area {
+            margin-top: 24px;
+            padding: 24px;
+            border-radius: 14px;
+            text-align: center;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .status-waiting  { background: #f4f4f4; }
+        .status-success  { background: #d4edda; border: 3px solid #28a745; animation: pulse 0.6s ease; }
+        .status-error    { background: #f8d7da; border: 3px solid #dc3545; }
+        .status-warning  { background: #fff3cd; border: 3px solid #ffc107; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.015); }
+        }
+        .status-icon { font-size: 3em; margin-bottom: 10px; }
+        .guest-name  { font-size: 1.8em; font-weight: 800; color: #1a1a1a; margin-bottom: 6px; }
+        .ticket-info { font-size: 1.1em; color: var(--primary); font-weight: 600; margin-bottom: 16px; }
+        .status-msg  { color: #555; font-size: 0.95em; }
+
+        .action-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 16px;
+        }
+        .btn {
+            padding: 13px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: #28a745; color: white; }
+
+        .manual-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px dashed #e0e0e0;
+            text-align: center;
+        }
+        .manual-section p { color: #888; font-size: 0.85em; margin-bottom: 10px; }
+        .manual-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        .manual-row input {
+            padding: 11px 14px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 0.9em;
+            width: 240px;
+        }
+        .manual-row input:focus { outline: none; border-color: var(--primary); }
+        .manual-row button {
+            padding: 11px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.88em;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: white; }
+
+        @media (max-width: 500px) {
+            .guest-name { font-size: 1.4em; }
+            .action-row { flex-direction: column; }
+            .btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📷 Check-In Scanner</h1>
+            <p>{{ event.name }}</p>
+        </header>
+
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="stat-val" id="statCheckedIn">—</div>
+                <div class="stat-lbl">Checked In</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" id="statTotal">—</div>
+                <div class="stat-lbl">Registered</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" id="statPending">—</div>
+                <div class="stat-lbl">Pending</div>
+            </div>
+        </div>
+
+        <div class="scanner-card">
+            <div id="reader"></div>
+
+            <div id="statusArea" class="status-area status-waiting">
+                <div class="status-icon">📱</div>
+                <p class="status-msg">Point camera at a QR code to check in</p>
+            </div>
+
+            <div class="manual-section">
+                <p>Or enter ticket ID manually:</p>
+                <div class="manual-row">
+                    <input type="text" id="manualCode" placeholder="Ticket ID">
+                    <button onclick="checkInManual()">Check In</button>
+                </div>
+            </div>
+        </div>
+
+        <a href="{{ url_for('event_landing', slug=event.slug) }}" class="back-link">← Back to {{ event.name }}</a>
+    </div>
+
+    <script>
+        const EVENT_SLUG = '{{ event.slug }}';
+        let scanner;
+        let isProcessing = false;
+        let lastScanned = null;
+
+        function startScanner() {
+            scanner = new Html5Qrcode('reader');
+            scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                onScanSuccess,
+                () => {}
+            ).catch(err => {
+                document.getElementById('statusArea').innerHTML =
+                    '<div class="status-icon">⚠️</div>' +
+                    '<p class="status-msg">Camera access denied. Allow camera and refresh.</p>';
+                document.getElementById('statusArea').className = 'status-area status-error';
+            });
+        }
+
+        function onScanSuccess(qrCode) {
+            if (isProcessing || qrCode === lastScanned) return;
+            lastScanned = qrCode;
+            isProcessing = true;
+            scanner.pause();
+            doCheckIn(qrCode);
+        }
+
+        async function doCheckIn(qrCode) {
+            try {
+                const res = await fetch(`/api/e/${EVENT_SLUG}/checkin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ qr_code: qrCode })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showResult(data);
+                    refreshStats();
+                } else {
+                    showError(data.error || 'Check-in failed');
+                }
+            } catch (e) {
+                showError('Network error — please try again.');
+            }
+        }
+
+        function showResult(data) {
+            const area = document.getElementById('statusArea');
+            const g = data.guest;
+            if (data.already_checked_in) {
+                area.className = 'status-area status-warning';
+                area.innerHTML = `
+                    <div class="status-icon">⚠️</div>
+                    <div class="guest-name">${g.name}</div>
+                    <div class="ticket-info">Already checked in</div>
+                    <div class="action-row">
+                        <button class="btn btn-primary" onclick="resumeScan()">Scan Next</button>
+                    </div>`;
+                speak(`${g.name} already checked in`);
+            } else {
+                area.className = 'status-area status-success';
+                area.innerHTML = `
+                    <div class="status-icon">🎉</div>
+                    <div class="guest-name">${g.name}</div>
+                    <div class="ticket-info">${g.ticket_count} ticket${g.ticket_count > 1 ? 's' : ''}</div>
+                    <div class="action-row">
+                        <button class="btn btn-success" onclick="giveBand(${g.id})">✓ Band Given</button>
+                        <button class="btn btn-primary" onclick="resumeScan()">Scan Next</button>
+                    </div>`;
+                speak(`Welcome ${g.name}! ${g.ticket_count} ticket${g.ticket_count > 1 ? 's' : ''}.`);
+            }
+        }
+
+        function showError(msg) {
+            const area = document.getElementById('statusArea');
+            area.className = 'status-area status-error';
+            area.innerHTML = `
+                <div class="status-icon">❌</div>
+                <p class="status-msg">${msg}</p>
+                <div class="action-row">
+                    <button class="btn btn-primary" onclick="resumeScan()">Try Again</button>
+                </div>`;
+            speak('Check-in failed. Please try again.');
+        }
+
+        function resumeScan() {
+            isProcessing = false;
+            lastScanned = null;
+            const area = document.getElementById('statusArea');
+            area.className = 'status-area status-waiting';
+            area.innerHTML = '<div class="status-icon">📱</div><p class="status-msg">Point camera at a QR code to check in</p>';
+            scanner.resume();
+        }
+
+        async function giveBand(guestId) {
+            try {
+                await fetch(`/api/e/${EVENT_SLUG}/give-band`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ guest_id: guestId })
+                });
+                speak('Band given.');
+                resumeScan();
+            } catch (e) { resumeScan(); }
+        }
+
+        function checkInManual() {
+            const code = document.getElementById('manualCode').value.trim();
+            if (code) {
+                doCheckIn(code);
+                document.getElementById('manualCode').value = '';
+            }
+        }
+
+        async function refreshStats() {
+            try {
+                const res = await fetch(`/api/e/${EVENT_SLUG}/stats`);
+                const s = await res.json();
+                document.getElementById('statCheckedIn').textContent = s.checked_in;
+                document.getElementById('statTotal').textContent = s.total;
+                document.getElementById('statPending').textContent = s.pending;
+            } catch (e) {}
+        }
+
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(text);
+                u.rate = 0.95;
+                window.speechSynthesis.speak(u);
+            }
+        }
+
+        document.getElementById('manualCode').addEventListener('keydown', e => {
+            if (e.key === 'Enter') checkInManual();
+        });
+
+        refreshStats();
+        setInterval(refreshStats, 15000);
+        window.addEventListener('load', startScanner);
+    </script>
+</body>
+</html>

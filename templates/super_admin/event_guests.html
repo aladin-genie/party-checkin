@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}{{ event.name }} — Guests{% endblock %}
+
+{% block extra_styles %}
+body { background: #f0f2f5; }
+.topbar {
+    background: #1a1a2e;
+    color: white;
+    padding: 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.9em; }
+.topbar a:hover { color: white; }
+.topbar h1 { font-size: 1em; font-weight: 700; }
+.topbar-sep { color: rgba(255,255,255,0.3); }
+.topbar-right { display: flex; gap: 10px; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+.stat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 18px 20px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.stat-num { font-size: 2em; font-weight: 800; color: #1a1a2e; }
+.stat-lbl { color: #888; font-size: 0.82em; margin-top: 4px; }
+
+.filter-bar {
+    background: white;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.filter-bar input[type=text] {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 14px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.9em;
+}
+.filter-bar input[type=text]:focus { outline: none; border-color: #1a1a2e; }
+.filter-select {
+    padding: 10px 14px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 0.9em;
+    background: white;
+    cursor: pointer;
+}
+.filter-select:focus { outline: none; border-color: #1a1a2e; }
+.btn {
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.88em;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: #1a1a2e; color: white; }
+.btn-success { background: #28a745; color: white; }
+.btn-outline { background: white; color: #555; border: 2px solid #ddd; }
+
+.table-card {
+    background: white;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.table-info {
+    padding: 14px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #888;
+    font-size: 0.85em;
+}
+table { width: 100%; border-collapse: collapse; }
+th {
+    text-align: left;
+    padding: 12px 16px;
+    background: #f8f9fa;
+    color: #666;
+    font-size: 0.78em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #eee;
+}
+td { padding: 13px 16px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; font-size: 0.9em; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafafa; }
+.guest-name { font-weight: 600; color: #1a1a2e; }
+.guest-email { color: #888; font-size: 0.83em; }
+.zelle-ref { font-family: monospace; font-size: 0.83em; color: #555; }
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75em;
+    font-weight: 700;
+}
+.badge-in    { background: #d4edda; color: #155724; }
+.badge-pend  { background: #fff3cd; color: #856404; }
+.badge-band  { background: #d1ecf1; color: #0c5460; }
+.badge-no    { background: #f8f9fa; color: #aaa; }
+.empty-row td { text-align: center; color: #aaa; padding: 48px; }
+{% endblock %}
+
+{% block body %}
+<div class="topbar">
+    <div class="topbar-left">
+        <a href="{{ url_for('admin_dashboard') }}">← Admin</a>
+        <span class="topbar-sep">/</span>
+        <h1>{{ event.name }}</h1>
+    </div>
+    <div class="topbar-right">
+        <a href="{{ url_for('event_landing', slug=event.slug) }}" class="btn btn-outline" style="color:rgba(255,255,255,0.8);border-color:rgba(255,255,255,0.3);">View Event</a>
+        <a href="{{ url_for('admin_event_export', event_id=event.id) }}" class="btn btn-success">↓ Export CSV</a>
+        <a href="{{ url_for('admin_event_edit', event_id=event.id) }}" class="btn btn-outline" style="color:rgba(255,255,255,0.8);border-color:rgba(255,255,255,0.3);">Edit</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.total }}</div>
+            <div class="stat-lbl">Registered</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.checked_in }}</div>
+            <div class="stat-lbl">Checked In</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.pending }}</div>
+            <div class="stat-lbl">Pending</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.bands_given }}</div>
+            <div class="stat-lbl">Bands Given</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.total_tickets }}</div>
+            <div class="stat-lbl">Total Tickets</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ stats.admitted_tickets }}</div>
+            <div class="stat-lbl">Admitted</div>
+        </div>
+    </div>
+
+    <form class="filter-bar" method="GET">
+        <input type="text" name="q" placeholder="Search name, email, or Zelle ref…"
+               value="{{ q }}">
+        <select class="filter-select" name="status">
+            <option value="" {{ 'selected' if not status }}>All guests</option>
+            <option value="checked_in" {{ 'selected' if status == 'checked_in' }}>Checked in</option>
+            <option value="pending"    {{ 'selected' if status == 'pending' }}>Pending</option>
+            <option value="band_given" {{ 'selected' if status == 'band_given' }}>Band given</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+        {% if q or status %}
+        <a href="{{ url_for('admin_event_guests', event_id=event.id) }}" class="btn btn-outline">Clear</a>
+        {% endif %}
+    </form>
+
+    <div class="table-card">
+        <div class="table-info">
+            Showing {{ guests|length }} guest{{ 's' if guests|length != 1 }}
+            {% if q %} matching "{{ q }}"{% endif %}
+            {% if status %} — filtered by: {{ status.replace('_', ' ') }}{% endif %}
+        </div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Guest</th>
+                        <th>Tickets</th>
+                        <th>Zelle Reference</th>
+                        <th>Status</th>
+                        <th>Band</th>
+                        <th>Registered</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in guests %}
+                    <tr>
+                        <td>
+                            <div class="guest-name">{{ g.name }}</div>
+                            <div class="guest-email">{{ g.email }}</div>
+                        </td>
+                        <td>{{ g.ticket_count }}</td>
+                        <td>
+                            {% if g.zelle_reference %}
+                            <span class="zelle-ref">{{ g.zelle_reference }}</span>
+                            {% else %}
+                            <span style="color:#ddd;">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if g.checked_in %}
+                            <span class="badge badge-in">✓ {{ g.checkin_time.strftime('%H:%M') if g.checkin_time else 'Done' }}</span>
+                            {% else %}
+                            <span class="badge badge-pend">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if g.band_given %}
+                            <span class="badge badge-band">Given</span>
+                            {% else %}
+                            <span class="badge badge-no">—</span>
+                            {% endif %}
+                        </td>
+                        <td style="color:#888; font-size:0.82em;">
+                            {{ g.created_at.strftime('%b %d, %H:%M') if g.created_at else '—' }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr class="empty-row">
+                        <td colspan="6">No guests found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

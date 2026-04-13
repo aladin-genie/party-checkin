@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit Event' if is_edit else 'New Event' }} — Super Admin{% endblock %}
+
+{% block extra_styles %}
+body { background: #f0f2f5; }
+.topbar {
+    background: #1a1a2e;
+    color: white;
+    padding: 0 30px;
+    display: flex;
+    align-items: center;
+    height: 60px;
+    gap: 16px;
+}
+.topbar a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.9em; }
+.topbar a:hover { color: white; }
+.topbar h1 { font-size: 1em; font-weight: 700; color: white; }
+.topbar-sep { color: rgba(255,255,255,0.3); }
+
+.container { max-width: 780px; margin: 0 auto; padding: 30px 20px 60px; }
+.form-card {
+    background: white;
+    border-radius: 18px;
+    padding: 36px 40px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+.form-card h2 { font-size: 1.4em; color: #1a1a2e; margin-bottom: 28px; }
+.section-label {
+    font-size: 0.75em;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #aaa;
+    margin: 28px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.form-group { margin-bottom: 18px; }
+label { display: block; font-weight: 600; color: #555; margin-bottom: 7px; font-size: 0.88em; }
+label .hint { font-weight: 400; color: #999; margin-left: 4px; }
+input[type=text], input[type=password], input[type=number],
+input[type=datetime-local], textarea, select {
+    width: 100%;
+    padding: 12px 14px;
+    border: 2px solid #e5e7eb;
+    border-radius: 9px;
+    font-size: 0.95em;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    background: white;
+}
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: #1a1a2e;
+}
+textarea { resize: vertical; min-height: 90px; }
+
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+.theme-option { display: none; }
+.theme-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 2px solid #e5e7eb;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    font-size: 0.88em;
+    font-weight: 600;
+}
+.theme-option:checked + .theme-label {
+    border-color: #1a1a2e;
+    background: #f8f9fc;
+}
+.theme-swatch {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 9px;
+}
+.toggle-row label { margin: 0; }
+input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; }
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid #f0f0f0;
+}
+.btn {
+    padding: 12px 28px;
+    border-radius: 9px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 700;
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: #1a1a2e; color: white; }
+.btn-outline { background: white; color: #555; border: 2px solid #ddd; }
+
+@media (max-width: 600px) {
+    .form-row { grid-template-columns: 1fr; }
+    .theme-grid { grid-template-columns: repeat(2, 1fr); }
+    .form-card { padding: 24px 20px; }
+}
+{% endblock %}
+
+{% block body %}
+<div class="topbar">
+    <a href="{{ url_for('admin_dashboard') }}">← Admin</a>
+    <span class="topbar-sep">/</span>
+    <h1>{{ 'Edit Event' if is_edit else 'New Event' }}</h1>
+</div>
+
+<div class="container">
+    <div class="form-card">
+        <h2>{{ 'Edit: ' + event.name if is_edit else 'Create New Event' }}</h2>
+
+        <form method="POST">
+            <div class="section-label">Basic Info</div>
+            <div class="form-group">
+                <label for="name">Event Name *</label>
+                <input type="text" id="name" name="name" required
+                       placeholder="e.g. Summer Party 2026"
+                       value="{{ event.name if event else '' }}">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="slug">URL Slug * <span class="hint">(lowercase, hyphens only)</span></label>
+                    <input type="text" id="slug" name="slug" required
+                           placeholder="summer-party-2026"
+                           pattern="[a-z0-9-]+"
+                           value="{{ event.slug if event else '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="event_date">Event Date & Time</label>
+                    <input type="datetime-local" id="event_date" name="event_date"
+                           value="{{ event.event_date.strftime('%Y-%m-%dT%H:%M') if event and event.event_date else '' }}">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" name="location"
+                       placeholder="e.g. Riverside Park Pavilion"
+                       value="{{ event.location if event else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description"
+                          placeholder="Brief description shown on the event page">{{ event.description if event else '' }}</textarea>
+            </div>
+
+            <div class="section-label">Theme</div>
+            <div class="theme-grid">
+                {% set theme_defs = [
+                    ('party',     '#667eea', 'Party (Purple)'),
+                    ('corporate', '#1a73e8', 'Corporate (Blue)'),
+                    ('casual',    '#e91e8c', 'Casual (Pink)'),
+                    ('garden',    '#2e7d32', 'Garden (Green)'),
+                    ('gala',      '#f9a825', 'Gala (Gold)'),
+                    ('ocean',     '#0288d1', 'Ocean (Teal)'),
+                ] %}
+                {% for key, color, label in theme_defs %}
+                <div>
+                    <input class="theme-option" type="radio" name="theme" id="theme_{{ key }}"
+                           value="{{ key }}"
+                           {{ 'checked' if (event and event.theme == key) or (not event and key == 'party') }}>
+                    <label class="theme-label" for="theme_{{ key }}">
+                        <span class="theme-swatch" style="background:{{ color }};"></span>
+                        {{ label }}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="section-label">Payment (Zelle)</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="ticket_price">Ticket Price (USD) <span class="hint">0 = free</span></label>
+                    <input type="number" id="ticket_price" name="ticket_price"
+                           min="0" step="0.01" placeholder="0.00"
+                           value="{{ '%.2f'|format(event.ticket_price|float) if event and event.ticket_price else '0.00' }}">
+                </div>
+                <div class="form-group">
+                    <label for="max_tickets_per_person">Max Tickets per Person</label>
+                    <input type="number" id="max_tickets_per_person" name="max_tickets_per_person"
+                           min="1" max="20" value="{{ event.max_tickets_per_person if event else 4 }}">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="zelle_recipient">Zelle Recipient <span class="hint">(name or phone shown to guests)</span></label>
+                <input type="text" id="zelle_recipient" name="zelle_recipient"
+                       placeholder="e.g. John Smith — (555) 123-4567"
+                       value="{{ event.zelle_recipient if event else '' }}">
+            </div>
+
+            <div class="form-group">
+                <label for="zelle_instructions">Zelle Payment Instructions</label>
+                <textarea id="zelle_instructions" name="zelle_instructions"
+                          placeholder="e.g. Send $20 per ticket to (555) 123-4567 on Zelle. Use your name as the payment note. Copy the transaction confirmation number and paste it into the form below.">{{ event.zelle_instructions if event else '' }}</textarea>
+            </div>
+
+            <div class="section-label">Event Admin Login</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="admin_username">Username *</label>
+                    <input type="text" id="admin_username" name="admin_username" required
+                           placeholder="e.g. summer-admin"
+                           value="{{ event.admin_username if event else '' }}">
+                </div>
+                <div class="form-group">
+                    <label for="admin_password">
+                        Password {% if is_edit %}<span class="hint">(leave blank to keep current)</span>{% else %}*{% endif %}
+                    </label>
+                    <input type="password" id="admin_password" name="admin_password"
+                           placeholder="{{ 'New password (optional)' if is_edit else 'Set a strong password' }}"
+                           {{ '' if is_edit else 'required' }}>
+                </div>
+            </div>
+
+            <div class="section-label">Visibility</div>
+            <div class="toggle-row">
+                <label for="is_active">Show this event on the home page</label>
+                <input type="checkbox" id="is_active" name="is_active"
+                       {{ 'checked' if not event or event.is_active }}>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    {{ 'Save Changes' if is_edit else 'Create Event' }}
+                </button>
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    // Auto-generate slug from name (only for new events)
+    {% if not is_edit %}
+    document.getElementById('name').addEventListener('input', function() {
+        const slug = this.value
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+        document.getElementById('slug').value = slug;
+    });
+    {% endif %}
+</script>
+{% endblock %}
+{% endblock %}

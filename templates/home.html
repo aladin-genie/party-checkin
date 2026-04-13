@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Events — Check-In Platform{% endblock %}
+
+{% block extra_styles %}
+body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+.container { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+header { text-align: center; color: white; padding: 40px 0 50px; }
+header h1 { font-size: 2.4em; font-weight: 800; letter-spacing: -0.5px; }
+header p  { margin-top: 10px; opacity: 0.75; font-size: 1.1em; }
+
+.events-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 24px;
+}
+.event-card {
+    background: white;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+}
+.event-card:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.35); }
+.card-banner {
+    height: 8px;
+}
+.card-body { padding: 24px; flex: 1; }
+.card-name { font-size: 1.25em; font-weight: 700; color: #1a1a2e; margin-bottom: 6px; }
+.card-desc { color: #666; font-size: 0.9em; margin-bottom: 14px; line-height: 1.5; }
+.card-meta { display: flex; flex-direction: column; gap: 4px; }
+.card-meta span { font-size: 0.85em; color: #888; }
+.card-meta span b { color: #444; }
+.card-footer {
+    padding: 16px 24px;
+    background: #f8f9fa;
+    border-top: 1px solid #eee;
+}
+.register-btn {
+    display: block;
+    text-align: center;
+    padding: 12px;
+    border-radius: 10px;
+    color: white;
+    font-weight: 700;
+    text-decoration: none;
+    font-size: 0.95em;
+    transition: opacity 0.2s;
+}
+.register-btn:hover { opacity: 0.88; }
+
+.empty-state {
+    text-align: center;
+    color: rgba(255,255,255,0.6);
+    padding: 80px 20px;
+}
+.empty-state h2 { font-size: 1.5em; margin-bottom: 10px; }
+
+.admin-link {
+    text-align: center;
+    margin-top: 50px;
+}
+.admin-link a {
+    color: rgba(255,255,255,0.4);
+    text-decoration: none;
+    font-size: 0.85em;
+    transition: color 0.2s;
+}
+.admin-link a:hover { color: rgba(255,255,255,0.7); }
+{% endblock %}
+
+{% block body %}
+<div class="container">
+    <header>
+        <h1>Upcoming Events</h1>
+        <p>Select an event to register or check in</p>
+    </header>
+
+    {% if events %}
+    <div class="events-grid">
+        {% for event in events %}
+        {% set colors = themes[event.theme] if event.theme in themes else themes['party'] %}
+        <a class="event-card" href="{{ url_for('event_landing', slug=event.slug) }}">
+            <div class="card-banner" style="background: linear-gradient(90deg, {{ colors.primary }}, {{ colors.secondary }});"></div>
+            <div class="card-body">
+                <div class="card-name">{{ event.name }}</div>
+                {% if event.description %}
+                <div class="card-desc">{{ event.description[:120] }}{% if event.description|length > 120 %}…{% endif %}</div>
+                {% endif %}
+                <div class="card-meta">
+                    {% if event.event_date %}
+                    <span>📅 <b>{{ event.event_date.strftime('%B %d, %Y') }}</b></span>
+                    {% endif %}
+                    {% if event.location %}
+                    <span>📍 <b>{{ event.location }}</b></span>
+                    {% endif %}
+                    {% if event.ticket_price and event.ticket_price > 0 %}
+                    <span>🎫 <b>${{ "%.2f"|format(event.ticket_price) }}</b> per ticket</span>
+                    {% else %}
+                    <span>🎫 <b>Free</b></span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-footer">
+                <span class="register-btn"
+                      style="background: linear-gradient(135deg, {{ colors.primary }}, {{ colors.secondary }});">
+                    Register →
+                </span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h2>No upcoming events</h2>
+        <p>Check back soon or contact the organiser.</p>
+    </div>
+    {% endif %}
+
+    <div class="admin-link">
+        <a href="{{ url_for('admin_login') }}">Admin access</a>
+    </div>
+</div>
+{% endblock %}

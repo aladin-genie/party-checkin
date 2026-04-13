@@ -1,26 +1,19 @@
 services:
   - type: web
-    name: party-checkin
+    name: event-checkin
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
     # Free tier: no persistent disk — database is hosted on Supabase (PostgreSQL)
-    # Upgrade to a paid Render plan whenever you need the app always-on (no cold starts)
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: SECRET_KEY
-        sync: false  # Set a persistent secret in Render dashboard
+        sync: false  # Set a long random string in Render dashboard
       - key: DATABASE_URL
-        sync: false  # Paste your Supabase connection string here (Settings > Database > URI)
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_PUBLISHABLE_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: TICKET_PRICE_CENTS
-        value: 2000
+        sync: false  # Paste your Supabase connection string (Settings > Database > URI)
+      - key: ADMIN_PASSWORD
+        sync: false  # Super admin password for /admin/
       - key: MAIL_SERVER
         value: smtp.gmail.com
       - key: MAIL_PORT
@@ -33,6 +26,3 @@ services:
         sync: false
       - key: MAIL_DEFAULT_SENDER
         sync: false
-      - key: ADMIN_PASSWORD
-        sync: false
-        value: ""

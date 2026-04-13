@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login — {{ event.name }}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-card {
+            background: white;
+            border-radius: 20px;
+            padding: 44px 38px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .event-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 0.78em;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        h1 { font-size: 1.5em; color: #1a1a1a; margin-bottom: 6px; }
+        .subtitle { color: #888; font-size: 0.88em; margin-bottom: 28px; }
+
+        .flash { padding: 12px 14px; border-radius: 9px; margin-bottom: 16px; font-size: 0.88em; }
+        .flash.error { background: #f8d7da; color: #721c24; }
+
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-weight: 600; color: #555; margin-bottom: 7px; font-size: 0.88em; }
+        input[type=text], input[type=password] {
+            width: 100%;
+            padding: 13px 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 9px;
+            font-size: 0.95em;
+            transition: border-color 0.2s;
+        }
+        input:focus { outline: none; border-color: var(--primary); }
+        .btn-login {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            margin-top: 4px;
+        }
+        .btn-login:hover { opacity: 0.88; }
+        .back { display: block; text-align: center; margin-top: 18px; color: #aaa; font-size: 0.83em; text-decoration: none; }
+        .back:hover { color: #555; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="event-badge">{{ event.name }}</div>
+        <h1>Event Admin Login</h1>
+        <p class="subtitle">Sign in to manage guests and check-ins</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        <form method="POST">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" autofocus required
+                       placeholder="Event admin username">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required
+                       placeholder="Password">
+            </div>
+            <button type="submit" class="btn-login">Sign In →</button>
+        </form>
+        <a href="{{ url_for('event_landing', slug=event.slug) }}" class="back">← Back to event page</a>
+    </div>
+</body>
+</html>

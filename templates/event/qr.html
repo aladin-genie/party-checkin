@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Ticket — {{ event.name }}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px 20px;
+        }
+        .ticket {
+            background: white;
+            border-radius: 22px;
+            overflow: hidden;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+            max-width: 440px;
+            width: 100%;
+        }
+        .ticket-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 28px 30px;
+            text-align: center;
+        }
+        .ticket-header h2 { font-size: 1em; opacity: 0.8; margin-bottom: 4px; font-weight: 600; }
+        .ticket-header h1 { font-size: 1.6em; font-weight: 800; }
+        .ticket-body { padding: 28px 30px; text-align: center; }
+        .guest-name { font-size: 1.3em; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+        .guest-email { color: #888; font-size: 0.88em; margin-bottom: 20px; }
+        .qr-wrapper {
+            display: inline-block;
+            padding: 12px;
+            border: 3px solid #f0f0f0;
+            border-radius: 14px;
+            margin-bottom: 20px;
+        }
+        .qr-wrapper img { display: block; width: 200px; height: 200px; }
+        .meta { display: flex; justify-content: center; gap: 24px; margin-bottom: 22px; }
+        .meta-item { text-align: center; }
+        .meta-label { color: #999; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; display: block; }
+        .meta-value { font-size: 1.1em; font-weight: 700; color: #222; }
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 22px;
+            font-size: 0.85em;
+            color: #666;
+            line-height: 1.5;
+        }
+        .btn-home {
+            display: block;
+            text-align: center;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-radius: 10px;
+            font-weight: 700;
+            text-decoration: none;
+            font-size: 0.95em;
+            transition: opacity 0.2s;
+        }
+        .btn-home:hover { opacity: 0.88; }
+        .divider {
+            height: 1px;
+            background: repeating-linear-gradient(90deg, #eee 0, #eee 10px, white 10px, white 20px);
+            margin: 0 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="ticket">
+        <div class="ticket-header">
+            <h2>{{ event.name }}</h2>
+            <h1>Your Ticket</h1>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="ticket-body">
+            <div class="guest-name">{{ guest.name }}</div>
+            <div class="guest-email">{{ guest.email }}</div>
+
+            <div class="qr-wrapper">
+                <img src="data:image/png;base64,{{ qr_image }}" alt="QR Code">
+            </div>
+
+            <div class="meta">
+                <div class="meta-item">
+                    <span class="meta-label">Tickets</span>
+                    <span class="meta-value">{{ guest.ticket_count }}</span>
+                </div>
+                {% if event.event_date %}
+                <div class="meta-item">
+                    <span class="meta-label">Date</span>
+                    <span class="meta-value">{{ event.event_date.strftime('%b %d') }}</span>
+                </div>
+                {% endif %}
+                {% if event.location %}
+                <div class="meta-item">
+                    <span class="meta-label">Location</span>
+                    <span class="meta-value" style="font-size:0.9em;">{{ event.location[:20] }}</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="info-box">
+                📧 A copy has been sent to your email.<br>
+                📱 Show this QR code at the entrance for check-in.
+                {% if guest.zelle_reference %}
+                <br>🔖 Zelle ref: <strong>{{ guest.zelle_reference }}</strong>
+                {% endif %}
+            </div>
+
+            <a href="{{ url_for('event_landing', slug=event.slug) }}" class="btn-home">Back to Event Page</a>
+        </div>
+    </div>
+</body>
+</html>

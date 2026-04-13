@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Super Admin Login{% endblock %}
+
+{% block extra_styles %}
+body {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.login-box {
+    background: white;
+    border-radius: 20px;
+    padding: 48px 40px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    margin: 40px 20px;
+}
+.login-box h1 { font-size: 1.6em; color: #1a1a2e; margin-bottom: 6px; }
+.login-box p  { color: #888; font-size: 0.9em; margin-bottom: 30px; }
+label { display: block; font-weight: 600; color: #555; margin-bottom: 6px; font-size: 0.9em; }
+input[type=password] {
+    width: 100%;
+    padding: 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    font-size: 1em;
+    transition: border-color 0.2s;
+    margin-bottom: 20px;
+}
+input[type=password]:focus { outline: none; border-color: #1a1a2e; }
+.btn-login {
+    width: 100%;
+    padding: 15px;
+    background: #1a1a2e;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1em;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-login:hover { background: #0f3460; }
+.back { display: block; text-align: center; margin-top: 20px; color: #888; font-size: 0.85em; text-decoration: none; }
+.back:hover { color: #333; }
+{% endblock %}
+
+{% block body %}
+<div class="login-box">
+    <h1>Super Admin</h1>
+    <p>Manage all events and registrations</p>
+    <form method="POST">
+        <label for="password">Admin Password</label>
+        <input type="password" id="password" name="password" placeholder="Enter admin password" autofocus>
+        <button type="submit" class="btn-login">Sign In →</button>
+    </form>
+    <a href="{{ url_for('home') }}" class="back">← Back to events</a>
+</div>
+{% endblock %}

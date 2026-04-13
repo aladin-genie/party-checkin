@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — {{ event.name }}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+        }
+        .topbar {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 60px;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 10px; }
+        .topbar h1 { font-size: 1em; font-weight: 700; }
+        .topbar-sep { opacity: 0.4; }
+        .topbar-right { display: flex; align-items: center; gap: 10px; }
+        .topbar a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.85em; }
+        .topbar a:hover { color: white; }
+        form.inline { display: inline; }
+        .btn-logout {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 7px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 0.82em;
+        }
+        .btn-logout:hover { background: rgba(255,255,255,0.3); }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+        .flash-wrap { max-width: 1200px; margin: 12px auto 0; padding: 0 20px; }
+        .flash { padding: 12px 16px; border-radius: 9px; margin-bottom: 8px; font-size: 0.9em; }
+        .flash.success { background: #d4edda; color: #155724; }
+        .flash.error   { background: #f8d7da; color: #721c24; }
+        .flash.warning { background: #fff3cd; color: #856404; }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 18px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .stat-num { font-size: 2em; font-weight: 800; color: var(--primary); }
+        .stat-lbl { color: #999; font-size: 0.78em; margin-top: 3px; }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            overflow: hidden;
+        }
+        .panel-head {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .panel-head h2 { font-size: 1em; font-weight: 700; color: #1a1a1a; }
+
+        .filter-bar {
+            padding: 14px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .filter-bar input[type=text] {
+            flex: 1;
+            min-width: 160px;
+            padding: 9px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 7px;
+            font-size: 0.88em;
+        }
+        .filter-bar input:focus { outline: none; border-color: var(--primary); }
+        .filter-bar select {
+            padding: 9px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 7px;
+            font-size: 0.88em;
+            background: white;
+        }
+        .filter-bar select:focus { outline: none; border-color: var(--primary); }
+
+        .btn {
+            padding: 9px 16px;
+            border-radius: 7px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-outline { background: white; color: #555; border: 2px solid #ddd; }
+        .btn-sm { padding: 6px 12px; font-size: 0.8em; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            padding: 11px 16px;
+            background: #f8f9fa;
+            color: #777;
+            font-size: 0.75em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #eee;
+        }
+        td { padding: 12px 16px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; font-size: 0.88em; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #fafafa; }
+        .guest-name  { font-weight: 600; }
+        .guest-email { color: #999; font-size: 0.8em; }
+        .zelle-ref   { font-family: monospace; font-size: 0.8em; color: #555; }
+        .badge {
+            display: inline-block;
+            padding: 3px 9px;
+            border-radius: 20px;
+            font-size: 0.72em;
+            font-weight: 700;
+        }
+        .badge-in   { background: #d4edda; color: #155724; }
+        .badge-pend { background: #fff3cd; color: #856404; }
+        .badge-band { background: #d1ecf1; color: #0c5460; }
+        .badge-no   { background: #f0f0f0; color: #aaa; }
+
+        .recent-item {
+            padding: 14px 20px;
+            border-bottom: 1px solid #f5f5f5;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .recent-item:last-child { border-bottom: none; }
+        .recent-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--primary);
+            flex-shrink: 0;
+        }
+        .recent-name { font-weight: 600; font-size: 0.9em; }
+        .recent-time { color: #999; font-size: 0.78em; }
+        .no-recent { padding: 28px 20px; text-align: center; color: #ccc; font-size: 0.9em; }
+
+        .table-info { padding: 10px 20px; color: #aaa; font-size: 0.8em; border-bottom: 1px solid #f0f0f0; }
+        .table-scroll { max-height: 500px; overflow-y: auto; }
+        .empty-row td { text-align: center; color: #ccc; padding: 36px; }
+
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            td, th { padding: 10px 12px; font-size: 0.8em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <h1>{{ event.name }}</h1>
+            <span class="topbar-sep">/</span>
+            <span style="opacity:0.7;font-size:0.88em;">Admin Dashboard</span>
+        </div>
+        <div class="topbar-right">
+            <a href="{{ url_for('event_scanner', slug=event.slug) }}">📷 Scanner</a>
+            <a href="{{ url_for('event_admin_export', slug=event.slug) }}">↓ CSV</a>
+            <a href="{{ url_for('event_register', slug=event.slug) }}">+ Register</a>
+            <form class="inline" method="POST" action="{{ url_for('event_admin_logout', slug=event.slug) }}">
+                <button class="btn-logout">Sign out</button>
+            </form>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-wrap">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <div class="container">
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-num" id="liveTotal">{{ stats.total }}</div>
+                <div class="stat-lbl">Registered</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num" id="liveCheckedIn">{{ stats.checked_in }}</div>
+                <div class="stat-lbl">Checked In</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num" id="livePending">{{ stats.pending }}</div>
+                <div class="stat-lbl">Pending</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num" id="liveBands">{{ stats.bands_given }}</div>
+                <div class="stat-lbl">Bands Given</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-num">{{ stats.total_tickets }}</div>
+                <div class="stat-lbl">Total Tickets</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- Guest List -->
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Guests</h2>
+                    <a href="{{ url_for('event_admin_export', slug=event.slug) }}" class="btn btn-success btn-sm">↓ Export</a>
+                </div>
+                <form class="filter-bar" method="GET">
+                    <input type="text" name="q" placeholder="Search name, email, Zelle ref…" value="{{ q }}">
+                    <select name="status">
+                        <option value=""            {{ 'selected' if not status }}>All</option>
+                        <option value="checked_in"  {{ 'selected' if status == 'checked_in' }}>Checked in</option>
+                        <option value="pending"     {{ 'selected' if status == 'pending' }}>Pending</option>
+                        <option value="band_given"  {{ 'selected' if status == 'band_given' }}>Band given</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary">Go</button>
+                    {% if q or status %}
+                    <a href="{{ url_for('event_admin_dashboard', slug=event.slug) }}" class="btn btn-outline">✕</a>
+                    {% endif %}
+                </form>
+                <div class="table-info">{{ guests|length }} guest{{ 's' if guests|length != 1 }}</div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Guest</th>
+                                <th>Tix</th>
+                                <th>Zelle Ref</th>
+                                <th>Status</th>
+                                <th>Band</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for g in guests %}
+                            <tr>
+                                <td>
+                                    <div class="guest-name">{{ g.name }}</div>
+                                    <div class="guest-email">{{ g.email }}</div>
+                                </td>
+                                <td>{{ g.ticket_count }}</td>
+                                <td>
+                                    {% if g.zelle_reference %}
+                                    <span class="zelle-ref">{{ g.zelle_reference }}</span>
+                                    {% else %}<span style="color:#ddd;">—</span>{% endif %}
+                                </td>
+                                <td>
+                                    {% if g.checked_in %}
+                                    <span class="badge badge-in">✓ {{ g.checkin_time.strftime('%H:%M') if g.checkin_time else 'In' }}</span>
+                                    {% else %}
+                                    <span class="badge badge-pend">Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if g.band_given %}
+                                    <span class="badge badge-band">Given</span>
+                                    {% else %}
+                                    <span class="badge badge-no">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr class="empty-row"><td colspan="5">No guests found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recent check-ins -->
+            <div class="panel" style="align-self: start;">
+                <div class="panel-head">
+                    <h2>Recent Check-ins</h2>
+                </div>
+                {% if recent_checkins %}
+                {% for g in recent_checkins %}
+                <div class="recent-item">
+                    <div class="recent-dot"></div>
+                    <div>
+                        <div class="recent-name">{{ g.name }}</div>
+                        <div class="recent-time">
+                            {{ g.checkin_time.strftime('%I:%M %p') if g.checkin_time else '—' }}
+                            · {{ g.ticket_count }} ticket{{ 's' if g.ticket_count > 1 else '' }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="no-recent">No check-ins yet</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh stats every 15 seconds
+        async function refreshStats() {
+            try {
+                const res = await fetch('/api/e/{{ event.slug }}/stats');
+                const s = await res.json();
+                document.getElementById('liveTotal').textContent      = s.total;
+                document.getElementById('liveCheckedIn').textContent  = s.checked_in;
+                document.getElementById('livePending').textContent    = s.pending;
+                document.getElementById('liveBands').textContent      = s.bands_given;
+            } catch (e) {}
+        }
+        setInterval(refreshStats, 15000);
+    </script>
+</body>
+</html>

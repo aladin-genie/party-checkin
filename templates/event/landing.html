@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ event.name }}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container { max-width: 680px; margin: 0 auto; padding: 40px 20px 60px; }
+        .event-card {
+            background: white;
+            border-radius: 22px;
+            overflow: hidden;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+        }
+        .card-header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        .card-header h1 { font-size: 2em; font-weight: 800; margin-bottom: 10px; }
+        .card-header p  { opacity: 0.85; font-size: 1.05em; line-height: 1.5; }
+        .card-body { padding: 36px 40px; }
+        .meta-list { list-style: none; margin-bottom: 28px; }
+        .meta-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.95em;
+        }
+        .meta-list li:last-child { border-bottom: none; }
+        .meta-icon { font-size: 1.2em; flex-shrink: 0; margin-top: 1px; }
+        .meta-key { font-weight: 600; color: #888; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; display: block; }
+        .meta-val { color: #222; }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+        .stat-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-num { font-size: 1.8em; font-weight: 800; color: var(--primary); }
+        .stat-lbl { color: #888; font-size: 0.78em; margin-top: 2px; }
+
+        .cta-section { display: flex; flex-direction: column; gap: 12px; }
+        .btn-register {
+            display: block;
+            text-align: center;
+            padding: 18px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 700;
+            text-decoration: none;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        .btn-register:hover { opacity: 0.9; transform: translateY(-2px); }
+        .btn-secondary {
+            display: block;
+            text-align: center;
+            padding: 14px;
+            background: #f8f9fa;
+            color: #555;
+            border-radius: 12px;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+        .btn-secondary:hover { background: #eee; }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 28px;
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: white; }
+        @media (max-width: 500px) {
+            .card-header { padding: 28px 24px; }
+            .card-body   { padding: 24px 24px; }
+            .card-header h1 { font-size: 1.5em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="event-card">
+            <div class="card-header">
+                <h1>{{ event.name }}</h1>
+                {% if event.description %}
+                <p>{{ event.description }}</p>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <ul class="meta-list">
+                    {% if event.event_date %}
+                    <li>
+                        <span class="meta-icon">📅</span>
+                        <div>
+                            <span class="meta-key">Date</span>
+                            <span class="meta-val">{{ event.event_date.strftime('%A, %B %d, %Y at %I:%M %p') }}</span>
+                        </div>
+                    </li>
+                    {% endif %}
+                    {% if event.location %}
+                    <li>
+                        <span class="meta-icon">📍</span>
+                        <div>
+                            <span class="meta-key">Location</span>
+                            <span class="meta-val">{{ event.location }}</span>
+                        </div>
+                    </li>
+                    {% endif %}
+                    <li>
+                        <span class="meta-icon">🎫</span>
+                        <div>
+                            <span class="meta-key">Ticket Price</span>
+                            <span class="meta-val">
+                                {% if event.ticket_price and event.ticket_price > 0 %}
+                                    ${{ "%.2f"|format(event.ticket_price|float) }} per ticket (via Zelle)
+                                {% else %}
+                                    Free admission
+                                {% endif %}
+                            </span>
+                        </div>
+                    </li>
+                </ul>
+
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <div class="stat-num">{{ stats.total }}</div>
+                        <div class="stat-lbl">Registered</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-num">{{ stats.checked_in }}</div>
+                        <div class="stat-lbl">Checked In</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-num">{{ stats.total_tickets }}</div>
+                        <div class="stat-lbl">Total Tickets</div>
+                    </div>
+                </div>
+
+                <div class="cta-section">
+                    <a href="{{ url_for('event_register', slug=event.slug) }}" class="btn-register">
+                        Register for this Event →
+                    </a>
+                    <a href="{{ url_for('event_scanner', slug=event.slug) }}" class="btn-secondary">
+                        📷 Check-In Scanner
+                    </a>
+                    <a href="{{ url_for('event_admin_login', slug=event.slug) }}" class="btn-secondary">
+                        Admin Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+        <a href="{{ url_for('home') }}" class="back-link">← All events</a>
+    </div>
+</body>
+</html>

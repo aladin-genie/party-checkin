@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register — {{ event.name }}</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: {{ theme.primary }};
+            --secondary: {{ theme.secondary }};
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container { max-width: 600px; margin: 0 auto; padding: 30px 20px 60px; }
+        header { text-align: center; color: white; padding: 24px 0 32px; }
+        header h1 { font-size: 1.7em; font-weight: 800; }
+        header p  { margin-top: 6px; opacity: 0.8; }
+
+        .flash-wrap { margin-bottom: 16px; }
+        .flash { padding: 13px 16px; border-radius: 10px; margin-bottom: 8px; font-size: 0.9em; }
+        .flash.success { background: #d4edda; color: #155724; }
+        .flash.error   { background: #f8d7da; color: #721c24; }
+        .flash.warning { background: #fff3cd; color: #856404; }
+
+        .form-card {
+            background: white;
+            border-radius: 20px;
+            padding: 36px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        }
+        .form-group { margin-bottom: 22px; }
+        label { display: block; font-weight: 600; color: #555; margin-bottom: 8px; font-size: 0.9em; }
+        input[type=text], input[type=email], textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 1em;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus { outline: none; border-color: var(--primary); }
+        textarea { resize: vertical; min-height: 80px; }
+
+        .ticket-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .ticket-btn {
+            padding: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 700;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .ticket-btn:hover { border-color: var(--primary); background: #f9f9ff; }
+        .ticket-btn.selected {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .zelle-box {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 22px;
+            border-radius: 14px;
+            margin-bottom: 22px;
+        }
+        .zelle-box h3 { font-size: 1em; margin-bottom: 8px; opacity: 0.9; }
+        .zelle-recipient { font-size: 1.25em; font-weight: 800; margin-bottom: 6px; }
+        .zelle-instructions { font-size: 0.88em; opacity: 0.85; line-height: 1.6; }
+        .total-line {
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 17px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        .btn-submit:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 22px;
+            color: rgba(255,255,255,0.75);
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: white; }
+
+        @media (max-width: 500px) {
+            .form-card { padding: 24px 20px; }
+            .ticket-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Register</h1>
+            <p>{{ event.name }}</p>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-wrap">
+                {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="form-card">
+            <form method="POST" id="regForm">
+                <div class="form-group">
+                    <label for="name">Full Name *</label>
+                    <input type="text" id="name" name="name" required placeholder="Your full name">
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email Address *</label>
+                    <input type="email" id="email" name="email" required placeholder="your@email.com">
+                </div>
+
+                <div class="form-group">
+                    <label>Number of Tickets *</label>
+                    <input type="hidden" id="ticket_count" name="ticket_count" value="1">
+                    <div class="ticket-grid">
+                        {% for n in range(1, event.max_tickets_per_person + 1) %}
+                        <button type="button" class="ticket-btn {{ 'selected' if n == 1 }}"
+                                data-value="{{ n }}" onclick="selectTicket({{ n }})">{{ n }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {% if event.ticket_price and event.ticket_price > 0 %}
+                <div class="zelle-box" id="zelleBox">
+                    <h3>Step 1 — Send Zelle Payment to:</h3>
+                    <div class="zelle-recipient">{{ event.zelle_recipient or 'Event Organiser' }}</div>
+                    {% if event.zelle_instructions %}
+                    <div class="zelle-instructions">{{ event.zelle_instructions }}</div>
+                    {% endif %}
+                    <div class="total-line" id="totalLine">
+                        Total: ${{ "%.2f"|format(event.ticket_price|float) }} for 1 ticket
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="zelle_reference">Zelle Transaction Reference * <span style="font-weight:400;color:#999;">(Step 2)</span></label>
+                    <input type="text" id="zelle_reference" name="zelle_reference"
+                           placeholder="Paste your Zelle confirmation number or transaction ID" required>
+                </div>
+                {% else %}
+                <input type="hidden" name="zelle_reference" value="">
+                {% endif %}
+
+                <button type="submit" class="btn-submit">
+                    {% if event.ticket_price and event.ticket_price > 0 %}
+                    Get My QR Code →
+                    {% else %}
+                    Register & Get QR Code →
+                    {% endif %}
+                </button>
+            </form>
+        </div>
+
+        <a href="{{ url_for('event_landing', slug=event.slug) }}" class="back-link">← Back to {{ event.name }}</a>
+    </div>
+
+    <script>
+        const pricePerTicket = {{ (event.ticket_price|float) }};
+
+        function selectTicket(n) {
+            document.querySelectorAll('.ticket-btn').forEach(b => b.classList.remove('selected'));
+            document.querySelector(`.ticket-btn[data-value="${n}"]`).classList.add('selected');
+            document.getElementById('ticket_count').value = n;
+            updateTotal(n);
+        }
+
+        function updateTotal(n) {
+            const el = document.getElementById('totalLine');
+            if (!el) return;
+            const total = (n * pricePerTicket).toFixed(2);
+            el.textContent = `Total: $${total} for ${n} ticket${n > 1 ? 's' : ''}`;
+        }
+    </script>
+</body>
+</html>
