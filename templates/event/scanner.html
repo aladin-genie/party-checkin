@@ -179,6 +179,8 @@
 
     <script>
         const EVENT_SLUG = '{{ event.slug }}';
+        // Scanner token is injected server-side — required by the check-in API
+        const SCANNER_TOKEN = '{{ scanner_token }}';
         let scanner;
         let isProcessing = false;
         let lastScanned = null;
@@ -210,7 +212,10 @@
             try {
                 const res = await fetch(`/api/e/${EVENT_SLUG}/checkin`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Scanner-Token': SCANNER_TOKEN
+                    },
                     body: JSON.stringify({ qr_code: qrCode })
                 });
                 const data = await res.json();
@@ -277,7 +282,10 @@
             try {
                 await fetch(`/api/e/${EVENT_SLUG}/give-band`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Scanner-Token': SCANNER_TOKEN
+                    },
                     body: JSON.stringify({ guest_id: guestId })
                 });
                 speak('Band given.');

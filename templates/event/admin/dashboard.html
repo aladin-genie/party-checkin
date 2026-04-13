@@ -203,6 +203,7 @@
             <a href="{{ url_for('event_admin_export', slug=event.slug) }}">↓ CSV</a>
             <a href="{{ url_for('event_register', slug=event.slug) }}">+ Register</a>
             <form class="inline" method="POST" action="{{ url_for('event_admin_logout', slug=event.slug) }}">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                 <button class="btn-logout">Sign out</button>
             </form>
         </div>

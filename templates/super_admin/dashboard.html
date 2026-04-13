@@ -105,6 +105,7 @@ tr:hover td { background: #fafafa; }
     <div class="topbar-right">
         <a href="{{ url_for('home') }}">View site</a>
         <form class="inline" method="POST" action="{{ url_for('admin_logout') }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <button class="btn-logout">Sign out</button>
         </form>
     </div>
@@ -165,6 +166,7 @@ tr:hover td { background: #fafafa; }
                             <a href="{{ url_for('event_landing', slug=event.slug) }}" class="btn btn-outline">View</a>
                             <form method="POST" action="{{ url_for('admin_event_delete', event_id=event.id) }}"
                                   onsubmit="return confirm('Delete {{ event.name }} and ALL its guests? This cannot be undone.')">
+                                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                                 <button class="btn btn-danger">Delete</button>
                             </form>
                         </div>

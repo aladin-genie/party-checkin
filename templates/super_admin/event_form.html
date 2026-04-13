@@ -134,6 +134,7 @@ input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; }
         <h2>{{ 'Edit: ' + event.name if is_edit else 'Create New Event' }}</h2>
 
         <form method="POST">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <div class="section-label">Basic Info</div>
             <div class="form-group">
                 <label for="name">Event Name *</label>

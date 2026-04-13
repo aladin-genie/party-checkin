@@ -7,12 +7,16 @@ import os
 import io
 import csv
 import re
+import hmac
+import time
+import secrets
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
+from collections import defaultdict
 
 from flask import (Flask, render_template, request, jsonify, send_file,
-                   flash, redirect, url_for, session)
+                   flash, redirect, url_for, session, abort)
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -20,7 +24,10 @@ import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or os.urandom(32).hex()
+
+# ─── Core config ──────────────────────────────────────────────────────────────
+
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or secrets.token_hex(32)
 
 # Database: PostgreSQL via DATABASE_URL, or SQLite locally
 _database_url = os.getenv('DATABASE_URL')
@@ -33,7 +40,16 @@ else:
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Email
+# ─── Session security ─────────────────────────────────────────────────────────
+
+app.config['SESSION_COOKIE_HTTPONLY'] = True       # JS cannot read the cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'     # CSRF mitigation
+# Enable Secure flag only when behind HTTPS (Render/Railway always use HTTPS)
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV', 'production') != 'development'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+
+# ─── Email ────────────────────────────────────────────────────────────────────
+
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = True
@@ -71,6 +87,9 @@ class Event(db.Model):
     zelle_instructions = db.Column(db.Text)
     admin_username = db.Column(db.String(100), nullable=False)
     admin_password_hash = db.Column(db.String(200), nullable=False)
+    # Per-event token required by the scanner API — prevents unauthenticated API calls
+    scanner_token = db.Column(db.String(64), nullable=False,
+                              default=lambda: secrets.token_urlsafe(32))
     is_active = db.Column(db.Boolean, default=True)
     max_tickets_per_person = db.Column(db.Integer, default=4)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -106,6 +125,7 @@ class Guest(db.Model):
     email = db.Column(db.String(120), nullable=False)
     ticket_count = db.Column(db.Integer, default=1)
     zelle_reference = db.Column(db.String(200))
+    # 256-bit cryptographically random token — used as QR code value AND in view URL
     qr_code = db.Column(db.String(200), unique=True)
     checked_in = db.Column(db.Boolean, default=False)
     band_given = db.Column(db.Boolean, default=False)
@@ -122,11 +142,10 @@ class Guest(db.Model):
             'name': self.name,
             'email': self.email,
             'ticket_count': self.ticket_count,
-            'zelle_reference': self.zelle_reference,
-            'qr_code': self.qr_code,
             'checked_in': self.checked_in,
             'band_given': self.band_given,
             'checkin_time': self.checkin_time.isoformat() if self.checkin_time else None,
+            # qr_code and zelle_reference intentionally omitted from API responses
         }
 
 
@@ -136,6 +155,118 @@ class CheckInLog(db.Model):
     action = db.Column(db.String(50))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     device_info = db.Column(db.String(200))
+
+
+# ─── Database init ────────────────────────────────────────────────────────────
+
+with app.app_context():
+    db.create_all()
+
+
+# ─── Security: CSRF ───────────────────────────────────────────────────────────
+
+def _get_csrf_token():
+    """Return (and lazily create) a per-session CSRF token."""
+    if '_csrf' not in session:
+        session['_csrf'] = secrets.token_hex(32)
+    return session['_csrf']
+
+# Expose to all templates as csrf_token()
+app.jinja_env.globals['csrf_token'] = _get_csrf_token
+
+
+@app.before_request
+def _csrf_protect():
+    """Validate CSRF token on every state-changing form submission.
+    JSON API endpoints (/api/*) are exempt — they rely on SameSite cookies
+    and the Content-Type check to prevent cross-origin abuse."""
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return
+    if request.path.startswith('/api/'):
+        return  # JSON API — not form-based, CSRF not applicable
+    submitted = request.form.get('_csrf', '')
+    expected = session.get('_csrf', '')
+    if not expected or not hmac.compare_digest(submitted, expected):
+        abort(403)
+
+
+# ─── Security: Rate limiting (in-process, per IP) ────────────────────────────
+
+# { bucket_key: [timestamp, ...] }
+_rl_store: dict = defaultdict(list)
+
+
+def _rate_limit(key: str, max_hits: int, window_s: int) -> bool:
+    """Return True if the request is allowed, False if rate-limited."""
+    now = time.monotonic()
+    bucket = _rl_store[key]
+    # Evict expired timestamps
+    _rl_store[key] = [t for t in bucket if now - t < window_s]
+    if len(_rl_store[key]) >= max_hits:
+        return False
+    _rl_store[key].append(now)
+    return True
+
+
+def _client_ip() -> str:
+    """Best-effort real IP, honouring X-Forwarded-For from trusted proxies."""
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+# ─── Security: Login throttle ─────────────────────────────────────────────────
+
+# { ip: [fail_timestamp, ...] }
+_login_fails: dict = defaultdict(list)
+_LOGIN_WINDOW_S = 300   # 5-minute window
+_LOGIN_MAX_FAILS = 5    # lock after 5 failures
+
+
+def _record_login_fail(ip: str):
+    now = time.monotonic()
+    _login_fails[ip].append(now)
+    # Trim old entries
+    _login_fails[ip] = [t for t in _login_fails[ip] if now - t < _LOGIN_WINDOW_S]
+
+
+def _login_locked(ip: str) -> bool:
+    now = time.monotonic()
+    _login_fails[ip] = [t for t in _login_fails[ip] if now - t < _LOGIN_WINDOW_S]
+    return len(_login_fails[ip]) >= _LOGIN_MAX_FAILS
+
+
+def _clear_login_fails(ip: str):
+    _login_fails.pop(ip, None)
+
+
+# ─── Security: Response headers ───────────────────────────────────────────────
+
+@app.after_request
+def _security_headers(response):
+    # Prevent MIME-type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # Deny embedding in iframes (clickjacking)
+    response.headers['X-Frame-Options'] = 'DENY'
+    # Legacy XSS filter (belt-and-suspenders for older browsers)
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    # Don't leak full URL in Referer header when navigating off-site
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Content Security Policy
+    # - scripts: self + unpkg CDN (for html5-qrcode on scanner page)
+    # - styles:  self + unsafe-inline (needed for inline <style> blocks in templates)
+    # - images:  self + data: (for base64 QR code images)
+    # - connect: self only (scanner fetch() calls go to same origin)
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    return response
 
 
 # ─── Auth decorators ──────────────────────────────────────────────────────────
@@ -150,8 +281,8 @@ def super_admin_required(f):
 
 
 def event_admin_required(f):
-    """Loads the event from slug and injects it as kwarg 'event'.
-    Allows access for super admin OR the event's own admin."""
+    """Loads the event from slug kwarg and injects it as kwarg 'event'.
+    Grants access to the event's own admin OR the super admin."""
     @wraps(f)
     def decorated(*args, **kwargs):
         slug = kwargs.get('slug')
@@ -161,14 +292,6 @@ def event_admin_required(f):
             return f(*args, **kwargs)
         return redirect(url_for('event_admin_login', slug=slug))
     return decorated
-
-
-# ─── Database init ────────────────────────────────────────────────────────────
-
-@app.before_request
-def create_tables():
-    db.create_all()
-    app.before_request_funcs[None].remove(create_tables)
 
 
 # ─── Platform home ────────────────────────────────────────────────────────────
@@ -195,13 +318,32 @@ def event_register(slug):
     theme = event.theme_colors
 
     if request.method == 'POST':
+        ip = _client_ip()
+
+        # Rate limit: 5 registrations per 10 minutes per IP
+        if not _rate_limit(f'register:{ip}', 5, 600):
+            flash('Too many registration attempts. Please wait a few minutes.', 'error')
+            return render_template('event/register.html', event=event, theme=theme), 429
+
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip().lower()
-        ticket_count = int(request.form.get('ticket_count', 1))
+        ticket_count_raw = request.form.get('ticket_count', '1')
         zelle_reference = request.form.get('zelle_reference', '').strip()
 
+        # Input validation
         if not name or not email:
             flash('Name and email are required.', 'error')
+            return render_template('event/register.html', event=event, theme=theme)
+
+        # Basic email format check
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            flash('Please enter a valid email address.', 'error')
+            return render_template('event/register.html', event=event, theme=theme)
+
+        try:
+            ticket_count = int(ticket_count_raw)
+        except (ValueError, TypeError):
+            flash('Invalid ticket count.', 'error')
             return render_template('event/register.html', event=event, theme=theme)
 
         if ticket_count < 1 or ticket_count > event.max_tickets_per_person:
@@ -217,10 +359,9 @@ def event_register(slug):
             flash('This email is already registered for this event.', 'error')
             return render_template('event/register.html', event=event, theme=theme)
 
-        qr_token = (
-            f"EVT{event.id}-{datetime.now().strftime('%Y%m%d')}"
-            f"-{base64.urlsafe_b64encode(os.urandom(6)).decode()[:8]}"
-        )
+        # 256-bit cryptographically random QR token — unguessable
+        qr_token = secrets.token_urlsafe(32)
+
         guest = Guest(
             event_id=event.id,
             name=name,
@@ -238,15 +379,18 @@ def event_register(slug):
         except Exception as e:
             flash(f'Registered! (Email delivery skipped: {e})', 'warning')
 
-        return redirect(url_for('event_view_qr', slug=slug, guest_id=guest.id))
+        # Redirect to QR view using the token — not the guest ID
+        return redirect(url_for('event_view_qr', slug=slug, qr_token=qr_token))
 
     return render_template('event/register.html', event=event, theme=theme)
 
 
-@app.route('/e/<slug>/qr/<int:guest_id>')
-def event_view_qr(slug, guest_id):
+@app.route('/e/<slug>/qr/<qr_token>')
+def event_view_qr(slug, qr_token):
+    """View QR code. Requires knowing the 256-bit token — not guessable from URLs."""
     event = Event.query.filter_by(slug=slug).first_or_404()
-    guest = Guest.query.filter_by(id=guest_id, event_id=event.id).first_or_404()
+    # Look up by token, scoped to the event
+    guest = Guest.query.filter_by(qr_code=qr_token, event_id=event.id).first_or_404()
     qr_image = generate_qr_image(guest.qr_code, guest.name, event.name)
     qr_base64 = base64.b64encode(qr_image).decode()
     return render_template('event/qr.html', event=event, guest=guest,
@@ -256,23 +400,41 @@ def event_view_qr(slug, guest_id):
 @app.route('/e/<slug>/scanner')
 def event_scanner(slug):
     event = Event.query.filter_by(slug=slug).first_or_404()
-    return render_template('event/scanner.html', event=event, theme=event.theme_colors)
+    return render_template('event/scanner.html', event=event,
+                           theme=event.theme_colors,
+                           scanner_token=event.scanner_token)
 
 
 # ─── Scanner API ──────────────────────────────────────────────────────────────
 
+def _verify_scanner_token(event: Event) -> bool:
+    """Check X-Scanner-Token header against the event's stored token.
+    Uses constant-time comparison to prevent timing attacks."""
+    submitted = request.headers.get('X-Scanner-Token', '')
+    return hmac.compare_digest(submitted, event.scanner_token)
+
+
 @app.route('/api/e/<slug>/checkin', methods=['POST'])
 def api_checkin(slug):
     event = Event.query.filter_by(slug=slug).first_or_404()
+
+    if not _verify_scanner_token(event):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
     data = request.get_json() or {}
     qr_code = data.get('qr_code', '').strip()
 
     if not qr_code:
         return jsonify({'success': False, 'error': 'QR code required'}), 400
 
+    # Rate limit: 120 check-in attempts per minute per IP (allows fast scanning)
+    ip = _client_ip()
+    if not _rate_limit(f'checkin:{ip}', 120, 60):
+        return jsonify({'success': False, 'error': 'Rate limit exceeded'}), 429
+
     guest = Guest.query.filter_by(qr_code=qr_code, event_id=event.id).first()
     if not guest:
-        return jsonify({'success': False, 'error': 'Invalid QR code for this event'}), 404
+        return jsonify({'success': False, 'error': 'Invalid QR code'}), 404
 
     if guest.checked_in:
         return jsonify({
@@ -300,6 +462,10 @@ def api_checkin(slug):
 @app.route('/api/e/<slug>/give-band', methods=['POST'])
 def api_give_band(slug):
     event = Event.query.filter_by(slug=slug).first_or_404()
+
+    if not _verify_scanner_token(event):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
     data = request.get_json() or {}
     guest = Guest.query.filter_by(id=data.get('guest_id'), event_id=event.id).first()
     if not guest:
@@ -323,14 +489,27 @@ def api_stats(slug):
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
+        ip = _client_ip()
+
+        if _login_locked(ip):
+            flash('Too many failed attempts. Try again in 5 minutes.', 'error')
+            return render_template('super_admin/login.html'), 429
+
         password = request.form.get('password', '')
+
         if not ADMIN_PASSWORD:
-            flash('Set the ADMIN_PASSWORD environment variable to enable super admin access.', 'warning')
+            flash('Set the ADMIN_PASSWORD environment variable to enable super admin.', 'warning')
         elif password == ADMIN_PASSWORD:
+            _clear_login_fails(ip)
+            session.permanent = True
             session['super_admin'] = True
             return redirect(url_for('admin_dashboard'))
         else:
-            flash('Incorrect password.', 'error')
+            _record_login_fail(ip)
+            # Uniform delay prevents timing-based enumeration
+            time.sleep(0.3)
+            flash('Invalid password.', 'error')
+
     return render_template('super_admin/login.html')
 
 
@@ -399,14 +578,29 @@ def admin_event_export(event_id):
 @app.route('/e/<slug>/admin/login', methods=['GET', 'POST'])
 def event_admin_login(slug):
     event = Event.query.filter_by(slug=slug).first_or_404()
+
     if request.method == 'POST':
+        ip = _client_ip()
+
+        if _login_locked(ip):
+            flash('Too many failed attempts. Try again in 5 minutes.', 'error')
+            return render_template('event/admin/login.html', event=event,
+                                   theme=event.theme_colors), 429
+
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+
         if (username == event.admin_username and
                 check_password_hash(event.admin_password_hash, password)):
+            _clear_login_fails(ip)
+            session.permanent = True
             session['event_admin_for'] = event.id
             return redirect(url_for('event_admin_dashboard', slug=slug))
+
+        _record_login_fail(ip)
+        time.sleep(0.3)
         flash('Invalid username or password.', 'error')
+
     return render_template('event/admin/login.html', event=event,
                            theme=event.theme_colors)
 
@@ -489,7 +683,7 @@ def _save_event(event):
         Event.id != (event.id if event else -1)
     ).first()
     if conflict:
-        flash('That URL slug is already taken. Choose a different one.', 'error')
+        flash('That URL slug is already taken.', 'error')
         return render_template('super_admin/event_form.html', event=event,
                                themes=THEMES, is_edit=is_edit)
 
@@ -514,11 +708,12 @@ def _save_event(event):
             zelle_instructions=zelle_instructions,
             admin_username=admin_username,
             admin_password_hash=generate_password_hash(admin_password),
+            scanner_token=secrets.token_urlsafe(32),
             max_tickets_per_person=max_tickets, is_active=is_active,
         )
         db.session.add(event)
         db.session.commit()
-        flash(f'Event "{name}" created successfully.', 'success')
+        flash(f'Event "{name}" created.', 'success')
     else:
         event.name = name
         event.slug = slug
@@ -626,6 +821,4 @@ See you there!
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)

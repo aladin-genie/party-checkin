@@ -52,6 +52,7 @@ input[type=password]:focus { outline: none; border-color: #1a1a2e; }
     <h1>Super Admin</h1>
     <p>Manage all events and registrations</p>
     <form method="POST">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <label for="password">Admin Password</label>
         <input type="password" id="password" name="password" placeholder="Enter admin password" autofocus>
         <button type="submit" class="btn-login">Sign In →</button>
