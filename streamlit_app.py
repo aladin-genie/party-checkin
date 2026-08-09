@@ -3,32 +3,42 @@ Party Check-In System — Streamlit App (Mobile-First, v2.1)
 Entry point for Streamlit Community Cloud (free hosting).
 """
 
-import base64
-from datetime import datetime
+import traceback
 
 import streamlit as st
-import cv2
-import numpy as np
-from PIL import Image
 
-from utils import (
-    init_db,
-    get_db,
-    Guest,
-    CheckInLog,
-    get_stats,
-    generate_qr_image,
-    generate_qr_code_for_guest,
-    send_qr_email,
-    generate_welcome_announcement,
-    generate_csv,
-    verify_admin_password,
-    audio_announcement_js,
-    sanitize_email,
-    sanitize_name,
-    sanitize_phone,
-    sanitize_zelle_ref,
-)
+startup_error = None
+try:
+    import base64
+    from datetime import datetime
+
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    from utils import (
+        init_db,
+        get_db,
+        Guest,
+        CheckInLog,
+        get_stats,
+        generate_qr_image,
+        generate_qr_code_for_guest,
+        send_qr_email,
+        generate_welcome_announcement,
+        generate_csv,
+        verify_admin_password,
+        audio_announcement_js,
+        sanitize_email,
+        sanitize_name,
+        sanitize_phone,
+        sanitize_zelle_ref,
+    )
+
+    # ── Initialize DB ────────────────────────────────────────────────────────────
+    init_db()
+except Exception as e:
+    startup_error = traceback.format_exc()
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -38,7 +48,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",  # collapsed by default for mobile
 )
 
-# ── Custom CSS: Dark Party Theme (banner-inspired) ────────────────────────────
+if startup_error:
+    st.error("🚨 The app failed to start. Please share this error with the developer:")
+    st.code(startup_error)
+    st.stop()
 st.markdown(
     """
     <style>
@@ -253,9 +266,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# ── Initialize DB ────────────────────────────────────────────────────────────
-init_db()
 
 # ── Session State Defaults ───────────────────────────────────────────────────
 def _ensure_state(key, default):
