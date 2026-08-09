@@ -141,7 +141,6 @@ Share these links with your team:
 5. Click **Advanced settings → Secrets** and paste the following (replace with your actual values):
 
 ```toml
-[secrets]
 SECRET_KEY = "your-long-random-secret-key-here"
 DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@db.xxxx.supabase.co:5432/postgres"
 

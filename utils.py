@@ -88,6 +88,9 @@ def get_engine():
     db_url = _get_secret("DATABASE_URL", "sqlite:///party_guests.db")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
+    # Use psycopg 3 driver when no explicit driver is given (works on Python 3.14 and Streamlit Cloud)
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
     return create_engine(db_url, pool_pre_ping=True, echo=False)
 
 
