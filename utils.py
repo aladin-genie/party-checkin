@@ -86,14 +86,33 @@ class CheckInLog(Base):
 
 @st.cache_resource(show_spinner=False)
 def get_engine():
-    """Create a cached SQLAlchemy engine."""
+    """Create a cached SQLAlchemy engine.
+
+    Falls back to a local SQLite database if the configured DATABASE_URL
+    cannot be reached (e.g., paused Supabase project or missing secret).
+    """
     db_url = _get_secret("DATABASE_URL", "sqlite:///party_guests.db")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-    # Use psycopg 3 driver when no explicit driver is given (works on Python 3.14 and Streamlit Cloud)
     if db_url.startswith("postgresql://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return create_engine(db_url, pool_pre_ping=True, echo=False)
+
+    try:
+        engine = create_engine(db_url, pool_pre_ping=True, echo=False)
+        # Validate the connection by listing table names
+        inspector = inspect(engine)
+        inspector.get_table_names()
+        return engine
+    except Exception as e:
+        # Log the failure without exposing the full URL in the UI
+        print(f"DATABASE_URL connection failed, falling back to SQLite: {e}")
+        fallback_url = "sqlite:///party_guests.db"
+        return create_engine(fallback_url, echo=False)
+
+
+def _using_fallback_db() -> bool:
+    """Return True if the active engine is the SQLite fallback."""
+    return get_engine().url.drivername == "sqlite"
 
 
 @st.cache_resource(show_spinner=False)

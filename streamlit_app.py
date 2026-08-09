@@ -33,6 +33,7 @@ try:
         sanitize_name,
         sanitize_phone,
         sanitize_zelle_ref,
+        _using_fallback_db,
     )
 
     # ── Initialize DB ────────────────────────────────────────────────────────────
@@ -314,6 +315,17 @@ def page_home():
         """,
         unsafe_allow_html=True,
     )
+
+    # Warn if running on fallback SQLite (e.g., Cloud secret missing or DB unreachable)
+    try:
+        if _using_fallback_db():
+            st.warning(
+                "⚠️ Running on a temporary local database. Guest data will not persist across restarts. "
+                "Please set the DATABASE_URL secret in Streamlit Cloud to connect to Supabase.",
+                icon="🗄️",
+            )
+    except Exception:
+        pass
 
     # Stats cards — 2x2 grid for mobile
     c1, c2 = st.columns(2)
