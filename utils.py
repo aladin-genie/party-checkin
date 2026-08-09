@@ -48,6 +48,7 @@ class Guest(Base):
     email = Column(String(120), nullable=False)
     phone = Column(String(30), default="")
     ticket_count = Column(Integer, default=1)
+    plus_one_name = Column(String(100), default="")  # Optional plus-one guest name
     zelle_ref = Column(String(100), default="")  # Zelle transaction reference
     qr_code = Column(String(200), unique=True)
     checked_in = Column(Boolean, default=False)
@@ -62,6 +63,7 @@ class Guest(Base):
             "email": self.email,
             "phone": self.phone,
             "ticket_count": self.ticket_count,
+            "plus_one_name": self.plus_one_name,
             "zelle_ref": self.zelle_ref,
             "qr_code": self.qr_code,
             "checked_in": self.checked_in,
@@ -119,6 +121,11 @@ def init_db():
             from sqlalchemy import text
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE guests ADD COLUMN phone VARCHAR(30) DEFAULT ''"))
+                conn.commit()
+        if "plus_one_name" not in cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE guests ADD COLUMN plus_one_name VARCHAR(100) DEFAULT ''"))
                 conn.commit()
 
 
@@ -193,7 +200,7 @@ def generate_qr_image(qr_data: str, guest_name: str) -> bytes:
     new_img.paste(img, (0, 0))
 
     draw = ImageDraw.Draw(new_img)
-    text = f"Party 2026 - {guest_name}"
+    text = f"Dallas Boys Party 2026 - {guest_name}"
 
     bbox = draw.textbbox((0, 0), text, font=font)
     text_width = bbox[2] - bbox[0]
@@ -230,15 +237,20 @@ def send_qr_email(guest: Guest) -> bool:
     qr_image = generate_qr_image(guest.qr_code, guest.name)
 
     msg = MIMEMultipart()
-    msg["Subject"] = "🎉 Your Party 2026 QR Code!"
+    msg["Subject"] = "🎉 Your Dallas Boys Party 2026 QR Code!"
     msg["From"] = mail_sender
     msg["To"] = guest.email
 
+    plus_one_line = f"👤 Plus One: {guest.plus_one_name}\n" if guest.plus_one_name else ""
+
     body = f"""Hi {guest.name}!
 
-You're registered for Party 2026!
+You're registered for Dallas Boys Party 2026 — 12th Year of Togetherness!
 
 🎫 Tickets: {guest.ticket_count}
+{plus_one_line}📅 Date: Friday, October 9th, 2026
+🕕 Time: 5:30 PM onwards
+📍 Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 
 Your QR code is attached. Please show this at the entrance for check-in.
 
@@ -290,7 +302,7 @@ def generate_csv() -> str:
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            "Name", "Email", "Phone", "Tickets", "Zelle Ref",
+            "Name", "Email", "Phone", "Tickets", "Plus One", "Zelle Ref",
             "Checked In", "Band Given", "Check-in Time", "QR Code"
         ])
         for g in guests:
@@ -299,6 +311,7 @@ def generate_csv() -> str:
                 _sanitize_csv_field(g.email),
                 _sanitize_csv_field(g.phone),
                 g.ticket_count,
+                _sanitize_csv_field(g.plus_one_name),
                 _sanitize_csv_field(g.zelle_ref),
                 "Yes" if g.checked_in else "No",
                 "Yes" if g.band_given else "No",
@@ -362,23 +375,42 @@ def sanitize_email(email: str) -> str:
 
 
 def sanitize_name(name: str) -> str:
-    """Sanitize name input."""
+    """Sanitize and validate name: letters, spaces, hyphens, and apostrophes only."""
     name = name.strip()
     # Remove excessive whitespace and control characters
     name = re.sub(r'\s+', ' ', name)
     name = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', name)
+    # Allow letters, spaces, hyphens, apostrophes, and periods (for initials)
+    if not re.match(r"^[A-Za-z\s'\-.]+$", name):
+        return ""
+    # Must contain at least one letter and be reasonable length
+    if not re.search(r'[A-Za-z]', name) or len(name) < 2 or len(name) > 100:
+        return ""
     return name[:100]
 
 
 def sanitize_phone(phone: str) -> str:
-    """Sanitize phone number — keep digits and basic separators only."""
+    """Sanitize and validate phone number; optional but validated if provided."""
     phone = phone.strip()
+    if not phone:
+        return ""
     phone = re.sub(r'[^0-9+\-\(\)\.\s]', '', phone)
+    digits = re.sub(r'\D', '', phone)
+    # Require 10-15 digits (covers US + international)
+    if len(digits) < 10 or len(digits) > 15:
+        return ""
     return phone[:30]
 
 
 def sanitize_zelle_ref(ref: str) -> str:
-    """Sanitize Zelle transaction reference."""
-    ref = ref.strip()
-    ref = re.sub(r'[^a-zA-Z0-9\-]', '', ref)
-    return ref[:100]
+    """Sanitize and validate Zelle transaction reference.
+
+    Zelle confirmation numbers vary by bank (e.g., 8-12 alphanumeric characters).
+    Accepts 8-30 characters of letters, digits, and hyphens to allow variation.
+    Examples: ABC-12345678, ZELLE9876543210, 1234567890
+    """
+    ref = ref.strip().upper()
+    ref = re.sub(r'[^A-Z0-9\-]', '', ref)
+    if len(ref) < 8 or len(ref) > 30:
+        return ""
+    return ref

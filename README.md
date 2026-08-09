@@ -158,7 +158,7 @@ ADMIN_PASSWORD = "your-admin-password"
 TICKET_PRICE_CENTS = "2000"
 
 # Zelle payment info (shown to guests on registration page)
-ZELLE_INFO = "your-zelle-phone@email.com or +1-234-567-8900"
+ZELLE_INFO = "dallashudugaru@gmail.com"
 ```
 
 6. Click **Deploy** — done! Tables are created automatically on first boot.
@@ -185,9 +185,12 @@ No third-party payment account needed. Zelle works directly through your bank ap
 
 ### Recommended Message to Share with Guests
 ```
-Hi! Here's how to register for the party:
+Hi! Here's how to register for the Dallas Boys Party — 12th Year of Togetherness:
 
-1. Send $20 per ticket via Zelle to: [your-zelle-phone-or-email]
+Event: Friday, October 9th, 2026 | 5:30 PM onwards
+Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
+
+1. Send $20 per ticket via Zelle to: dallashudugaru@gmail.com
 2. Register here: https://your-app.streamlit.app?page=Register
    (Enter your Zelle transaction reference number in the form)
 3. You'll receive your QR code by email — bring it on the night!

@@ -214,14 +214,34 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_name(""), "")
         # Control characters removed
         self.assertEqual(sanitize_name("John\x00Doe"), "JohnDoe")
+        # Letters only (with spaces, hyphens, apostrophes allowed)
+        self.assertEqual(sanitize_name("Mary-Jane O'Connor"), "Mary-Jane O'Connor")
+        # Invalid: digits/symbols
+        self.assertEqual(sanitize_name("John123"), "")
+        self.assertEqual(sanitize_name("John@Doe"), "")
     
     def test_phone_sanitization(self):
         self.assertEqual(sanitize_phone("+1 (555) 123-4567"), "+1 (555) 123-4567")
-        self.assertEqual(sanitize_phone("abc123"), "123")
+        self.assertEqual(sanitize_phone(""), "")
+        # Too few digits should be rejected
+        self.assertEqual(sanitize_phone("123"), "")
+        # Valid 10-digit number
+        self.assertEqual(sanitize_phone("5551234567"), "5551234567")
     
     def test_zelle_ref_sanitization(self):
-        self.assertEqual(sanitize_zelle_ref("ABC-123!@#"), "ABC-123")
-        self.assertEqual(sanitize_zelle_ref("  ref-123  "), "ref-123")
+        # Valid 8-30 character refs (uppercased, cleaned)
+        self.assertEqual(sanitize_zelle_ref("ABC-12345678"), "ABC-12345678")
+        self.assertEqual(sanitize_zelle_ref("  zelle-9876543210  "), "ZELLE-9876543210")
+        # Invalid: too short
+        self.assertEqual(sanitize_zelle_ref("ABC-123"), "")
+        # Symbols removed, remaining valid
+        self.assertEqual(sanitize_zelle_ref("ABC-123!@#45678"), "ABC-12345678")
+    
+    def test_plus_one_name_optional(self):
+        # Optional plus-one name follows same rules as name
+        self.assertEqual(sanitize_name("Alice Smith"), "Alice Smith")
+        self.assertEqual(sanitize_name(""), "")
+        self.assertEqual(sanitize_name("Bob123"), "")
     
     def test_admin_password_constant_time(self):
         self.assertTrue(verify_admin_password("testadmin123"))
