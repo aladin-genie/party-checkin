@@ -214,11 +214,12 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_name(""), "")
         # Control characters removed
         self.assertEqual(sanitize_name("John\x00Doe"), "JohnDoe")
-        # Letters only (with spaces, hyphens, apostrophes allowed)
-        self.assertEqual(sanitize_name("Mary-Jane O'Connor"), "Mary-Jane O'Connor")
-        # Invalid: digits/symbols
+        # Letters and spaces only
+        self.assertEqual(sanitize_name("Mary Jane OConnor"), "Mary Jane OConnor")
+        # Invalid: digits, symbols, hyphens, apostrophes
         self.assertEqual(sanitize_name("John123"), "")
         self.assertEqual(sanitize_name("John@Doe"), "")
+        self.assertEqual(sanitize_name("Mary-Jane O'Connor"), "")
     
     def test_phone_sanitization(self):
         self.assertEqual(sanitize_phone("+1 (555) 123-4567"), "+1 (555) 123-4567")

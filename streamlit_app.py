@@ -308,7 +308,7 @@ def page_home():
                 <span class="hero-badge">🕕 5:30 PM onwards</span>
             </div>
             <div style="margin-top: 8px;">
-                <span class="hero-badge">📍 Elegance Ballroom & Event Center, Plano, TX</span>
+                <span class="hero-badge">📍 Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024</span>
             </div>
             <div class="hero-cta">Registration Opens Soon</div>
         </div>
@@ -412,7 +412,7 @@ def page_register():
             "Full Name *",
             placeholder="Enter your full name (letters only)",
             max_chars=100,
-            help="Use letters only. Example: John Smith or Mary-Jane O'Connor",
+            help="Use letters and spaces only. Example: John Smith or Mary Jane",
         )
         email = st.text_input("Email Address *", placeholder="your@email.com", max_chars=120)
         phone = st.text_input(
@@ -446,10 +446,28 @@ def page_register():
 
         zelle_ref = st.text_input(
             "Zelle Transaction Reference *",
-            placeholder="e.g. ABC-12345678 or ZELLE9876543210",
-            help="Zelle confirmation numbers vary by bank. Enter 8-30 characters (letters, digits, hyphens). Examples: ABC-12345678, ZELLE9876543210, 1234567890",
+            placeholder="e.g. ZELLE12345678",
+            help="Zelle confirmation numbers are typically 8-12 letters/digits from your bank. Accepted formats: 8-30 letters, digits, or hyphens. Examples: ZELLE12345678, 1234567890, TXN-ABCD1234, CONF-9876543210",
             max_chars=30,
         )
+
+        # ── Terms & Conditions (placeholder; organizer will update text later) ───
+        with st.expander("📜 Terms & Conditions"):
+            st.markdown(
+                """
+                <div style='color: rgba(245,245,245,0.8); font-size: 0.9rem;'>
+                    <p>Event terms and conditions will be updated here shortly by the organizer.</p>
+                    <p>By registering, you agree to:</p>
+                    <ul>
+                        <li>Show your QR code at the entrance for check-in.</li>
+                        <li>Follow all event guidelines and venue rules.</li>
+                        <li>Understand that tickets are non-refundable.</li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            agree_terms = st.checkbox("I agree to the terms and conditions", value=True)
 
         st.markdown(
             "<small style='opacity:0.6'>* Required fields. By registering, you agree to show your QR code at the entrance and follow event guidelines.</small>",
@@ -468,7 +486,7 @@ def page_register():
         zelle_clean = sanitize_zelle_ref(zelle_ref)
 
         if not name_clean:
-            st.error("Please enter a valid full name using letters only.")
+            st.error("Please enter a valid full name using letters and spaces only.")
             return
         if not email_clean:
             st.error("Please enter a valid email address.")
@@ -477,10 +495,13 @@ def page_register():
             st.error("Please enter a valid phone number with 10-15 digits, or leave it blank.")
             return
         if plus_one_name.strip() and not plus_one_clean:
-            st.error("Plus one name must contain letters only.")
+            st.error("Plus one name must contain letters and spaces only.")
+            return
+        if not agree_terms:
+            st.error("Please agree to the terms and conditions to continue.")
             return
         if not zelle_clean:
-            st.error("Zelle transaction reference is required (8-30 characters). Example: ABC-12345678 or ZELLE9876543210.")
+            st.error("Zelle transaction reference is required (8-30 characters: letters, digits, hyphens). Example: ZELLE12345678, TXN-ABCD1234, 1234567890")
             return
 
         session = get_db()

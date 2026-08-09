@@ -394,13 +394,13 @@ def sanitize_email(email: str) -> str:
 
 
 def sanitize_name(name: str) -> str:
-    """Sanitize and validate name: letters, spaces, hyphens, and apostrophes only."""
+    """Sanitize and validate name: letters and spaces only."""
     name = name.strip()
     # Remove excessive whitespace and control characters
     name = re.sub(r'\s+', ' ', name)
     name = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', name)
-    # Allow letters, spaces, hyphens, apostrophes, and periods (for initials)
-    if not re.match(r"^[A-Za-z\s'\-.]+$", name):
+    # Allow letters and spaces only
+    if not re.match(r"^[A-Za-z\s]+$", name):
         return ""
     # Must contain at least one letter and be reasonable length
     if not re.search(r'[A-Za-z]', name) or len(name) < 2 or len(name) > 100:
