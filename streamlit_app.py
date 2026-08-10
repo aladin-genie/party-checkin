@@ -113,6 +113,28 @@ def _cached_qr_image(qr_code: str) -> bytes:
     return utils.generate_qr_image(qr_code)
 
 
+def _safe_active_count(register: bool = True) -> int:
+    """Active-session count, or 0 if it can't be determined.
+
+    The capacity guard is an optional protection, so every path into it is
+    guarded: if it raises for any reason the app must keep serving guests
+    rather than 500-ing. Returning 0 means "load unknown", which leaves
+    everyone ungated — failing open is correct here, because the failure
+    mode of gating wrongly (turning away real guests) is worse than the
+    failure mode of not gating (a slow page).
+    """
+    try:
+        if register:
+            token = st.session_state.get("visitor_token")
+            if token and hasattr(utils, "touch_session"):
+                return int(utils.touch_session(token))
+        if hasattr(utils, "active_session_count"):
+            return int(utils.active_session_count())
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"capacity guard unavailable, continuing ungated: {e}")
+    return 0
+
+
 def _fmt_checkin_iso(iso_str, fmt="%I:%M %p"):
     """Format an ISO-string checkin_time (as returned by Guest.to_dict()).
 
@@ -1280,7 +1302,8 @@ def _admin_overview_tab():
     # the registration link goes out). Not cached — it's an in-memory,
     # DB-free read (utils.active_session_count()), so there's no cost to
     # reading it fresh on every Admin render.
-    active_now = utils.active_session_count()
+    # Guarded for the same reason as the gate itself — see _safe_active_count().
+    active_now = _safe_active_count(register=False)
     hard_limit = config.max_concurrent_users()
     st.caption(f"🟢 {active_now} active session(s) in the last minute · capacity guard at {hard_limit}")
 
@@ -1584,7 +1607,15 @@ def main():
     # process-wide active-session count — an in-memory, DB-free call (see
     # utils.touch_session()), so it costs nothing even during a burst.
     # Called exactly once per script run, as early as possible.
-    active_count = utils.touch_session(st.session_state["visitor_token"])
+    #
+    # Wrapped defensively: load-shedding telemetry must NEVER be able to take
+    # the whole app down. Streamlit Cloud can end up executing a new
+    # streamlit_app.py against a `utils` module still cached in the running
+    # process from before a deploy, in which case this attribute doesn't
+    # exist yet and an unguarded call raises AttributeError on every page
+    # load — a total outage caused by an optional feature. Treat any failure
+    # here as "we don't know the load", which simply means nobody is gated.
+    active_count = _safe_active_count()
 
     # Resolve which page this run is headed to *before* deciding whether to
     # gate, so Admin/Scanner and an already-authenticated admin are never
