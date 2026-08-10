@@ -10,7 +10,7 @@ import streamlit as st
 startup_error = None
 try:
     import base64
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     from utils import (
         init_db,
@@ -346,6 +346,13 @@ def page_home():
     c3, c4 = st.columns(2)
     c3.metric("Bands Given", stats["bands_distributed"])
     c4.metric("Total Tickets", stats["total_tickets"])
+
+    # Attendance progress (public, non-sensitive)
+    if stats["total_guests"] > 0:
+        st.progress(
+            stats["checkin_percentage"] / 100,
+            text=f"Attendance: {stats['checkin_percentage']}% ({stats['checked_in']}/{stats['total_guests']})",
+        )
 
     st.markdown("### ✨ Get Started")
 
@@ -913,6 +920,62 @@ def page_admin():
     c4.metric("Bands Given", stats["bands_distributed"])
     c5.metric("Total Tickets", stats["total_tickets"])
     c6.metric("Admitted", stats["admitted_tickets"])
+    c7, c8, c9 = st.columns(3)
+    c7.metric("Revenue (est.)", f"${stats['revenue']:,.2f}")
+    c8.metric("Plus Ones", stats["plus_one_count"])
+    c9.metric("Avg Tickets", f"{stats['avg_tickets_per_guest']:.2f}")
+
+    st.progress(
+        stats["checkin_percentage"] / 100,
+        text=f"Check-in rate: {stats['checkin_percentage']}%",
+    )
+
+    # ── Charts ─────────────────────────────────────────────────────────────────
+    session = get_db()
+    try:
+        now = datetime.utcnow()
+        hours = 12
+        start = now - timedelta(hours=hours)
+
+        recent_guests = session.query(Guest).filter(Guest.created_at >= start).all()
+        recent_checkins = (
+            session.query(Guest)
+            .filter(Guest.checked_in == True, Guest.checkin_time >= start)
+            .all()
+        )
+
+        from collections import defaultdict
+
+        reg_buckets = defaultdict(int)
+        for g in recent_guests:
+            hour = g.created_at.replace(minute=0, second=0, microsecond=0)
+            reg_buckets[hour] += 1
+
+        checkin_buckets = defaultdict(int)
+        for g in recent_checkins:
+            hour = g.checkin_time.replace(minute=0, second=0, microsecond=0)
+            checkin_buckets[hour] += 1
+
+        labels = [(start + timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(hours + 1)]
+        reg_values = [reg_buckets.get(h, 0) for h in labels]
+        checkin_values = [checkin_buckets.get(h, 0) for h in labels]
+
+        if any(reg_values) or any(checkin_values):
+            st.subheader("📈 Activity Timeline (Last 12 Hours)")
+            import pandas as pd
+
+            chart_df = pd.DataFrame(
+                {
+                    "Registrations": reg_values,
+                    "Check-ins": checkin_values,
+                },
+                index=[h.strftime("%I %p") for h in labels],
+            )
+            st.bar_chart(chart_df, use_container_width=True)
+        else:
+            st.info("No registration or check-in activity in the last 12 hours.")
+    finally:
+        session.close()
 
     st.divider()
 

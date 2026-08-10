@@ -191,6 +191,37 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(stats["admitted_tickets"], 3)  # 1+2
         session.close()
     
+    def test_stats_extended(self):
+        session = get_db()
+        guests_data = [
+            ("Alice", 2, True, "Bob"),
+            ("Charlie", 1, False, ""),
+            ("Dave", 3, True, "Eve"),
+        ]
+        for name, tickets, checked, plus in guests_data:
+            g = Guest(
+                name=name,
+                email=f"{name.lower()}@test.com",
+                ticket_count=tickets,
+                plus_one_name=plus,
+                zelle_ref=f"ZELLE-{name}",
+                qr_code=generate_qr_code_for_guest(name, f"{name.lower()}@test.com"),
+                checked_in=checked,
+                checkin_time=datetime.utcnow() if checked else None,
+            )
+            session.add(g)
+        session.commit()
+        
+        stats = get_stats()
+        self.assertEqual(stats["total_guests"], 3)
+        self.assertEqual(stats["total_tickets"], 6)
+        self.assertEqual(stats["checked_in"], 2)
+        self.assertEqual(stats["plus_one_count"], 2)
+        self.assertEqual(stats["avg_tickets_per_guest"], 2.0)
+        self.assertAlmostEqual(stats["checkin_percentage"], 66.7, places=1)
+        self.assertEqual(stats["revenue"], 120.0)  # 6 tickets * $20
+        session.close()
+    
     # ── Security Tests ──────────────────────────────────────────────────────
     
     def test_csv_injection_prevention(self):

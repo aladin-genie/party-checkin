@@ -168,6 +168,23 @@ def get_stats() -> dict:
             .scalar()
             or 0
         )
+        plus_one_count = session.query(Guest).filter(Guest.plus_one_name != "").count()
+
+        # Average tickets per guest
+        avg_tickets = round(tickets / total, 2) if total else 0.0
+
+        # Check-in percentage
+        checkin_pct = round(checked_in / total * 100, 1) if total else 0.0
+
+        # Estimated revenue from ticket price
+        try:
+            ticket_price_cents = int(
+                _get_secret("TICKET_PRICE_CENTS", "2000")
+            )
+        except Exception:
+            ticket_price_cents = 2000
+        revenue = round(tickets * (ticket_price_cents / 100), 2)
+
         return {
             "total_guests": total,
             "checked_in": checked_in,
@@ -175,6 +192,10 @@ def get_stats() -> dict:
             "pending": total - checked_in,
             "total_tickets": tickets,
             "admitted_tickets": admitted_tickets,
+            "plus_one_count": plus_one_count,
+            "avg_tickets_per_guest": avg_tickets,
+            "checkin_percentage": checkin_pct,
+            "revenue": revenue,
         }
     finally:
         session.close()
