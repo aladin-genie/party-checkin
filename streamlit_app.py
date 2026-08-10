@@ -81,11 +81,27 @@ st.markdown(
     header {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* Block container spacing */
+    /* Block container spacing — fluid on mobile, wider on desktop */
     .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 520px !important;
+        padding: 1.5rem 0.8rem 2rem 0.8rem !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    @media (min-width: 768px) {
+        .block-container {
+            max-width: 760px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
+        }
+    }
+
+    @media (min-width: 1200px) {
+        .block-container {
+            max-width: 1080px !important;
+        }
     }
 
     /* Buttons: gradient gold */
