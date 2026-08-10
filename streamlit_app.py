@@ -35,6 +35,7 @@ try:
         record_visit,
         get_visit_stats,
         get_site_stats,
+        record_submission,
     )
 
     # ── Initialize DB ────────────────────────────────────────────────────────────
@@ -658,16 +659,31 @@ def page_register():
         plus_one_clean = sanitize_name(plus_one_name) if plus_one_name.strip() else ""
         zelle_clean = sanitize_zelle_ref(zelle_ref)
 
-        errors = (
-            not name_clean
-            or not email_clean
-            or not zelle_clean
-            or not agree_terms
-            or (_phone_touched and not phone_clean)
-            or (plus_one_name.strip() and not plus_one_clean)
-        )
+        error_msgs = []
+        if not name_clean:
+            error_msgs.append("invalid name")
+        if not email_clean:
+            error_msgs.append("invalid email")
+        if not zelle_clean:
+            error_msgs.append("invalid Zelle reference")
+        if not agree_terms:
+            error_msgs.append("terms not accepted")
+        if _phone_touched and not phone_clean:
+            error_msgs.append("invalid phone")
+        if plus_one_name.strip() and not plus_one_clean:
+            error_msgs.append("invalid plus-one name")
 
-        if errors:
+        if error_msgs:
+            record_submission(
+                name=name_clean or name,
+                email=email_clean or email,
+                phone=phone_clean or phone,
+                ticket_count=ticket_count,
+                plus_one_name=plus_one_clean or plus_one_name,
+                zelle_ref=zelle_clean or zelle_ref,
+                status="validation_error",
+                errors="; ".join(error_msgs),
+            )
             st.error("Please fix the highlighted fields and try again.")
             return
 
@@ -675,6 +691,16 @@ def page_register():
         try:
             existing = session.query(Guest).filter_by(email=email_clean).first()
             if existing:
+                record_submission(
+                    name=name_clean,
+                    email=email_clean,
+                    phone=phone_clean,
+                    ticket_count=ticket_count,
+                    plus_one_name=plus_one_clean,
+                    zelle_ref=zelle_clean,
+                    status="duplicate_email",
+                    errors="Email already registered",
+                )
                 st.error("This email is already registered. Check your email or use the 'My QR' page.")
                 return
 
@@ -694,6 +720,18 @@ def page_register():
 
             email_sent = send_qr_email(guest)
             st.session_state["reg_email_sent"] = email_sent
+
+            # Audit trail for every successful registration
+            record_submission(
+                name=name_clean,
+                email=email_clean,
+                phone=phone_clean,
+                ticket_count=ticket_count,
+                plus_one_name=plus_one_clean,
+                zelle_ref=zelle_clean,
+                status="registered",
+                guest_id=guest_id,
+            )
 
             # Show the success screen; form values are reset on the next visit
             # to this page via the reset_register_form flag.

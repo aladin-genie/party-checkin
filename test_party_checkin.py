@@ -18,6 +18,7 @@ from utils import (
     Guest,
     CheckInLog,
     PageVisit,
+    SubmissionLog,
     get_stats,
     generate_qr_image,
     generate_qr_code_for_guest,
@@ -33,6 +34,7 @@ from utils import (
     _sanitize_csv_field,
     record_visit,
     get_visit_stats,
+    record_submission,
 )
 from datetime import datetime, timezone
 
@@ -358,6 +360,50 @@ class TestPartyCheckIn(unittest.TestCase):
         text = generate_welcome_announcement("Bob", 3)
         self.assertIn("Bob", text)
         self.assertIn("3 tickets", text)
+
+    # ── Submission Log Tests ──────────────────────────────────────────────
+
+    def test_record_submission_validation_error(self):
+        record_submission(
+            name="Bad Name 123",
+            email="not-an-email",
+            phone="abc",
+            ticket_count=2,
+            plus_one_name="",
+            zelle_ref="short",
+            status="validation_error",
+            errors="invalid name; invalid email; invalid Zelle reference",
+        )
+        session = get_db()
+        try:
+            log = session.query(SubmissionLog).order_by(SubmissionLog.id.desc()).first()
+            self.assertIsNotNone(log)
+            self.assertEqual(log.status, "validation_error")
+            self.assertIn("invalid name", log.errors)
+            self.assertEqual(log.ticket_count, 2)
+        finally:
+            session.close()
+
+    def test_record_submission_registered(self):
+        record_submission(
+            name="Alice Smith",
+            email="alice@example.com",
+            phone="+1-555-123-4567",
+            ticket_count=1,
+            plus_one_name="Bob Smith",
+            zelle_ref="ZELLE12345678",
+            status="registered",
+            guest_id=42,
+        )
+        session = get_db()
+        try:
+            log = session.query(SubmissionLog).order_by(SubmissionLog.id.desc()).first()
+            self.assertIsNotNone(log)
+            self.assertEqual(log.status, "registered")
+            self.assertEqual(log.email, "alice@example.com")
+            self.assertEqual(log.guest_id, 42)
+        finally:
+            session.close()
 
 
 def run_tests():

@@ -98,6 +98,28 @@ class PageVisit(Base):
     visited_at = Column(DateTime, default=_utc_now)
 
 
+class SubmissionLog(Base):
+    """Audit trail for every registration form submission attempt.
+
+    Tracks both successful registrations and failed attempts (validation errors,
+    duplicate emails, etc.) so organisers can see how many people tried to
+    register, where they got stuck, and which entries succeeded.
+    """
+    __tablename__ = "submission_logs"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), default="")
+    email = Column(String(120), default="")
+    phone = Column(String(30), default="")
+    ticket_count = Column(Integer, default=1)
+    plus_one_name = Column(String(100), default="")
+    zelle_ref = Column(String(100), default="")
+    status = Column(String(50), default="attempted")  # attempted, validation_error, duplicate_email, registered, email_failed
+    errors = Column(String(500), default="")
+    guest_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=_utc_now)
+
+
 # ── Database Engine & Session ─────────────────────────────────────────────────
 
 def _normalize_postgres_url(db_url: str) -> str:
@@ -191,18 +213,16 @@ def get_session_factory():
 
 
 def init_db():
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist and set up reporting views on Postgres."""
     engine = get_engine()
     inspector = inspect(engine)
     existing = inspector.get_table_names()
-    if (
-        "guests" not in existing
-        or "checkin_logs" not in existing
-        or "page_visits" not in existing
-    ):
-        Base.metadata.create_all(engine)
-    # Check if guests table has zelle_ref column (migration for existing DBs)
-    elif "guests" in existing:
+
+    # Create any missing tables (idempotent)
+    Base.metadata.create_all(engine)
+
+    # Migration for existing DBs that pre-date the new columns
+    if "guests" in existing:
         cols = [c["name"] for c in inspector.get_columns("guests")]
         if "zelle_ref" not in cols:
             from sqlalchemy import text
@@ -219,6 +239,13 @@ def init_db():
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE guests ADD COLUMN plus_one_name VARCHAR(100) DEFAULT ''"))
                 conn.commit()
+
+    # Create reporting views on PostgreSQL/Supabase only
+    if not _using_fallback_db():
+        try:
+            _create_postgres_views(engine)
+        except Exception as e:
+            print(f"Postgres view creation skipped: {e}")
 
 
 def get_db() -> Session:
@@ -337,6 +364,115 @@ def get_site_stats() -> dict:
         }
     finally:
         session.close()
+
+
+def record_submission(
+    name: str,
+    email: str,
+    phone: str,
+    ticket_count: int,
+    plus_one_name: str,
+    zelle_ref: str,
+    status: str = "attempted",
+    errors: str = "",
+    guest_id: int = None,
+) -> None:
+    """Persist a registration submission attempt to Supabase/Postgres.
+
+    This creates an audit trail for every form submit, successful or not.
+    Safe to call frequently — failures are caught and logged, not raised.
+    """
+    session = get_db()
+    try:
+        log = SubmissionLog(
+            name=name[:100],
+            email=email[:120].lower().strip(),
+            phone=phone[:30],
+            ticket_count=int(ticket_count) if ticket_count else 1,
+            plus_one_name=plus_one_name[:100],
+            zelle_ref=zelle_ref[:100].upper(),
+            status=status,
+            errors=errors[:500],
+            guest_id=guest_id,
+        )
+        session.add(log)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"SubmissionLog insert failed: {e}")
+    finally:
+        session.close()
+
+
+def _create_postgres_views(engine) -> None:
+    """Create/replace helpful reporting views on PostgreSQL (Supabase).
+
+    These views are skipped on SQLite because they use PostgreSQL-specific
+    date/time syntax. They give organisers ready-made dashboards in Supabase.
+    """
+    from sqlalchemy import text
+
+    event_date = "2026-10-09"
+    views = {
+        "vw_registrations_summary": f"""
+            SELECT
+                COUNT(*) AS total_guests,
+                COALESCE(SUM(ticket_count), 0) AS total_tickets,
+                COALESCE(SUM(CASE WHEN checked_in THEN 1 ELSE 0 END), 0) AS checked_in,
+                COALESCE(SUM(CASE WHEN band_given THEN 1 ELSE 0 END), 0) AS bands_given,
+                COALESCE(SUM(CASE WHEN checked_in THEN ticket_count ELSE 0 END), 0) AS admitted_tickets,
+                COUNT(CASE WHEN NOT checked_in THEN 1 END) AS pending
+            FROM guests
+        """,
+        "vw_registrations_by_day": """
+            SELECT
+                created_at::date AS registration_date,
+                COUNT(*) AS guest_count,
+                COALESCE(SUM(ticket_count), 0) AS ticket_count
+            FROM guests
+            GROUP BY created_at::date
+            ORDER BY registration_date DESC
+        """,
+        "vw_checkins_by_hour": f"""
+            SELECT
+                EXTRACT(HOUR FROM checkin_time)::int AS hour,
+                COUNT(*) AS checkin_count
+            FROM guests
+            WHERE checked_in = true AND checkin_time::date = '{event_date}'::date
+            GROUP BY EXTRACT(HOUR FROM checkin_time)::int
+            ORDER BY hour
+        """,
+        "vw_site_activity_summary": """
+            SELECT
+                (SELECT COUNT(*) FROM page_visits) AS total_visits,
+                (SELECT COUNT(DISTINCT visitor_token) FROM page_visits) AS unique_visitors,
+                (SELECT COUNT(*) FROM page_visits WHERE visited_at::date = CURRENT_DATE) AS today_visits,
+                (SELECT COUNT(DISTINCT visitor_token) FROM page_visits WHERE visited_at::date = CURRENT_DATE) AS today_unique
+        """,
+        "vw_submissions_summary": """
+            SELECT
+                status,
+                COUNT(*) AS count,
+                MAX(created_at) AS last_seen
+            FROM submission_logs
+            GROUP BY status
+            ORDER BY count DESC
+        """,
+        "vw_submissions_recent": """
+            SELECT
+                id, name, email, status, errors, guest_id, created_at
+            FROM submission_logs
+            ORDER BY created_at DESC
+            LIMIT 100
+        """,
+    }
+    with engine.connect() as conn:
+        for view_name, sql in views.items():
+            try:
+                conn.execute(text(f"CREATE OR REPLACE VIEW {view_name} AS {sql}"))
+            except Exception as e:
+                print(f"View {view_name} creation failed: {e}")
+        conn.commit()
 
 
 # ── QR Code Generation ────────────────────────────────────────────────────────
