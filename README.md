@@ -324,6 +324,31 @@ party-checkin/
 
 ---
 
+## Submission Tracking & Supabase Views
+
+Every registration form submit (successful or failed) is written to the `submission_logs` table:
+
+| Status | Meaning |
+|--------|---------|
+| `validation_error` | Form failed validation (name/email/phone/Zelle/terms) |
+| `duplicate_email` | Email already registered |
+| `registered` | New guest created successfully |
+
+The following reporting views are created automatically in Supabase on app startup:
+
+| View | Purpose |
+|------|---------|
+| `vw_registrations_summary` | Total guests, tickets, checked-in, bands, pending, admitted tickets |
+| `vw_registrations_by_day` | Registrations grouped by date |
+| `vw_checkins_by_hour` | Event-day check-ins grouped by hour |
+| `vw_site_activity_summary` | Total/today visits and unique visitors |
+| `vw_submissions_summary` | Submission counts grouped by status |
+| `vw_submissions_recent` | Last 100 submission attempts |
+
+You can query these directly in the Supabase SQL Editor for dashboards and reports.
+
+---
+
 ## Troubleshooting
 
 **App takes time to load**

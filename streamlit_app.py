@@ -35,13 +35,64 @@ try:
         record_visit,
         get_visit_stats,
         get_site_stats,
-        record_submission,
     )
 
     # ── Initialize DB ────────────────────────────────────────────────────────────
     init_db()
 except Exception as e:
     startup_error = traceback.format_exc()
+
+# ── Submission logging fallback ────────────────────────────────────────────────
+# If the utils module on the running container is ever stale, this fallback
+# still writes a raw row into submission_logs so no submission is lost.
+try:
+    from utils import record_submission as _record_submission
+except Exception:
+    _record_submission = None
+
+
+def _record_submission_safe(**kwargs):
+    """Call utils.record_submission when available; fall back to raw SQL."""
+    if _record_submission is not None:
+        try:
+            __record_submission_safe(**kwargs)
+            return
+        except Exception:
+            pass
+    try:
+        from sqlalchemy import text
+        from utils import get_db
+        session = get_db()
+        session.execute(
+            text(
+                """
+                INSERT INTO submission_logs
+                    (name, email, phone, ticket_count, plus_one_name, zelle_ref, status, errors, guest_id, created_at)
+                VALUES
+                    (:name, :email, :phone, :ticket_count, :plus_one_name, :zelle_ref, :status, :errors, :guest_id, NOW())
+                """
+            ),
+            {
+                "name": str(kwargs.get("name", ""))[:100],
+                "email": str(kwargs.get("email", ""))[:120],
+                "phone": str(kwargs.get("phone", ""))[:30],
+                "ticket_count": int(kwargs.get("ticket_count", 1) or 1),
+                "plus_one_name": str(kwargs.get("plus_one_name", ""))[:100],
+                "zelle_ref": str(kwargs.get("zelle_ref", ""))[:100],
+                "status": str(kwargs.get("status", "attempted"))[:50],
+                "errors": str(kwargs.get("errors", ""))[:500],
+                "guest_id": kwargs.get("guest_id"),
+            },
+        )
+        session.commit()
+    except Exception as e:
+        print(f"Submission log fallback failed: {e}")
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -619,7 +670,7 @@ def page_register():
             var parentDoc = window.parent.document;
 
             function formatPhone(input) {
-                var digits = input.value.replace(/\D/g, "").replace(/^1/, "");
+                var digits = input.value.replace(/\\D/g, "").replace(/^1/, "");
                 if (digits.length > 10) digits = digits.slice(0, 10);
                 var out = "+1";
                 if (digits.length > 0) out += "-" + digits.slice(0, 3);
@@ -635,10 +686,10 @@ def page_register():
                     formatPhone(input);
                 }
                 if (label === "Full Name *" || label === "Plus One Name (optional)") {
-                    input.value = input.value.replace(/[^A-Za-z\s]/g, "");
+                    input.value = input.value.replace(/[^A-Za-z\\s]/g, "");
                 }
                 if (label === "Zelle Transaction Reference *") {
-                    input.value = input.value.toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+                    input.value = input.value.toUpperCase().replace(/[^A-Z0-9\\-]/g, "");
                 }
             }, true);
         })();
@@ -674,7 +725,7 @@ def page_register():
             error_msgs.append("invalid plus-one name")
 
         if error_msgs:
-            record_submission(
+            _record_submission_safe(
                 name=name_clean or name,
                 email=email_clean or email,
                 phone=phone_clean or phone,
@@ -691,7 +742,7 @@ def page_register():
         try:
             existing = session.query(Guest).filter_by(email=email_clean).first()
             if existing:
-                record_submission(
+                _record_submission_safe(
                     name=name_clean,
                     email=email_clean,
                     phone=phone_clean,
@@ -722,7 +773,7 @@ def page_register():
             st.session_state["reg_email_sent"] = email_sent
 
             # Audit trail for every successful registration
-            record_submission(
+            _record_submission_safe(
                 name=name_clean,
                 email=email_clean,
                 phone=phone_clean,
