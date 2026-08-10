@@ -1,102 +1,32 @@
 """
-Party Check-In System — Streamlit App (Mobile-First, v2.2)
+Party Check-In System — Streamlit App (Mobile-First, v3.0)
 Entry point for Streamlit Community Cloud (free hosting).
 """
 
+import time
 import traceback
+from types import SimpleNamespace
 
 import streamlit as st
 
 startup_error = None
 try:
     import base64
+    import html
     import os
-    import re
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime
 
-    from utils import (
-        init_db,
-        get_db,
-        Guest,
-        CheckInLog,
-        get_stats,
-        generate_qr_image,
-        generate_qr_code_for_guest,
-        send_qr_email,
-        generate_welcome_announcement,
-        generate_csv,
-        verify_admin_password,
-        audio_announcement_js,
-        sanitize_email,
-        sanitize_name,
-        sanitize_phone,
-        sanitize_zelle_ref,
-        _using_fallback_db,
-        record_visit,
-        get_visit_stats,
-        get_site_stats,
-    )
+    import pandas as pd
 
-    # ── Initialize DB ────────────────────────────────────────────────────────────
-    init_db()
-except Exception as e:
-    startup_error = traceback.format_exc()
-
-# ── Submission logging fallback ────────────────────────────────────────────────
-# If the utils module on the running container is ever stale, this fallback
-# still writes a raw row into submission_logs so no submission is lost.
-try:
-    from utils import record_submission as _record_submission
+    import utils
+    import config
+    import theme
 except Exception:
-    _record_submission = None
-
-
-def _record_submission_safe(**kwargs):
-    """Call utils.record_submission when available; fall back to raw SQL."""
-    if _record_submission is not None:
-        try:
-            _record_submission(**kwargs)
-            return
-        except Exception:
-            pass
-    try:
-        from sqlalchemy import text
-        from utils import get_db
-        session = get_db()
-        session.execute(
-            text(
-                """
-                INSERT INTO submission_logs
-                    (name, email, phone, ticket_count, plus_one_name, zelle_ref, status, errors, guest_id, created_at)
-                VALUES
-                    (:name, :email, :phone, :ticket_count, :plus_one_name, :zelle_ref, :status, :errors, :guest_id, NOW())
-                """
-            ),
-            {
-                "name": str(kwargs.get("name", ""))[:100],
-                "email": str(kwargs.get("email", ""))[:120],
-                "phone": str(kwargs.get("phone", ""))[:30],
-                "ticket_count": int(kwargs.get("ticket_count", 1) or 1),
-                "plus_one_name": str(kwargs.get("plus_one_name", ""))[:100],
-                "zelle_ref": str(kwargs.get("zelle_ref", ""))[:100],
-                "status": str(kwargs.get("status", "attempted"))[:50],
-                "errors": str(kwargs.get("errors", ""))[:500],
-                "guest_id": kwargs.get("guest_id"),
-            },
-        )
-        session.commit()
-    except Exception as e:
-        print(f"Submission log fallback failed: {e}")
-    finally:
-        try:
-            session.close()
-        except Exception:
-            pass
-
+    startup_error = traceback.format_exc()
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Dallas Boys Party — 12th Year",
+    page_title=f"{config.EVENT_NAME if not startup_error else 'Party Check-In'} — Check-In",
     page_icon="🎊",
     layout="centered",  # centered is better for mobile
     initial_sidebar_state="collapsed",  # collapsed by default for mobile
@@ -106,334 +36,207 @@ if startup_error:
     st.error("🚨 The app failed to start. Please share this error with the developer:")
     st.code(startup_error)
     st.stop()
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-    /* Base typography */
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif !important;
-    }
+# ── Initialize DB ─────────────────────────────────────────────────────────────
+try:
+    utils.ensure_db_ready()
+except Exception:
+    st.error("🚨 The app failed to start. Please share this error with the developer:")
+    st.code(traceback.format_exc())
+    st.stop()
 
-    /* Main background gradient */
-    .stApp {
-        background: linear-gradient(135deg, #0a0a0a 0%, #141414 50%, #1a0a1a 100%) !important;
-    }
+theme.inject_css()
 
-    /* Headings: metallic gold look */
-    h1, h2, h3 {
-        color: #F5F5F5 !important;
-        font-weight: 700 !important;
-    }
-    h1 {
-        background: linear-gradient(90deg, #D4AF37 0%, #F4E4BC 50%, #D4AF37 100%);
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        background-clip: text !important;
-    }
-
-    /* Hide default header/footer noise */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-
-    /* Block container spacing — fluid on mobile, wider on desktop */
-    .block-container {
-        padding: 1.5rem 0.8rem 2rem 0.8rem !important;
-        max-width: 100% !important;
-        width: 100% !important;
-    }
-
-    @media (min-width: 768px) {
-        .block-container {
-            max-width: 760px !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-            padding-left: 1.5rem !important;
-            padding-right: 1.5rem !important;
-        }
-    }
-
-    @media (min-width: 1200px) {
-        .block-container {
-            max-width: 1080px !important;
-        }
-    }
-
-    /* Buttons: gradient gold */
-    button, .stButton>button {
-        min-height: 52px !important;
-        font-size: 1.1rem !important;
-        font-weight: 700 !important;
-        border-radius: 12px !important;
-        background: linear-gradient(90deg, #D4AF37 0%, #B8860B 100%) !important;
-        color: #0a0a0a !important;
-        border: none !important;
-        box-shadow: 0 4px 14px rgba(212, 175, 55, 0.25) !important;
-        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-    }
-    button:hover, .stButton>button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(212, 175, 55, 0.4) !important;
-    }
-    button[kind="secondary"], .stButton>button[kind="secondary"] {
-        background: rgba(255, 255, 255, 0.08) !important;
-        color: #F5F5F5 !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
-        box-shadow: none !important;
-    }
-
-    /* Inputs: dark glass */
-    input, .stTextInput>div>div>input, .stNumberInput>div>div>input,
-    .stSelectbox>div>div, .stTextArea>div>div>textarea {
-        font-size: 1.05rem !important;
-        min-height: 48px !important;
-        background: rgba(255, 255, 255, 0.06) !important;
-        color: #F5F5F5 !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 12px !important;
-    }
-    input::placeholder, .stTextInput>div>div>input::placeholder {
-        color: rgba(245, 245, 245, 0.45) !important;
-    }
-
-    /* Cards/containers: glassmorphism */
-    div[data-testid="stContainer"] {
-        border-radius: 16px !important;
-        background: rgba(255, 255, 255, 0.04) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35) !important;
-    }
-
-    /* Hero banner card */
-    .hero-banner {
-        background: linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(138, 43, 226, 0.12) 100%) !important;
-        border: 1px solid rgba(212, 175, 55, 0.35) !important;
-        border-radius: 20px !important;
-        padding: 24px 20px !important;
-        text-align: center !important;
-        box-shadow: 0 0 30px rgba(212, 175, 55, 0.15) !important;
-        margin-bottom: 20px !important;
-    }
-    .hero-title {
-        font-size: 2.4rem !important;
-        font-weight: 800 !important;
-        margin: 0 0 8px 0 !important;
-        background: linear-gradient(90deg, #D4AF37 0%, #F4E4BC 50%, #D4AF37 100%);
-        -webkit-background-clip: text !important;
-        -webkit-text-fill-color: transparent !important;
-        background-clip: text !important;
-        letter-spacing: -0.5px !important;
-    }
-    .hero-subtitle {
-        font-size: 1.15rem !important;
-        color: #F4E4BC !important;
-        font-weight: 600 !important;
-        margin-bottom: 16px !important;
-    }
-    .hero-badge {
-        display: inline-block !important;
-        background: rgba(0, 0, 0, 0.4) !important;
-        border: 1px solid rgba(212, 175, 55, 0.5) !important;
-        border-radius: 50px !important;
-        padding: 8px 16px !important;
-        margin: 4px !important;
-        color: #F5F5F5 !important;
-        font-size: 0.9rem !important;
-    }
-    .hero-cta {
-        display: inline-block !important;
-        margin-top: 16px !important;
-        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%) !important;
-        color: #0a0a0a !important;
-        font-weight: 800 !important;
-        padding: 10px 24px !important;
-        border-radius: 50px !important;
-        box-shadow: 0 0 20px rgba(0, 201, 255, 0.4) !important;
-    }
-
-    /* Payment card */
-    .payment-card {
-        background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%) !important;
-        border: 1px solid rgba(212, 175, 55, 0.4) !important;
-        border-radius: 20px !important;
-        padding: 24px !important;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
-        position: relative !important;
-        overflow: hidden !important;
-    }
-    .payment-card::before {
-        content: "";
-        position: absolute;
-        top: 0; left: 0; right: 0; height: 4px;
-        background: linear-gradient(90deg, #D4AF37, #8A2BE2, #00C9FF);
-    }
-    .zelle-email {
-        font-size: 1.25rem !important;
-        font-weight: 700 !important;
-        color: #F4E4BC !important;
-        letter-spacing: 0.5px !important;
-        word-break: break-all !important;
-    }
-    .price-tag {
-        font-size: 2rem !important;
-        font-weight: 800 !important;
-        color: #D4AF37 !important;
-    }
-
-    /* Nav cards */
-    .nav-card {
-        background: rgba(255, 255, 255, 0.04) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 16px !important;
-        padding: 20px !important;
-        transition: all 0.2s ease !important;
-    }
-    .nav-card:hover {
-        background: rgba(212, 175, 55, 0.08) !important;
-        border-color: rgba(212, 175, 55, 0.3) !important;
-        transform: translateY(-2px) !important;
-    }
-    .nav-card h3 {
-        color: #F4E4BC !important;
-        margin: 0 0 6px 0 !important;
-    }
-    .nav-card p {
-        color: rgba(245, 245, 245, 0.65) !important;
-        margin: 0 !important;
-        font-size: 0.95rem !important;
-    }
-
-    /* QR code styling */
-    img[alt*="QR"] {
-        max-width: 100% !important;
-        width: 320px !important;
-        border-radius: 16px !important;
-        box-shadow: 0 0 30px rgba(212, 175, 55, 0.2) !important;
-    }
-
-    /* Success/info messages */
-    .stAlert {
-        border-radius: 12px !important;
-    }
-    .stSuccess {
-        background: rgba(34, 197, 94, 0.12) !important;
-        border: 1px solid rgba(34, 197, 94, 0.3) !important;
-    }
-    .stInfo {
-        background: rgba(59, 130, 246, 0.12) !important;
-        border: 1px solid rgba(59, 130, 246, 0.3) !important;
-    }
-
-    /* Mobile tweaks */
-    @media (max-width: 640px) {
-        .hero-title { font-size: 1.9rem !important; }
-        .hero-subtitle { font-size: 1rem !important; }
-        .block-container { padding: 1rem 0.8rem !important; }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+PAGES = ["Home", "Register", "My QR", "Scanner", "Admin"]
 
 # ── Session State Defaults ───────────────────────────────────────────────────
 def _ensure_state(key, default):
     if key not in st.session_state:
         st.session_state[key] = default
 
+
 _ensure_state("registered_guest_id", None)
 _ensure_state("scanner_result", None)
 _ensure_state("admin_authenticated", False)
-_ensure_state("confirm_delete", None)
+_ensure_state("admin_fail_count", 0)
+_ensure_state("admin_lockout_until", 0.0)
+_ensure_state("reg_errors", {})
+_ensure_state("admin_pending_changes", None)
+_ensure_state("flash", None)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-try:
-    TICKET_PRICE = float(st.secrets.get("TICKET_PRICE_CENTS", 2000)) / 100
-except Exception:
-    TICKET_PRICE = 20.00
+TICKET_PRICE = config.ticket_price_dollars()
+ZELLE_INFO = config.zelle_info()
 
-# Event date for check-in timeline charts
-EVENT_DATE = datetime(2026, 10, 9)
 
-_DEFAULT_ZELLE = "dallashudugaru@gmail.com"
-_PLACEHOLDER_ZELLE = "your-zelle-phone@email.com or +1-234-567-8900"
-ZELLE_INFO = st.secrets.get("ZELLE_INFO", _DEFAULT_ZELLE).strip()
-if not ZELLE_INFO or ZELLE_INFO == _PLACEHOLDER_ZELLE or "organizer will share" in ZELLE_INFO.lower():
-    ZELLE_INFO = _DEFAULT_ZELLE
+# ── Cached data reads ────────────────────────────────────────────────────────
+# Streamlit reruns the whole script on every interaction; without this, every
+# click would fire several queries against the remote Postgres DB. Mutations
+# clear only the specific cache(s) their write affects (see PART 7) rather
+# than st.cache_data.clear(), which would wipe every cached value for every
+# user in the whole app.
+@st.cache_data(ttl=10, show_spinner=False)
+def _cached_stats():
+    return utils.get_stats()
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def _cached_site_stats():
+    return utils.get_site_stats()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_registration_daily_counts():
+    return utils.get_registration_daily_counts()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_event_day_hourly_checkins():
+    return utils.get_event_day_hourly_checkins()
+
+
+def _fmt_checkin_iso(iso_str, fmt="%I:%M %p"):
+    """Format an ISO-string checkin_time (as returned by Guest.to_dict()).
+
+    utils.format_dt() expects a real datetime, not the ISO string that dict
+    payloads carry, so this parses it back first. Tolerates None/garbage.
+    """
+    if not iso_str:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except Exception:
+        return "—"
+    return utils.format_dt(dt, fmt)
+
+
+# ── Flash messages ────────────────────────────────────────────────────────────
+# st.success/st.warning/st.error/st.info render into the CURRENT script frame.
+# Several actions in this app do a mutation and then call st.rerun() right
+# away so the page reflects the new state — but that discards the current
+# frame before the browser ever paints it, so a message shown immediately
+# before st.rerun() is never actually seen (see PART 6). Any such call site
+# should stash its message with _set_flash() instead and let the top of the
+# *next* run display it via _render_flash().
+def _set_flash(kind: str, message: str) -> None:
+    st.session_state["flash"] = {"kind": kind, "message": message}
+
+
+def _render_flash() -> None:
+    flash = st.session_state.pop("flash", None)
+    if flash:
+        renderer = {
+            "success": st.success,
+            "warning": st.warning,
+            "error": st.error,
+            "info": st.info,
+        }.get(flash["kind"], st.info)
+        renderer(flash["message"])
+
+
+def _render_bar_chart(df):
+    """st.bar_chart, falling back to a plain table if chart rendering fails.
+
+    Some environments ship an altair build that's incompatible with the
+    running Python's `typing.TypedDict` (unrelated to this app's code) and
+    raise on any st.bar_chart call. Never let that take down the whole
+    page — degrade to a table instead.
+
+    Charts are drawn in the theme's gold rather than Streamlit's default blue,
+    which clashes badly with the dark/gold palette, and are given a fixed
+    height so a 24-bar check-in chart doesn't swallow the whole viewport.
+    """
+    try:
+        st.bar_chart(df, color=theme.CHART_COLOR, height=260, use_container_width=True)
+    except TypeError:
+        # Older/newer Streamlit signatures may not accept color/height.
+        try:
+            st.bar_chart(df, use_container_width=True)
+        except Exception:
+            st.dataframe(df, use_container_width=True)
+    except Exception:
+        st.dataframe(df, use_container_width=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HOME PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_home():
-    site_stats = get_site_stats()
-
-    # Hero banner
-    st.markdown(
-        """
-        <div class="hero-banner">
-            <div class="hero-title">🎉 Dallas Boys Party</div>
-            <div class="hero-subtitle">12th Year of Togetherness</div>
-            <div>
-                <span class="hero-badge">📅 Friday, Oct 9, 2026</span>
-                <span class="hero-badge">🕕 5:30 PM onwards</span>
-            </div>
-            <div style="margin-top: 8px;">
-                <span class="hero-badge">📍 Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024</span>
-            </div>
-            <div class="hero-cta">Registration Opens Soon</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(theme.hero(), unsafe_allow_html=True)
 
     # Warn if running on fallback SQLite (e.g., Cloud secret missing or DB unreachable)
     try:
-        if _using_fallback_db():
+        if utils._using_fallback_db():
             st.warning(
-                "⚠️ Running on a temporary local database. Guest data will not persist across restarts. "
+                "Running on a temporary local database. Guest data will not persist across restarts. "
                 "Please set the DATABASE_URL secret in Streamlit Cloud to connect to Supabase.",
                 icon="🗄️",
             )
     except Exception:
         pass
 
-    # Site usage stats — public, popularity/engagement focus
-    st.markdown("### 📊 Site Activity")
-    c1, c2 = st.columns(2)
-    c1.metric("Visits Today", site_stats["today_visits"])
-    c2.metric("Total Visits", site_stats["total_visits"])
-    c3, c4 = st.columns(2)
-    c3.metric("Unique Visitors Today", site_stats["today_unique"])
-    c4.metric("Total Unique Visitors", site_stats["unique_visitors"])
-    c5, c6 = st.columns(2)
-    c5.metric("Registrations Today", site_stats["today_regs"])
-    c6.metric("Total Registered", site_stats["total_regs"])
+    # ── Party Buzz ──────────────────────────────────────────────────────────
+    # Public, aggregate-only site activity — no guest names/emails/phones/
+    # Zelle refs ever appear here. Moved from the admin dashboard: the owner
+    # doesn't consider it sensitive and would rather show it off than bury it.
+    site_stats = _cached_site_stats()
+    st.markdown(
+        theme.section_header(
+            "🎉 Party Buzz", "A live pulse of the site so far — nothing guest-specific, just the vibe."
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        theme.stat_tiles(
+            [
+                ("Unique Visitors", site_stats["unique_visitors"], "All time"),
+                ("Page Views", site_stats["total_visits"], "All time"),
+                ("Registered Guests", site_stats["total_regs"], f"+{site_stats['today_regs']} today"),
+                ("Visitors Today", site_stats["today_unique"], f"{site_stats['today_visits']} views"),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("### ✨ Get Started")
+    daily_counts = _cached_registration_daily_counts()
+    if daily_counts:
+        reg_df = pd.DataFrame(
+            {"Registrations": [c for _, c in daily_counts]},
+            index=[d.strftime("%b %d") for d, _ in daily_counts],
+        )
+        st.caption("📈 Registrations by day — how quickly folks have been signing up.")
+        _render_bar_chart(reg_df)
+    else:
+        st.info("No registrations yet — be the first to sign up!")
+
+    hourly = _cached_event_day_hourly_checkins()
+    if any(hourly):
+        checkin_df = pd.DataFrame(
+            {"Check-ins": hourly},
+            index=[f"{h:02d}:00" for h in range(24)],
+        )
+        st.caption(f"🚪 Check-ins by hour on {config.EVENT_DATE_SHORT} — the flow through the door.")
+        _render_bar_chart(checkin_df)
+    else:
+        st.info(f"Check-ins will show up here live once doors open on {config.EVENT_DATE_SHORT}.")
+
+    st.markdown(theme.section_header("Get Started"), unsafe_allow_html=True)
 
     # Navigation cards
     nav_items = [
         ("📝", "Register Guest", "Pay via Zelle, get your QR code by email", "nav_register", "Register"),
+        ("📱", "My QR Code", "Look up your ticket QR code by email", "nav_my_qr", "My QR"),
         ("📷", "Self Check-In", "Scan your QR code at the entrance", "nav_scanner", "Scanner"),
         ("📊", "Admin Dashboard", "Manage guests and download reports", "nav_admin", "Admin"),
     ]
     for icon, title, desc, key, page in nav_items:
         with st.container(border=True):
-            st.markdown(
-                f"<div class='nav-card'><h3>{icon} {title}</h3><p>{desc}</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(theme.nav_card(icon, title, desc), unsafe_allow_html=True)
             if st.button(f"{icon} {title} →", key=key, use_container_width=True):
                 st.session_state["page"] = page
                 st.rerun()
 
-    st.markdown(
-        "<p style='text-align:center; opacity:0.5; font-size:0.8em; margin-top: 24px;'>"
-        "Dallas Boys Party 2026 • 12th Year of Togetherness • Ready for 200+ guests</p>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(theme.footer(), unsafe_allow_html=True)
 
 
 def _home_button(key="home_button"):
@@ -443,15 +246,6 @@ def _home_button(key="home_button"):
         st.rerun()
 
 
-def _field_error(message: str):
-    """Render a small red error message directly under a form field."""
-    st.markdown(
-        f"<p style='color:#ff4b4b; font-size:0.85em; margin-top:0.2rem; margin-bottom:0.8rem;'>"
-        f"{message}</p>",
-        unsafe_allow_html=True,
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -459,11 +253,10 @@ def page_register():
     # Reset form fields at the very top, before any widgets are instantiated,
     # so stale values don't appear when re-entering the page or clicking "Register Another".
     if st.session_state.get("reset_register_form"):
-        # Delete widget keys that also have a `value=` argument so Streamlit
-        # doesn't warn about both a default value and session state.
         for _key in ("reg_name", "reg_email", "reg_phone", "reg_plus_one", "reg_zelle", "ticket_count"):
             st.session_state.pop(_key, None)
         st.session_state["reg_agree"] = False
+        st.session_state["reg_errors"] = {}
         st.session_state["reset_register_form"] = False
 
     header_col1, header_col2 = st.columns([4, 1])
@@ -475,43 +268,19 @@ def page_register():
     # If a guest was just registered, show their QR
     if st.session_state.get("registered_guest_id"):
         guest_id = st.session_state["registered_guest_id"]
-        session = get_db()
-        try:
-            guest = session.query(Guest).filter_by(id=guest_id).first()
-            if guest:
-                _show_registration_success(guest)
-                return
-        finally:
-            session.close()
+        guest = utils.get_guest(guest_id)
+        if guest:
+            _show_registration_success(guest)
+            return
         st.session_state["registered_guest_id"] = None
 
-    # ── Zelle Payment Info Card (modern, prominent) ──────────────────────────
-    st.markdown(
-        f"""
-        <div class="payment-card">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                <span style="font-size: 1.8rem;">💳</span>
-                <span style="font-size: 1.2rem; font-weight: 700; color: #F4E4BC;">Step 1: Pay via Zelle</span>
-            </div>
-            <p style="color: rgba(245,245,245,0.75); margin: 0 0 16px 0;">
-                Before registering, send your payment via Zelle in your banking app.
-                You'll need the <strong>transaction confirmation number</strong> on the next step.
-            </p>
-            <div style="background: rgba(0,0,0,0.35); border-radius: 12px; padding: 14px; margin-bottom: 14px; border: 1px solid rgba(212,175,55,0.25);">
-                <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: #D4AF37; margin-bottom: 4px;">Send Zelle To</div>
-                <div class="zelle-email">{ZELLE_INFO}</div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: rgba(245,245,245,0.7);">Price per ticket</span>
-                <span class="price-tag">${TICKET_PRICE:.2f}</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(theme.stepper(2), unsafe_allow_html=True)
 
-    # ── Ticket count & dynamic total (outside form so it updates live) ───────
-    st.markdown("### 🎫 Select Tickets")
+    # ── Zelle Payment Info Card ────────────────────────────────────────────
+    st.markdown(theme.payment_card(ZELLE_INFO, TICKET_PRICE), unsafe_allow_html=True)
+
+    # ── Ticket count & dynamic total (outside form so it updates live) ────
+    st.markdown(theme.section_header("Select Tickets"), unsafe_allow_html=True)
     ticket_count = st.number_input(
         "Number of Tickets *",
         min_value=1,
@@ -521,20 +290,14 @@ def page_register():
         key="ticket_count",
         help="Select number of tickets. The total updates automatically as you change it.",
     )
-    total = ticket_count * TICKET_PRICE
-    st.markdown(
-        f"""
-        <div style='background: linear-gradient(135deg, rgba(212,175,55,0.25) 0%, rgba(138,43,226,0.15) 100%); border: 1px solid rgba(212,175,55,0.35); color: #F5F5F5; padding: 18px; border-radius: 16px; text-align: center; margin: 15px 0;'>
-            <div style='font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; color: #D4AF37;'>Total to Pay</div>
-            <div style='font-size: 2.4em; font-weight: 800; color: #D4AF37;'>${total:.2f}</div>
-            <div style='font-size: 0.9em; opacity: 0.8;'>{int(ticket_count)} ticket{'s' if ticket_count > 1 else ''} × ${TICKET_PRICE:.2f}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(theme.total_card(ticket_count, TICKET_PRICE), unsafe_allow_html=True)
 
-    # ── Registration Details ───────────────────────────────────────────────────
-    st.markdown("### 📝 Step 2: Fill Your Details")
+    # ── Registration Details ───────────────────────────────────────────────
+    st.markdown(theme.section_header("Step 2: Fill Your Details"), unsafe_allow_html=True)
+
+    reg_errors = st.session_state.get("reg_errors", {})
+    if reg_errors:
+        st.markdown(theme.validation_banner(len(reg_errors)), unsafe_allow_html=True)
 
     # Use a form for personal details so typing in these fields doesn't trigger a
     # Streamlit rerun on every keystroke. The ticket selector stays outside the
@@ -547,6 +310,8 @@ def page_register():
             max_chars=100,
             help="Use letters and spaces only. Example: John Smith or Mary Jane",
         )
+        if "name" in reg_errors:
+            st.markdown(theme.field_error(reg_errors["name"]), unsafe_allow_html=True)
 
         email = st.text_input(
             "Email Address *",
@@ -554,6 +319,8 @@ def page_register():
             placeholder="your@email.com",
             max_chars=120,
         )
+        if "email" in reg_errors:
+            st.markdown(theme.field_error(reg_errors["email"]), unsafe_allow_html=True)
 
         phone = st.text_input(
             "Phone Number (optional)",
@@ -562,14 +329,19 @@ def page_register():
             max_chars=20,
             help="US numbers only. Enter 10 digits; the format +1-XXX-XXX-XXXX will be applied when you submit.",
         )
+        if "phone" in reg_errors:
+            st.markdown(theme.field_error(reg_errors["phone"]), unsafe_allow_html=True)
 
-        plus_one_name = st.text_input(
-            "Plus One Name (optional)",
+        plus_one_name = st.text_area(
+            "Additional Guest Names (optional)",
             key="reg_plus_one",
-            placeholder="Name of your guest",
-            max_chars=100,
-            help="Optional. Letters and spaces only.",
+            placeholder="Jane Doe\nJohn Doe\nMary Smith",
+            help="One name per line (or comma-separated) — up to 20.",
+            height=120,
+            max_chars=1000,
         )
+        if "plus_one_name" in reg_errors:
+            st.markdown(theme.field_error(reg_errors["plus_one_name"]), unsafe_allow_html=True)
 
         zelle_ref = st.text_input(
             "Zelle Transaction Reference *",
@@ -578,27 +350,37 @@ def page_register():
             max_chars=30,
             help="8-30 letters, digits, or hyphens. Examples: ZELLE12345678, TXN-ABCD1234, 1234567890",
         )
+        if "zelle_ref" in reg_errors:
+            st.markdown(theme.field_error(reg_errors["zelle_ref"]), unsafe_allow_html=True)
 
-        # ── Terms & Conditions ───────────────────────────────────────────────────
-        with st.expander("📜 Terms & Conditions — Alcohol Disclaimer & Waiver"):
+        # ── Terms & Conditions ──────────────────────────────────────────────
+        # Auto-expand when the previous submit failed on this field — otherwise
+        # a user who submits without ticking "I/We Agree" sees the form get
+        # rejected with no visible reason, since the error renders inside this
+        # (default-collapsed) expander.
+        with st.expander(
+            "📜 Terms & Conditions — Alcohol Disclaimer & Waiver",
+            expanded=("terms" in reg_errors),
+        ):
+            event_title = f"{html.escape(config.EVENT_NAME)} on {html.escape(config.EVENT_DATE_TEXT)}"
             st.markdown(
-                """
+                f"""
                 <div style='color: rgba(245,245,245,0.85); font-size: 0.88rem; line-height: 1.5;'>
                     <h4 style='color: #F4E4BC; margin-top: 0;'>Alcohol Disclaimer</h4>
                     <p>
-                        I (Individual) or We (for all the listed attendees in this form and/or a person who is making group Zelle payment representing the group) the undersigned, hereby voluntarily assume all risks associated with participating in the activities related to the <strong>Dallas Boys Party on Oct 9, 2026</strong>.
+                        I (Individual) or We (for all the listed attendees in this form and/or a person who is making group Zelle payment representing the group) the undersigned, hereby voluntarily assume all risks associated with participating in the activities related to the <strong>{event_title}</strong>.
                     </p>
                     <p>
-                        I/We understand that the Dallas Boys Party organizers will not provide alcohol on-site, and that all alcohol at the event is BYOB (Bring Your Own Beverage). I/We acknowledge that consuming alcohol may impair judgment, motor skills, vision, and other abilities, and can lead to various health risks such as intoxication, nausea, vomiting, drowsiness, and other symptoms. I/We also understand that alcohol consumption can increase aggression and impair decision-making.
+                        I/We understand that the {html.escape(config.EVENT_NAME)} organizers will not provide alcohol on-site, and that all alcohol at the event is BYOB (Bring Your Own Beverage). I/We acknowledge that consuming alcohol may impair judgment, motor skills, vision, and other abilities, and can lead to various health risks such as intoxication, nausea, vomiting, drowsiness, and other symptoms. I/We also understand that alcohol consumption can increase aggression and impair decision-making.
                     </p>
                     <p>
                         I/We acknowledge that it is my responsibility to ensure that no underage or prohibited individuals in my group consume alcohol, and I/We will comply with all local laws regarding alcohol consumption during the event.
                     </p>
                     <p>
-                        I/We understand that the Dallas Boys Party organizers are not responsible for any property damage, injuries, or fatalities that may result from alcohol consumption or any activities during the event. By participating, I/We hereby release and discharge the Dallas Boys Party organizers, their owners, employees, volunteers, representatives, and agents from any and all liability for incidents occurring before, during, or after the event, including travel to and from the venue. This waiver includes, but is not limited to, liability arising from negligence.
+                        I/We understand that the {html.escape(config.EVENT_NAME)} organizers are not responsible for any property damage, injuries, or fatalities that may result from alcohol consumption or any activities during the event. By participating, I/We hereby release and discharge the {html.escape(config.EVENT_NAME)} organizers, their owners, employees, volunteers, representatives, and agents from any and all liability for incidents occurring before, during, or after the event, including travel to and from the venue. This waiver includes, but is not limited to, liability arising from negligence.
                     </p>
                     <p>
-                        In consideration of being allowed to participate, I/We further agree to indemnify and hold harmless the Dallas Boys Party organizers and their representatives from any claims or liabilities resulting from my participation in the event, including any consequences arising from alcohol consumption.
+                        In consideration of being allowed to participate, I/We further agree to indemnify and hold harmless the {html.escape(config.EVENT_NAME)} organizers and their representatives from any claims or liabilities resulting from my participation in the event, including any consequences arising from alcohol consumption.
                     </p>
                     <p>
                         I/We consent to receiving medical treatment deemed necessary in case of injury, accident, or illness during the event. I/We also acknowledge that I/We may be photographed or filmed during the event, and I/We grant permission for my likeness to be used by the event organizers and sponsors for legitimate purposes without compensation.
@@ -611,163 +393,135 @@ def page_register():
                 unsafe_allow_html=True,
             )
             agree_terms = st.checkbox("I/We Agree", key="reg_agree")
+            if "terms" in reg_errors:
+                st.markdown(theme.field_error(reg_errors["terms"]), unsafe_allow_html=True)
 
-        submitted = st.form_submit_button("✅ Get My QR Code", type="primary", use_container_width=True)
-
-        # Per-field validation rendered inside the form after submission
-        name_clean = sanitize_name(name) if submitted else name
-        email_clean = sanitize_email(email) if submitted else email
-        _phone_touched = phone.strip() and phone.strip() not in ("+", "+1", "+1-")
-        phone_clean = sanitize_phone(phone) if submitted and _phone_touched else phone
-        plus_one_clean = sanitize_name(plus_one_name) if submitted and plus_one_name.strip() else plus_one_name
-        zelle_clean = sanitize_zelle_ref(zelle_ref) if submitted else zelle_ref
-
-        if submitted and not name_clean:
-            _field_error("Please enter a valid full name using letters and spaces only.")
-        if submitted and not email_clean:
-            _field_error("Please enter a valid email address.")
-        if submitted and _phone_touched and not phone_clean:
-            _field_error(
-                "Please enter a valid 10-digit US phone number (only numbers after +1-)."
-            )
-        if submitted and plus_one_name.strip() and not plus_one_clean:
-            _field_error("Plus one name must contain letters and spaces only.")
-        if submitted and not zelle_clean:
-            _field_error(
-                "Zelle transaction reference is required (8-30 letters, digits, hyphens)."
-            )
-        if submitted and not agree_terms:
-            _field_error("Please check I/We Agree in the Terms & Conditions to continue.")
+        submitted = st.form_submit_button("🎟️ Get My QR Code", type="primary", use_container_width=True)
 
     st.markdown(
-        "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. Your QR code will be emailed to you.</small>",
+        "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. "
+        "Your QR code will be emailed to you.</small>",
         unsafe_allow_html=True,
     )
 
     if submitted:
-        name_clean = sanitize_name(name)
-        email_clean = sanitize_email(email)
-        phone_clean = sanitize_phone(phone) if _phone_touched else ""
-        plus_one_clean = sanitize_name(plus_one_name) if plus_one_name.strip() else ""
-        zelle_clean = sanitize_zelle_ref(zelle_ref)
+        cleaned, errors = utils.validate_registration(
+            name, email, phone, plus_one_name, zelle_ref, agree_terms
+        )
 
-        error_msgs = []
-        if not name_clean:
-            error_msgs.append("invalid name")
-        if not email_clean:
-            error_msgs.append("invalid email")
-        if not zelle_clean:
-            error_msgs.append("invalid Zelle reference")
-        if not agree_terms:
-            error_msgs.append("terms not accepted")
-        if _phone_touched and not phone_clean:
-            error_msgs.append("invalid phone")
-        if plus_one_name.strip() and not plus_one_clean:
-            error_msgs.append("invalid plus-one name")
-
-        if error_msgs:
-            _record_submission_safe(
-                name=name_clean or name,
-                email=email_clean or email,
-                phone=phone_clean or phone,
+        if errors:
+            st.session_state["reg_errors"] = errors
+            utils.record_submission(
+                name=cleaned["name"] or name,
+                email=cleaned["email"] or email,
+                phone=cleaned["phone"] or phone,
                 ticket_count=ticket_count,
-                plus_one_name=plus_one_clean or plus_one_name,
-                zelle_ref=zelle_clean or zelle_ref,
+                plus_one_name=cleaned["plus_one_name"] or plus_one_name,
+                zelle_ref=cleaned["zelle_ref"] or zelle_ref,
                 status="validation_error",
-                errors="; ".join(error_msgs),
+                errors="; ".join(errors.values()),
             )
-            st.error("Please fix the highlighted fields and try again.")
-            return
-
-        session = get_db()
-        try:
-            existing = session.query(Guest).filter_by(email=email_clean).first()
-            if existing:
-                _record_submission_safe(
-                    name=name_clean,
-                    email=email_clean,
-                    phone=phone_clean,
-                    ticket_count=ticket_count,
-                    plus_one_name=plus_one_clean,
-                    zelle_ref=zelle_clean,
-                    status="duplicate_email",
-                    errors="Email already registered",
-                )
-                st.error("This email is already registered. Check your email or use the 'My QR' page.")
-                return
-
-            qr_code = generate_qr_code_for_guest(name_clean, email_clean)
-            guest = Guest(
-                name=name_clean,
-                email=email_clean,
-                phone=phone_clean,
-                ticket_count=int(ticket_count),
-                plus_one_name=plus_one_clean,
-                zelle_ref=zelle_clean,
-                qr_code=qr_code,
-            )
-            session.add(guest)
-            session.commit()
-            guest_id = guest.id
-
-            email_sent = send_qr_email(guest)
-            st.session_state["reg_email_sent"] = email_sent
-
-            # Audit trail for every successful registration
-            _record_submission_safe(
-                name=name_clean,
-                email=email_clean,
-                phone=phone_clean,
-                ticket_count=ticket_count,
-                plus_one_name=plus_one_clean,
-                zelle_ref=zelle_clean,
-                status="registered",
-                guest_id=guest_id,
-            )
-
-            # Show the success screen; form values are reset on the next visit
-            # to this page via the reset_register_form flag.
-            st.session_state["reg_submit_clicked"] = False
-            st.session_state["registered_guest_id"] = guest_id
             st.rerun()
-        finally:
-            session.close()
+
+        st.session_state["reg_errors"] = {}
+        result = utils.register_guest(
+            cleaned["name"],
+            cleaned["email"],
+            cleaned["phone"],
+            int(ticket_count),
+            cleaned["plus_one_name"],
+            cleaned["zelle_ref"],
+        )
+
+        if result["ok"]:
+            guest = result["guest"]
+            # Fire-and-forget: a guest who just paid shouldn't stare at a
+            # spinner for a full SMTP round-trip. The success screen below
+            # reflects this honestly — it says the email is "on its way",
+            # not that it was delivered (see PART 1).
+            utils.send_qr_email_async(guest)
+            utils.record_submission(
+                name=cleaned["name"],
+                email=cleaned["email"],
+                phone=cleaned["phone"],
+                ticket_count=ticket_count,
+                plus_one_name=cleaned["plus_one_name"],
+                zelle_ref=cleaned["zelle_ref"],
+                status="registered",
+                guest_id=guest["id"],
+            )
+            _cached_stats.clear()
+            _cached_site_stats.clear()
+            _cached_registration_daily_counts.clear()
+            st.session_state["registered_guest_id"] = guest["id"]
+            st.rerun()
+        else:
+            reason = result["reason"]
+            utils.record_submission(
+                name=cleaned["name"],
+                email=cleaned["email"],
+                phone=cleaned["phone"],
+                ticket_count=ticket_count,
+                plus_one_name=cleaned["plus_one_name"],
+                zelle_ref=cleaned["zelle_ref"],
+                status=reason,
+                errors=result["message"],
+            )
+            if reason == "duplicate_email":
+                st.session_state["reg_errors"] = {"email": result["message"]}
+                st.rerun()
+            else:
+                st.error(
+                    "⚠️ We couldn't save your registration due to a database problem. "
+                    "Please try again in a moment, or contact the organizer if it keeps happening."
+                )
 
 
-def _show_registration_success(guest):
+def _show_registration_success(guest: dict):
     """Display the post-registration confirmation. QR code is emailed; not shown here."""
     st.balloons()
+    st.markdown(theme.stepper(3), unsafe_allow_html=True)
 
-    email_sent = st.session_state.get("reg_email_sent", False)
+    name = guest["name"]
+    email = guest["email"]
+    tickets = guest["ticket_count"]
+    plus_one = guest.get("plus_one_name") or ""
 
-    if email_sent:
-        st.success(
-            f"🎉 You're registered, {guest.name}! Your QR code has been emailed to {guest.email}. "
-            "Let's party! Check your inbox (and spam) shortly."
-        )
-    else:
-        st.warning(
-            f"🎉 You're registered, {guest.name}! However, we couldn't email your QR code automatically. "
-            f"Please contact the organizer with your email ({guest.email}) to receive your QR code."
-        )
-
-    st.markdown("### 🎉 You're In!")
-    st.markdown(
-        f"**{guest.name}** • {guest.ticket_count} Ticket"
-        f"{'s' if guest.ticket_count > 1 else ''}"
+    # The email send is fire-and-forget (utils.send_qr_email_async) — we have
+    # no result to report here, so this must not claim delivery (see PART 1).
+    st.success(
+        f"🎉 You're registered, {name}! Your QR code is on its way to {email} — "
+        "check your inbox (and spam folder) in a few minutes."
     )
-    if guest.plus_one_name:
-        st.markdown(f"👤 Plus One: {guest.plus_one_name}")
-    st.markdown(f"📧 QR code emailed to: `{guest.email}`")
+
+    st.markdown(theme.section_header("You're In!"), unsafe_allow_html=True)
+    st.markdown(f"**{name}** • {tickets} Ticket{'s' if tickets != 1 else ''}")
+    if plus_one:
+        names_list = [n for n in plus_one.split("\n") if n.strip()]
+        st.markdown(f"**Additional Guests ({len(names_list)}):**")
+        st.markdown("\n".join(f"- {n}" for n in names_list))
+    st.markdown(f"📧 Sending your QR code to: `{email}`")
     st.divider()
 
     st.info("📧 No need to screenshot — your QR code is on its way to your email.")
 
-    if st.button("🔄 Register Another", use_container_width=True):
-        st.session_state["registered_guest_id"] = None
-        st.session_state["reg_email_sent"] = False
-        st.session_state["reset_register_form"] = True
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📧 Resend QR Email", use_container_width=True):
+            with st.spinner("Emailing your QR code…"):
+                sent = utils.send_qr_email(SimpleNamespace(**guest))
+            if sent:
+                st.success("QR code emailed again!")
+            else:
+                st.warning(
+                    "We couldn't send the email right now (SMTP may be disabled in this environment). "
+                    "Please try again later or contact the organizer."
+                )
+    with col2:
+        if st.button("🔄 Register Another", use_container_width=True):
+            st.session_state["registered_guest_id"] = None
+            st.session_state["reset_register_form"] = True
+            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -793,42 +547,66 @@ def page_my_qr():
         guest_id = st.session_state["registered_guest_id"]
 
     if guest_id:
-        session = get_db()
-        try:
-            guest = session.query(Guest).filter_by(id=guest_id).first()
-            if guest:
-                _display_guest_qr(guest)
-                return
-            else:
-                st.error("Guest not found.")
-        finally:
-            session.close()
+        guest = utils.get_guest(guest_id)
+        if guest:
+            _display_guest_qr(guest)
+            return
+        else:
+            st.error("Guest not found.")
 
-    # Email lookup
-    lookup_email = st.text_input("Enter your email", placeholder="your@email.com")
-    if st.button("🔍 Find My QR", type="primary", use_container_width=True):
+    # Email lookup. This lives in a form so the typed value is committed
+    # atomically with the button press — outside a form, Streamlit treats the
+    # text edit and the click as two separate reruns, and a user who types and
+    # immediately clicks can submit an empty value. A form also lets them just
+    # press Enter.
+    with st.form("qr_lookup_form"):
+        lookup_email = st.text_input("Enter your email", placeholder="your@email.com")
+        lookup_submitted = st.form_submit_button(
+            "🔍 Find My QR", type="primary", use_container_width=True
+        )
+
+    found = False
+    if lookup_submitted:
         if lookup_email:
-            email_clean = sanitize_email(lookup_email)
+            email_clean = utils.sanitize_email(lookup_email)
             if not email_clean:
                 st.error("Please enter a valid email.")
                 return
-            session = get_db()
-            try:
-                guest = session.query(Guest).filter_by(email=email_clean).first()
-                if guest:
-                    _display_guest_qr(guest)
-                else:
-                    st.error("No guest found with that email. Please register first.")
-            finally:
-                session.close()
+            guest = utils.get_guest_by_email(email_clean)
+            if guest:
+                _display_guest_qr(guest)
+                found = True
+            else:
+                st.error("No guest found with that email. Please register first.")
+
+    if not found:
+        with st.container(border=True):
+            st.markdown(
+                theme.nav_card(
+                    "💡",
+                    "What is this page?",
+                    "Enter the email address you registered with above to pull up your ticket "
+                    "QR code. Your QR code was also emailed to you when you registered — check "
+                    "your inbox (and spam folder) for it.",
+                ),
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "📝 Haven't registered yet? Go to Register",
+                key="my_qr_go_register",
+                use_container_width=True,
+            ):
+                st.session_state["page"] = "Register"
+                st.rerun()
 
 
-def _display_guest_qr(guest):
+def _display_guest_qr(guest: dict):
     """Render a guest's QR code card."""
-    st.markdown(f"### {guest.name}")
-    st.caption(f"{guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}")
+    st.markdown(f"### {guest['name']}")
+    tickets = guest["ticket_count"]
+    st.caption(f"{tickets} Ticket{'s' if tickets != 1 else ''}")
 
-    qr_bytes = generate_qr_image(guest.qr_code, guest.name)
+    qr_bytes = utils.generate_qr_image(guest["qr_code"])
 
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
@@ -842,10 +620,21 @@ def _display_guest_qr(guest):
     st.download_button(
         label="💾 Download QR Code",
         data=qr_bytes,
-        file_name=f"party_qr_{guest.name.replace(' ', '_')}.png",
+        file_name=f"party_qr_{guest['name'].replace(' ', '_')}.png",
         mime="image/png",
         use_container_width=True,
     )
+
+    if st.button("📧 Resend QR Email", use_container_width=True):
+        with st.spinner("Emailing your QR code…"):
+            sent = utils.send_qr_email(SimpleNamespace(**guest))
+        if sent:
+            st.success("QR code emailed!")
+        else:
+            st.warning(
+                "We couldn't send the email right now (SMTP may be disabled in this environment). "
+                "Please try again later or contact the organizer."
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -859,12 +648,32 @@ def page_scanner():
     with header_col2:
         _home_button(key="home_scanner")
 
-    stats = get_stats()
-    c1, c2 = st.columns(2)
-    c1.metric("Checked In", stats["checked_in"])
-    c2.metric("Total Guests", stats["total_guests"])
+    stats = _cached_stats()
+    st.markdown(
+        theme.stat_tiles(
+            [
+                ("Checked In", stats["checked_in"], ""),
+                ("Total Guests", stats["total_guests"], ""),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
 
     st.divider()
+
+    # ── Check-in window gate (see PART 3) ──────────────────────────────────
+    # The public Scanner must never render the camera/manual-entry inputs
+    # while check-in is closed — there's nothing useful a guest could do with
+    # them, and utils.check_in_by_code() would just reject the attempt
+    # anyway. The server-side window check in utils.check_in_by_code() is
+    # the real control; this is just so guests aren't shown dead inputs.
+    status = utils.checkin_status()
+    if not status["open"]:
+        st.markdown(
+            theme.closed_notice(status["message"] or f"Opens {status['opens_at_text']}."),
+            unsafe_allow_html=True,
+        )
+        return
 
     # ── Camera Scan ──────────────────────────────────────────────────────────
     st.subheader("📸 Camera Scan")
@@ -898,73 +707,78 @@ def page_scanner():
     # ── Manual Entry ─────────────────────────────────────────────────────────
     st.subheader("⌨️ Manual Entry")
     st.write("Type your ticket ID or email if camera scan fails")
-    manual_code = st.text_input(
-        "Ticket ID / Email / QR Code", placeholder="Enter here", max_chars=200
-    )
-    if st.button("Check In Manually", type="primary", use_container_width=True):
+    # Wrapped in a form so the typed code is committed atomically with the
+    # button press. Outside a form, Streamlit handles the text edit and the
+    # click as two separate reruns, so someone who types a code and clicks
+    # straight away can submit an empty value — a nasty failure mode on a
+    # door queue. The form also lets staff just hit Enter after scanning.
+    with st.form("manual_checkin_form"):
+        manual_code = st.text_input(
+            "Ticket ID / Email / QR Code", placeholder="Enter here", max_chars=200
+        )
+        manual_submitted = st.form_submit_button(
+            "Check In Manually", type="primary", use_container_width=True
+        )
+
+    if manual_submitted:
         if manual_code.strip():
             _process_checkin(manual_code.strip())
         else:
             st.error("Please enter a ticket ID or email.")
 
-    # ── Display Result ─────────────────────────────────────────────────────────
+    # ── Display Result ─────────────────────────────────────────────────────
     if st.session_state.get("scanner_result"):
         result = st.session_state["scanner_result"]
         _show_scanner_result(result)
 
 
-def _process_checkin(qr_code: str):
-    """Process a check-in from a QR code string or email."""
-    session = get_db()
-    try:
-        guest = session.query(Guest).filter_by(qr_code=qr_code).first()
+def _process_checkin(code: str):
+    """Thin wrapper over utils.check_in_by_code that updates UI state."""
+    result = utils.check_in_by_code(code)
 
-        if not guest:
-            # Try email lookup
-            guest = session.query(Guest).filter_by(email=qr_code.lower()).first()
-        if not guest:
-            # Try by ID
-            try:
-                guest_id = int(qr_code)
-                guest = session.query(Guest).filter_by(id=guest_id).first()
-            except ValueError:
-                pass
-
-        if not guest:
-            st.session_state["scanner_result"] = {
-                "type": "error",
-                "message": "Invalid ticket. Please try again or check your email.",
-            }
-            st.rerun()
-            return
-
-        if guest.checked_in:
-            st.session_state["scanner_result"] = {
-                "type": "warning",
-                "guest": guest.to_dict(),
-                "message": f"{guest.name} already checked in at {guest.checkin_time.strftime('%H:%M')}",
-            }
-            st.rerun()
-            return
-
-        guest.checked_in = True
-        guest.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
-        log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner")
-        session.add(log)
-        session.commit()
-
-        announcement = generate_welcome_announcement(guest.name, guest.ticket_count)
-
+    if result["status"] == "not_open":
+        # Defensive: the Scanner page already hides these inputs while
+        # closed, but the window can close between page-load and button
+        # click (e.g. an admin flips the mode mid-scan). check_in_by_code()
+        # returns guest=None here, so this must be handled before the
+        # "success" fallthrough below, which assumes a guest dict.
         st.session_state["scanner_result"] = {
-            "type": "success",
-            "guest": guest.to_dict(),
-            "message": f"Welcome {guest.name}!",
-            "announcement": announcement,
-            "guest_id": guest.id,
+            "type": "error",
+            "message": result["message"] or "Check-in isn't open yet.",
         }
         st.rerun()
-    finally:
-        session.close()
+        return
+
+    if result["status"] == "not_found":
+        st.session_state["scanner_result"] = {
+            "type": "error",
+            "message": result["message"],
+        }
+        st.rerun()
+        return
+
+    if result["status"] == "already":
+        st.session_state["scanner_result"] = {
+            "type": "warning",
+            "guest": result["guest"],
+            "message": result["message"],
+        }
+        st.rerun()
+        return
+
+    # success
+    guest = result["guest"]
+    _cached_stats.clear()
+    _cached_event_day_hourly_checkins.clear()
+    announcement = utils.generate_welcome_announcement(guest["name"], guest["ticket_count"])
+    st.session_state["scanner_result"] = {
+        "type": "success",
+        "guest": guest,
+        "message": result["message"],
+        "announcement": announcement,
+        "guest_id": guest["id"],
+    }
+    st.rerun()
 
 
 def _show_scanner_result(result):
@@ -974,20 +788,17 @@ def _show_scanner_result(result):
     if result_type == "success":
         guest = result["guest"]
         st.balloons()
-        st.success(f"🎉 {result['message']}")
+        st.markdown(
+            theme.guest_result_card(guest["name"], guest["ticket_count"], "success", result["message"]),
+            unsafe_allow_html=True,
+        )
 
-        st.markdown(f"### {guest['name']}")
-        st.markdown(f"**Tickets:** {guest['ticket_count']}")
-        st.markdown(f"**Status:** ✅ Checked In")
-
-        # Mark band given
         if st.button("✓ Mark Band Given", type="primary", use_container_width=True):
             _mark_band_given(result["guest_id"])
 
-        # Audio announcement
         announcement = result.get("announcement", "")
         if announcement:
-            st.components.v1.html(audio_announcement_js(announcement), height=0)
+            st.components.v1.html(utils.audio_announcement_js(announcement), height=0)
             st.info(f"🔊 {announcement}")
 
         if st.button("🔄 Scan Next Guest", use_container_width=True):
@@ -996,15 +807,20 @@ def _show_scanner_result(result):
 
     elif result_type == "warning":
         guest = result["guest"]
-        st.warning(f"⚠️ {result['message']}")
-        st.markdown(f"**Guest:** {guest['name']} — {guest['ticket_count']} ticket(s)")
+        st.markdown(
+            theme.guest_result_card(guest["name"], guest["ticket_count"], "already", result["message"]),
+            unsafe_allow_html=True,
+        )
 
         if st.button("🔄 Scan Next Guest", use_container_width=True):
             st.session_state["scanner_result"] = None
             st.rerun()
 
     elif result_type == "error":
-        st.error(f"❌ {result['message']}")
+        st.markdown(
+            theme.guest_result_card("Unknown", None, "error", result["message"]),
+            unsafe_allow_html=True,
+        )
 
         if st.button("🔄 Try Again", use_container_width=True):
             st.session_state["scanner_result"] = None
@@ -1012,26 +828,30 @@ def _show_scanner_result(result):
 
 
 def _mark_band_given(guest_id: int):
-    """Mark wristband as given for a guest."""
-    session = get_db()
-    try:
-        guest = session.query(Guest).filter_by(id=guest_id).first()
-        if guest and not guest.band_given:
-            guest.band_given = True
-            log = CheckInLog(guest_id=guest.id, action="band_given", device_info="Streamlit Scanner")
-            session.add(log)
-            session.commit()
-            st.success(f"Band marked as given for {guest.name}")
-            st.components.v1.html(audio_announcement_js("Band marked as given"), height=0)
-            st.session_state["scanner_result"] = None
-            st.rerun()
-    finally:
-        session.close()
+    """Thin wrapper over utils.mark_band_given that updates UI state.
+
+    Stashes the result via _set_flash() instead of calling st.success()
+    directly — a st.rerun() follows immediately below, which used to discard
+    the message before staff ever saw it (see PART 6).
+    """
+    result = utils.mark_band_given(guest_id)
+    _cached_stats.clear()
+    if result["ok"]:
+        _set_flash("success", result["message"])
+        st.components.v1.html(utils.audio_announcement_js("Band marked as given"), height=0)
+        st.session_state["scanner_result"] = None
+        st.rerun()
+    else:
+        st.warning(result["message"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ADMIN PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
+ADMIN_MAX_ATTEMPTS = 5
+ADMIN_LOCKOUT_SECONDS = 60
+
+
 def page_admin():
     header_col1, header_col2 = st.columns([4, 1])
     with header_col1:
@@ -1040,116 +860,136 @@ def page_admin():
     with header_col2:
         _home_button(key="home_admin")
 
+    if not utils.admin_password_is_configured():
+        st.error(
+            "🚫 Admin password is not set — configure the ADMIN_PASSWORD secret to enable the dashboard."
+        )
+        return
+
     # ── Auth ─────────────────────────────────────────────────────────────────
     if not st.session_state.get("admin_authenticated"):
+        lockout_until = st.session_state.get("admin_lockout_until", 0.0)
+        now = time.time()
+
+        if lockout_until and now < lockout_until:
+            remaining = int(lockout_until - now) + 1
+            st.error(f"🔒 Too many attempts. Try again in {remaining}s.")
+            return
+
+        if lockout_until and now >= lockout_until:
+            st.session_state["admin_lockout_until"] = 0.0
+            st.session_state["admin_fail_count"] = 0
+
         with st.form("admin_login"):
             st.info("Enter admin password to access the dashboard")
             password = st.text_input("Admin Password", type="password")
             submitted = st.form_submit_button("Login", use_container_width=True)
 
         if submitted:
-            if verify_admin_password(password):
+            if utils.verify_admin_password(password):
                 st.session_state["admin_authenticated"] = True
+                st.session_state["admin_fail_count"] = 0
+                st.session_state["admin_lockout_until"] = 0.0
                 st.rerun()
             else:
-                st.error("Incorrect password.")
+                fail_count = st.session_state.get("admin_fail_count", 0) + 1
+                st.session_state["admin_fail_count"] = fail_count
+                if fail_count >= ADMIN_MAX_ATTEMPTS:
+                    st.session_state["admin_lockout_until"] = time.time() + ADMIN_LOCKOUT_SECONDS
+                    st.error(f"🔒 Too many attempts. Try again in {ADMIN_LOCKOUT_SECONDS}s.")
+                else:
+                    st.error(f"Incorrect password. ({fail_count}/{ADMIN_MAX_ATTEMPTS} attempts)")
         return
 
     if st.button("🔒 Logout", type="secondary"):
         st.session_state["admin_authenticated"] = False
         st.rerun()
 
-    # ── Stats ────────────────────────────────────────────────────────────────
-    stats = get_stats()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Guests", stats["total_guests"])
-    c2.metric("Checked In", stats["checked_in"])
-    c3.metric("Pending", stats["pending"])
-    c4, c5, c6 = st.columns(3)
-    c4.metric("Bands Given", stats["bands_distributed"])
-    c5.metric("Total Tickets", stats["total_tickets"])
-    c6.metric("Admitted", stats["admitted_tickets"])
-    c7, c8, c9 = st.columns(3)
-    c7.metric("Revenue (est.)", f"${stats['revenue']:,.2f}")
-    c8.metric("Plus Ones", stats["plus_one_count"])
-    c9.metric("Avg Tickets", f"{stats['avg_tickets_per_guest']:.2f}")
+    tab_overview, tab_guests, tab_checkins = st.tabs(["Overview", "Guests", "Check-ins"])
+
+    with tab_overview:
+        _admin_overview_tab()
+    with tab_guests:
+        _admin_guests_tab()
+    with tab_checkins:
+        _admin_checkins_tab()
+
+
+def _admin_overview_tab():
+    stats = _cached_stats()
+    st.markdown(theme.section_header("At a Glance"), unsafe_allow_html=True)
+    st.markdown(
+        theme.stat_tiles(
+            [
+                ("Total Guests", stats["total_guests"], ""),
+                ("Checked In", stats["checked_in"], ""),
+                ("Pending", stats["pending"], ""),
+                ("Bands Given", stats["bands_distributed"], ""),
+                ("Total Tickets", stats["total_tickets"], ""),
+                ("Admitted", stats["admitted_tickets"], ""),
+                ("Revenue (est.)", f"${stats['revenue']:,.2f}", ""),
+                ("Plus Ones", stats["plus_one_count"], ""),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
 
     st.progress(
         stats["checkin_percentage"] / 100,
         text=f"Check-in rate: {stats['checkin_percentage']}%",
     )
 
-    # ── Traffic Stats ────────────────────────────────────────────────────────────
-    visit_stats = get_visit_stats()
-    st.subheader("🌐 Traffic (just for fun)")
-    v1, v2 = st.columns(2)
-    v1.metric("Unique Visitors", visit_stats["unique_visitors"])
-    v2.metric("Total Page Views", visit_stats["total_visits"])
+    # ── Check-in window control (see PART 3) ───────────────────────────────
+    st.markdown(
+        theme.section_header(
+            "Check-in Window", "Control when guests can check themselves in on the Scanner page."
+        ),
+        unsafe_allow_html=True,
+    )
 
-    # ── Charts ───────────────────────────────────────────────────────────────────
-    st.subheader("📈 Activity")
-    session = get_db()
-    try:
-        from collections import defaultdict
-        import pandas as pd
+    status = utils.checkin_status()
+    if status["open"]:
+        detail_text = "guests can check themselves in on the Scanner page right now"
+    elif status["mode"] == utils.CHECKIN_MODE_CLOSED:
+        detail_text = "closed by the organiser"
+    else:
+        detail_text = f"opens {status['opens_at_text']}"
+    st.markdown(theme.checkin_window_banner(status["open"], detail_text), unsafe_allow_html=True)
 
-        # Registrations by day (registration happens over weeks, not hours)
-        all_guests = session.query(Guest).order_by(Guest.created_at).all()
-        if all_guests:
-            daily_regs = defaultdict(int)
-            for g in all_guests:
-                day = g.created_at.date()
-                daily_regs[day] += 1
-            days = sorted(daily_regs.keys())
-            reg_counts = [daily_regs[d] for d in days]
-            reg_df = pd.DataFrame(
-                {"Registrations": reg_counts},
-                index=[d.strftime("%b %d") for d in days],
-            )
-            st.caption("Registrations by day")
-            st.bar_chart(reg_df, use_container_width=True)
-        else:
-            st.info("No registrations yet.")
+    mode_options = {
+        "Auto (opens 2h before event)": utils.CHECKIN_MODE_AUTO,
+        "Open now": utils.CHECKIN_MODE_OPEN,
+        "Closed": utils.CHECKIN_MODE_CLOSED,
+    }
+    labels = list(mode_options.keys())
+    current_label = next(label for label, mode in mode_options.items() if mode == status["mode"])
+    chosen_label = st.radio(
+        "Check-in mode",
+        labels,
+        index=labels.index(current_label),
+        horizontal=True,
+        key="admin_checkin_mode_radio",
+    )
+    chosen_mode = mode_options[chosen_label]
+    if chosen_mode != status["mode"]:
+        utils.set_checkin_mode(chosen_mode)
+        _set_flash("success", f"Check-in mode set to “{chosen_label}”.")
+        st.rerun()
 
-        # Check-ins on event day by hour
-        event_start = EVENT_DATE.replace(hour=0, minute=0, second=0, microsecond=0)
-        event_end = event_start + timedelta(days=1)
-        event_checkins = (
-            session.query(Guest)
-            .filter(
-                Guest.checked_in == True,
-                Guest.checkin_time >= event_start,
-                Guest.checkin_time < event_end,
-            )
-            .all()
-        )
-        if event_checkins:
-            hourly = defaultdict(int)
-            for g in event_checkins:
-                hourly[g.checkin_time.hour] += 1
-            hours = list(range(24))
-            checkin_counts = [hourly[h] for h in hours]
-            checkin_df = pd.DataFrame(
-                {"Check-ins": checkin_counts},
-                index=[f"{h:02d}:00" for h in hours],
-            )
-            st.caption(f"Check-ins on event day ({EVENT_DATE.strftime('%b %d, %Y')})")
-            st.bar_chart(checkin_df, use_container_width=True)
-        else:
-            st.info(f"No check-ins yet on event day ({EVENT_DATE.strftime('%b %d, %Y')}).")
-    finally:
-        session.close()
 
-    st.divider()
+def _admin_guests_tab():
+    st.markdown(
+        theme.section_header("Guests", "Search, check people in, hand out bands, or remove a row — all in one pass."),
+        unsafe_allow_html=True,
+    )
 
-    # ── Actions ──────────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         if st.button("+ Add Guest", use_container_width=True):
             st.session_state["page"] = "Register"
             st.rerun()
     with col2:
-        csv_data = generate_csv()
+        csv_data = utils.generate_csv()
         st.download_button(
             label="⬇ Download CSV",
             data=csv_data,
@@ -1158,129 +998,179 @@ def page_admin():
             use_container_width=True,
         )
 
-    st.divider()
+    guests = utils.list_guests()
 
-    # ── Guest List ───────────────────────────────────────────────────────────
-    st.subheader("All Guests")
+    if not guests:
+        st.info("No guests registered yet. Once someone registers, they'll show up here.")
+        return
 
-    session = get_db()
-    try:
-        guests = session.query(Guest).order_by(Guest.created_at.desc()).all()
-        if not guests:
-            st.info("No guests registered yet.")
+    search_term = st.text_input(
+        "🔍 Search by name, email, or Zelle ref", placeholder="Type to filter...", key="admin_guest_search"
+    )
+
+    filtered = guests
+    if search_term:
+        term = search_term.lower()
+        filtered = [
+            g
+            for g in guests
+            if term in g["name"].lower()
+            or term in g["email"].lower()
+            or term in (g["zelle_ref"] or "").lower()
+        ]
+
+    if not filtered:
+        st.warning(f"No guests match “{search_term}”.")
+        return
+
+    st.caption(
+        f"{len(filtered)} of {len(guests)} guest{'s' if len(guests) != 1 else ''} shown. "
+        "Tick boxes below, then Save changes."
+    )
+
+    df = pd.DataFrame(
+        [
+            {
+                "id": g["id"],
+                "Name": g["name"],
+                "Email": g["email"],
+                "Tickets": g["ticket_count"],
+                "Additional Guests": (g["plus_one_name"] or "").replace("\n", ", ") or "—",
+                "Checked In": bool(g["checked_in"]),
+                "Band Given": bool(g["band_given"]),
+                "Delete": False,
+            }
+            for g in filtered
+        ]
+    )
+
+    edited = st.data_editor(
+        df,
+        key="admin_guest_editor",
+        hide_index=True,
+        use_container_width=True,
+        num_rows="fixed",
+        column_config={
+            "id": None,  # keep for row identity, hide from display
+            "Name": st.column_config.TextColumn("Name"),
+            "Email": st.column_config.TextColumn("Email"),
+            "Tickets": st.column_config.NumberColumn("Tickets"),
+            "Additional Guests": st.column_config.TextColumn("Additional Guests"),
+            "Checked In": st.column_config.CheckboxColumn("Checked In", help="Tick to check this guest in."),
+            "Band Given": st.column_config.CheckboxColumn("Band Given", help="Tick once their wristband is on."),
+            "Delete": st.column_config.CheckboxColumn("Delete", help="Tick then Save changes — a confirmation step follows."),
+        },
+        disabled=["id", "Name", "Email", "Tickets", "Additional Guests"],
+    )
+
+    if st.button("💾 Save changes", type="primary", use_container_width=True, key="admin_save_changes"):
+        original_by_id = {g["id"]: g for g in filtered}
+        pending = []
+        for _, row in edited.iterrows():
+            gid = int(row["id"])
+            orig = original_by_id.get(gid)
+            if not orig:
+                continue
+            pending.append(
+                {
+                    "id": gid,
+                    "name": orig["name"],
+                    "checked_in": bool(row["Checked In"]),
+                    "band_given": bool(row["Band Given"]),
+                    "delete": bool(row["Delete"]),
+                }
+            )
+
+        to_delete = [p for p in pending if p["delete"]]
+        if to_delete:
+            # Destructive changes need an explicit confirm step — don't
+            # apply anything (not even the check-ins/bands in this same
+            # batch) until the admin confirms below (see PART 5).
+            st.session_state["admin_pending_changes"] = pending
         else:
-            # Search
-            search_term = st.text_input("🔍 Search by name or email", placeholder="Type to filter...")
+            result = utils.apply_guest_changes(pending)
+            st.session_state.pop("admin_guest_editor", None)
+            _apply_guest_changes_cache_clear(result)
+            _report_guest_changes(result)
+            st.rerun()
 
-            data = []
-            for g in guests:
-                data.append({
-                    "ID": g.id,
-                    "Name": g.name,
-                    "Email": g.email,
-                    "Phone": g.phone,
-                    "Tickets": g.ticket_count,
-                    "Plus One": g.plus_one_name or "—",
-                    "Zelle Ref": g.zelle_ref,
-                    "Checked In": "✅" if g.checked_in else "⏳",
-                    "Check-in Time": g.checkin_time.strftime("%H:%M") if g.checkin_time else "—",
-                    "Band": "✅" if g.band_given else "—",
-                })
-
-            if search_term:
-                term = search_term.lower()
-                data = [d for d in data if term in d["Name"].lower() or term in d["Email"].lower() or term in d["Zelle Ref"].lower()]
-
-            st.dataframe(data, use_container_width=True, hide_index=True)
-
-            # ── Guest Actions ────────────────────────────────────────────
-            st.divider()
-            st.subheader("Quick Actions")
-            guest_options = {f"{g.id}: {g.name} ({g.email})": g for g in guests}
-            selected = st.selectbox("Select a guest", list(guest_options.keys()))
-            selected_guest = guest_options[selected] if selected else None
-
-            if selected_guest:
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    if not selected_guest.band_given:
-                        if st.button("✓ Mark Band", use_container_width=True, type="primary"):
-                            selected_guest.band_given = True
-                            log = CheckInLog(
-                                guest_id=selected_guest.id,
-                                action="band_given",
-                                device_info="Admin Dashboard",
-                            )
-                            session.add(log)
-                            session.commit()
-                            st.success("Band marked!")
-                            st.rerun()
-                    else:
-                        st.success("Band given ✅")
-                with c2:
-                    if not selected_guest.checked_in:
-                        if st.button("Check In", use_container_width=True):
-                            selected_guest.checked_in = True
-                            selected_guest.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
-                            log = CheckInLog(
-                                guest_id=selected_guest.id,
-                                action="checkin",
-                                device_info="Admin Dashboard",
-                            )
-                            session.add(log)
-                            session.commit()
-                            st.success(f"Checked in {selected_guest.name}!")
-                            st.rerun()
-                    else:
-                        st.info("Already in ✅")
-                with c3:
-                    if st.button("🗑 Delete", use_container_width=True, type="secondary"):
-                        st.session_state["confirm_delete"] = selected_guest.id
-                        st.rerun()
-
-                if st.session_state.get("confirm_delete") == selected_guest.id:
-                    st.warning(f"Delete **{selected_guest.name}**? This cannot be undone.")
-                    cc1, cc2 = st.columns(2)
-                    with cc1:
-                        if st.button("Yes, Delete", type="primary", use_container_width=True):
-                            session.delete(selected_guest)
-                            session.commit()
-                            st.session_state["confirm_delete"] = None
-                            st.success("Guest deleted.")
-                            st.rerun()
-                    with cc2:
-                        if st.button("Cancel", use_container_width=True):
-                            st.session_state["confirm_delete"] = None
-                            st.rerun()
-    finally:
-        session.close()
-
-    st.divider()
-
-    # ── Recent Check-ins ─────────────────────────────────────────────────────
-    st.subheader("Recent Check-ins")
-    session = get_db()
-    try:
-        recent = (
-            session.query(Guest)
-            .filter_by(checked_in=True)
-            .order_by(Guest.checkin_time.desc())
-            .limit(10)
-            .all()
+    pending_changes = st.session_state.get("admin_pending_changes")
+    if pending_changes:
+        to_delete = [p for p in pending_changes if p["delete"]]
+        names = ", ".join(f"**{p['name']}**" for p in to_delete)
+        count = len(to_delete)
+        st.warning(
+            f"⚠️ This will permanently delete {count} guest{'s' if count != 1 else ''}: {names}. "
+            "This cannot be undone."
         )
-        if not recent:
-            st.info("No check-ins yet.")
-        else:
-            for g in recent:
-                with st.container(border=True):
-                    c1, c2 = st.columns([3, 1])
-                    with c1:
-                        st.markdown(f"**{g.name}** — {g.ticket_count} ticket{'s' if g.ticket_count > 1 else ''}")
-                        st.caption(f"Checked in at {g.checkin_time.strftime('%I:%M %p')}")
-                    with c2:
-                        st.markdown("✅ " + ("Band Given" if g.band_given else "No Band"))
-    finally:
-        session.close()
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            if st.button(
+                "Yes, apply changes (incl. delete)",
+                type="primary",
+                use_container_width=True,
+                key="admin_confirm_apply",
+            ):
+                result = utils.apply_guest_changes(st.session_state["admin_pending_changes"])
+                st.session_state["admin_pending_changes"] = None
+                st.session_state.pop("admin_guest_editor", None)
+                _apply_guest_changes_cache_clear(result)
+                _report_guest_changes(result)
+                st.rerun()
+        with cc2:
+            if st.button("Cancel", use_container_width=True, key="admin_cancel_apply"):
+                st.session_state["admin_pending_changes"] = None
+                st.rerun()
+
+
+def _apply_guest_changes_cache_clear(result: dict) -> None:
+    """Targeted cache invalidation after utils.apply_guest_changes() (PART 7)."""
+    _cached_stats.clear()
+    if result.get("deleted"):
+        _cached_site_stats.clear()
+        _cached_registration_daily_counts.clear()
+    if result.get("checked_in") or result.get("deleted"):
+        _cached_event_day_hourly_checkins.clear()
+
+
+def _report_guest_changes(result: dict) -> None:
+    """Report what utils.apply_guest_changes() actually did, via toast + flash.
+
+    st.toast() persists across the single st.rerun() that follows this call,
+    but it's brief (~4s) and easy to miss, so we also stash a longer-lived
+    summary via _set_flash() to show at the top of the next run.
+    """
+    parts = []
+    if result.get("checked_in"):
+        parts.append(f"Checked in {result['checked_in']}")
+    if result.get("band_given"):
+        parts.append(f"Bands given {result['band_given']}")
+    if result.get("deleted"):
+        parts.append(f"Deleted {result['deleted']}")
+    summary = " · ".join(parts) if parts else "No changes to apply."
+    st.toast(summary, icon="✅" if parts else "ℹ️")
+    _set_flash("success" if parts else "info", summary)
+
+
+def _admin_checkins_tab():
+    st.markdown(
+        theme.section_header("Recent Check-ins", "The last 10 guests through the door."),
+        unsafe_allow_html=True,
+    )
+    recent = utils.get_recent_checkins(10)
+    if not recent:
+        st.info("No check-ins yet. They'll appear here as guests arrive.")
+        return
+
+    for g in recent:
+        with st.container(border=True):
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                tickets = g["ticket_count"]
+                st.markdown(f"**{g['name']}** — {tickets} ticket{'s' if tickets != 1 else ''}")
+                st.caption(f"Checked in at {_fmt_checkin_iso(g['checkin_time'], '%I:%M %p')}")
+            with c2:
+                st.markdown("✅ " + ("Band Given" if g["band_given"] else "No Band"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1295,28 +1185,35 @@ def main():
         if "page" not in st.session_state:
             try:
                 qp = st.query_params
-                if "page" in qp:
-                    st.session_state["page"] = qp["page"]
-                else:
-                    st.session_state["page"] = "Home"
+                requested = qp["page"] if "page" in qp else None
+                st.session_state["page"] = requested if requested in PAGES else "Home"
             except Exception:
                 st.session_state["page"] = "Home"
 
         page = st.radio(
             "Navigate",
-            ["Home", "Register", "My QR", "Scanner", "Admin"],
-            index=["Home", "Register", "My QR", "Scanner", "Admin"].index(
-                st.session_state["page"]
-            ),
+            PAGES,
+            index=PAGES.index(st.session_state["page"]),
             label_visibility="collapsed",
         )
 
         if page != st.session_state.get("page"):
             st.session_state["page"] = page
+            try:
+                st.query_params["page"] = page
+            except Exception:
+                pass
             st.rerun()
 
         st.markdown("---")
-        st.markdown("<small>v2.2 • Streamlit Edition</small>", unsafe_allow_html=True)
+        st.markdown(f"<small>v{config.APP_VERSION} • Streamlit Edition</small>", unsafe_allow_html=True)
+
+    # Sticky brand bar on every page
+    st.markdown(theme.brand_bar(), unsafe_allow_html=True)
+
+    # Show (and clear) any flash message stashed by the previous run — see
+    # the "Flash messages" section above / PART 6.
+    _render_flash()
 
     # Record page visit once per navigation / refresh for traffic stats
     try:
@@ -1326,7 +1223,7 @@ def main():
                 st.session_state["visitor_token"] = base64.urlsafe_b64encode(
                     os.urandom(12)
                 ).decode()
-            record_visit(st.session_state["visitor_token"], current_page)
+            utils.record_visit(st.session_state["visitor_token"], current_page)
             st.session_state["last_recorded_page"] = current_page
     except Exception:
         pass
@@ -1335,7 +1232,6 @@ def main():
     current_page = st.session_state.get("page", "Home")
     if st.session_state.get("_prev_page") != current_page:
         if current_page == "Register":
-            st.session_state["reg_submit_clicked"] = False
             st.session_state["registered_guest_id"] = None
             st.session_state["reset_register_form"] = True
         st.session_state["_prev_page"] = current_page

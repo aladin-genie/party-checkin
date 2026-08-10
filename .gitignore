@@ -62,3 +62,8 @@ screenshots/
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Test artifacts
+.pytest_cache/
+test_party.db
+e2e_results/
