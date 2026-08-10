@@ -356,11 +356,22 @@ def page_home():
     )
 
 
+def _home_button(key="home_button"):
+    """Render a Home button that returns to the Home page."""
+    if st.button("🏠 Home", key=key, use_container_width=True):
+        st.session_state["page"] = "Home"
+        st.rerun()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_register():
-    st.title("📝 Register Guest")
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.title("📝 Register Guest")
+    with header_col2:
+        _home_button(key="home_register")
 
     # If a guest was just registered, show their QR
     if st.session_state.get("registered_guest_id"):
@@ -400,6 +411,29 @@ def page_register():
         unsafe_allow_html=True,
     )
 
+    # ── Ticket count & dynamic total (outside form so it updates live) ───────
+    st.markdown("### 🎫 Select Tickets")
+    ticket_count = st.number_input(
+        "Number of Tickets *",
+        min_value=1,
+        max_value=20,
+        value=1,
+        step=1,
+        key="ticket_count",
+        help="Select number of tickets. The total updates automatically as you change it.",
+    )
+    total = ticket_count * TICKET_PRICE
+    st.markdown(
+        f"""
+        <div style='background: linear-gradient(135deg, rgba(212,175,55,0.25) 0%, rgba(138,43,226,0.15) 100%); border: 1px solid rgba(212,175,55,0.35); color: #F5F5F5; padding: 18px; border-radius: 16px; text-align: center; margin: 15px 0;'>
+            <div style='font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; color: #D4AF37;'>Total to Pay</div>
+            <div style='font-size: 2.4em; font-weight: 800; color: #D4AF37;'>${total:.2f}</div>
+            <div style='font-size: 0.9em; opacity: 0.8;'>{int(ticket_count)} ticket{'s' if ticket_count > 1 else ''} × ${TICKET_PRICE:.2f}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # ── Registration Form ────────────────────────────────────────────────────
     with st.form("register_form", clear_on_submit=True):
         st.markdown("### 📝 Step 2: Fill Your Details")
@@ -422,22 +456,6 @@ def page_register():
             placeholder="Name of your guest",
             max_chars=100,
             help="Optional. If you're bringing a guest, enter their name.",
-        )
-        ticket_count = st.number_input(
-            "Number of Tickets *", min_value=1, max_value=20, value=1, step=1
-        )
-
-        # Price display
-        total = ticket_count * TICKET_PRICE
-        st.markdown(
-            f"""
-            <div style='background: linear-gradient(135deg, rgba(212,175,55,0.25) 0%, rgba(138,43,226,0.15) 100%); border: 1px solid rgba(212,175,55,0.35); color: #F5F5F5; padding: 18px; border-radius: 16px; text-align: center; margin: 15px 0;'>
-                <div style='font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; color: #D4AF37;'>Total to Pay</div>
-                <div style='font-size: 2.4em; font-weight: 800; color: #D4AF37;'>${total:.2f}</div>
-                <div style='font-size: 0.9em; opacity: 0.8;'>{int(ticket_count)} ticket{'s' if ticket_count > 1 else ''} × ${TICKET_PRICE:.2f}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
         )
 
         zelle_ref = st.text_input(
@@ -574,6 +592,7 @@ def _show_registration_success(guest):
     with c2:
         if st.button("🔄 Register Another", use_container_width=True):
             st.session_state["registered_guest_id"] = None
+            st.session_state["ticket_count"] = 1
             st.rerun()
 
     st.info("📧 A copy has also been sent to your email. Check spam/junk if not found.")
@@ -583,8 +602,12 @@ def _show_registration_success(guest):
 # MY QR PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_my_qr():
-    st.title("📱 My QR Code")
-    st.caption("Look up your party QR code")
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.title("📱 My QR Code")
+        st.caption("Look up your party QR code")
+    with header_col2:
+        _home_button(key="home_my_qr")
 
     # Try query params or session state
     guest_id = None
@@ -657,8 +680,12 @@ def _display_guest_qr(guest):
 # SCANNER PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_scanner():
-    st.title("📷 Self Check-In")
-    st.caption("Scan your QR code at the entrance")
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.title("📷 Self Check-In")
+        st.caption("Scan your QR code at the entrance")
+    with header_col2:
+        _home_button(key="home_scanner")
 
     stats = get_stats()
     c1, c2 = st.columns(2)
@@ -834,8 +861,12 @@ def _mark_band_given(guest_id: int):
 # ADMIN PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_admin():
-    st.title("📊 Admin Dashboard")
-    st.caption("Manage guests and monitor check-ins")
+    header_col1, header_col2 = st.columns([4, 1])
+    with header_col1:
+        st.title("📊 Admin Dashboard")
+        st.caption("Manage guests and monitor check-ins")
+    with header_col2:
+        _home_button(key="home_admin")
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     if not st.session_state.get("admin_authenticated"):
