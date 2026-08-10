@@ -552,11 +552,10 @@ def page_register():
     # ── Registration Details ───────────────────────────────────────────────────
     st.markdown("### 📝 Step 2: Fill Your Details")
 
-    # Track submission across reruns so per-field errors can appear directly under
-    # the relevant input. The flag is reset when navigating away from this page.
-    submitted = st.session_state.get("reg_submit_clicked", False)
-
-    with st.container(border=True):
+    # Use a form for personal details so typing in these fields doesn't trigger a
+    # Streamlit rerun on every keystroke. The ticket selector stays outside the
+    # form so its total updates live.
+    with st.form("registration_form"):
         name = st.text_input(
             "Full Name *",
             key="reg_name",
@@ -564,8 +563,6 @@ def page_register():
             max_chars=100,
             help="Use letters and spaces only. Example: John Smith or Mary Jane",
         )
-        if submitted and not sanitize_name(name):
-            _field_error("Please enter a valid full name using letters and spaces only.")
 
         email = st.text_input(
             "Email Address *",
@@ -573,12 +570,8 @@ def page_register():
             placeholder="your@email.com",
             max_chars=120,
         )
-        if submitted and not sanitize_email(email):
-            _field_error("Please enter a valid email address.")
 
-        # Default the phone widget to +1- via session state so the on_change
-        # callback can overwrite it with the formatted number without fighting
-        # the widget's `value=` argument.
+        # Default the phone widget to +1-; client-side JS formats as the user types.
         st.session_state.setdefault("reg_phone", "+1-")
         phone = st.text_input(
             "Phone Number (optional)",
@@ -586,13 +579,7 @@ def page_register():
             placeholder="+1-XXX-XXX-XXXX",
             max_chars=20,
             help="US numbers only. Enter 10 digits after +1-. The format will update automatically.",
-            on_change=_format_phone_input,
         )
-        _phone_touched = phone.strip() and phone.strip() not in ("+", "+1", "+1-")
-        if submitted and _phone_touched and not sanitize_phone(phone):
-            _field_error(
-                "Please enter a valid 10-digit US phone number (only numbers after +1-)."
-            )
 
         plus_one_name = st.text_input(
             "Plus One Name (optional)",
@@ -601,8 +588,6 @@ def page_register():
             max_chars=100,
             help="Optional. Letters and spaces only.",
         )
-        if submitted and plus_one_name.strip() and not sanitize_name(plus_one_name):
-            _field_error("Plus one name must contain letters and spaces only.")
 
         zelle_ref = st.text_input(
             "Zelle Transaction Reference *",
@@ -611,10 +596,6 @@ def page_register():
             max_chars=30,
             help="8-30 letters, digits, or hyphens. Examples: ZELLE12345678, TXN-ABCD1234, 1234567890",
         )
-        if submitted and not sanitize_zelle_ref(zelle_ref):
-            _field_error(
-                "Zelle transaction reference is required (8-30 letters, digits, hyphens)."
-            )
 
         # ── Terms & Conditions ───────────────────────────────────────────────────
         with st.expander("📜 Terms & Conditions — Alcohol Disclaimer & Waiver"):
@@ -648,6 +629,31 @@ def page_register():
                 unsafe_allow_html=True,
             )
             agree_terms = st.checkbox("I/We Agree", key="reg_agree")
+
+        submitted = st.form_submit_button("✅ Get My QR Code", type="primary", use_container_width=True)
+
+        # Per-field validation rendered inside the form after submission
+        name_clean = sanitize_name(name) if submitted else name
+        email_clean = sanitize_email(email) if submitted else email
+        _phone_touched = phone.strip() and phone.strip() not in ("+", "+1", "+1-")
+        phone_clean = sanitize_phone(phone) if submitted and _phone_touched else phone
+        plus_one_clean = sanitize_name(plus_one_name) if submitted and plus_one_name.strip() else plus_one_name
+        zelle_clean = sanitize_zelle_ref(zelle_ref) if submitted else zelle_ref
+
+        if submitted and not name_clean:
+            _field_error("Please enter a valid full name using letters and spaces only.")
+        if submitted and not email_clean:
+            _field_error("Please enter a valid email address.")
+        if submitted and _phone_touched and not phone_clean:
+            _field_error(
+                "Please enter a valid 10-digit US phone number (only numbers after +1-)."
+            )
+        if submitted and plus_one_name.strip() and not plus_one_clean:
+            _field_error("Plus one name must contain letters and spaces only.")
+        if submitted and not zelle_clean:
+            _field_error(
+                "Zelle transaction reference is required (8-30 letters, digits, hyphens)."
+            )
         if submitted and not agree_terms:
             _field_error("Please check I/We Agree in the Terms & Conditions to continue.")
 
@@ -693,11 +699,6 @@ def page_register():
         """,
         height=0,
     )
-
-    submitted_btn = st.button("✅ Get My QR Code", type="primary", use_container_width=True)
-    if submitted_btn:
-        st.session_state["reg_submit_clicked"] = True
-        st.rerun()
 
     if submitted:
         name_clean = sanitize_name(name)
