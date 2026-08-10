@@ -34,7 +34,7 @@ from utils import (
     record_visit,
     get_visit_stats,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 # We need to mock Streamlit for testing outside the app
 import unittest
@@ -113,7 +113,7 @@ class TestPartyCheckIn(unittest.TestCase):
         
         # Check in
         guest.checked_in = True
-        guest.checkin_time = datetime.utcnow()
+        guest.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
         log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Test")
         session.add(log)
         session.commit()
@@ -134,7 +134,7 @@ class TestPartyCheckIn(unittest.TestCase):
             zelle_ref="ZELLE-999",
             qr_code=generate_qr_code_for_guest("Bob", "bob@example.com"),
             checked_in=True,
-            checkin_time=datetime.utcnow(),
+            checkin_time=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         session.add(guest)
         session.commit()
@@ -183,7 +183,7 @@ class TestPartyCheckIn(unittest.TestCase):
         guests = session.query(Guest).all()
         for g in guests[:2]:
             g.checked_in = True
-            g.checkin_time = datetime.utcnow()
+            g.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
         session.commit()
         
         stats = get_stats()
@@ -210,7 +210,7 @@ class TestPartyCheckIn(unittest.TestCase):
                 zelle_ref=f"ZELLE-{name}",
                 qr_code=generate_qr_code_for_guest(name, f"{name.lower()}@test.com"),
                 checked_in=checked,
-                checkin_time=datetime.utcnow() if checked else None,
+                checkin_time=datetime.now(timezone.utc).replace(tzinfo=None) if checked else None,
             )
             session.add(g)
         session.commit()
@@ -318,7 +318,7 @@ class TestPartyCheckIn(unittest.TestCase):
             zelle_ref="ZELLE-CSV123",
             qr_code=generate_qr_code_for_guest("CSV Test", "csv@test.com"),
             checked_in=True,
-            checkin_time=datetime.utcnow(),
+            checkin_time=datetime.now(timezone.utc).replace(tzinfo=None),
             band_given=True,
         )
         session.add(guest)

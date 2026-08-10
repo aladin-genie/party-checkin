@@ -12,7 +12,7 @@ import base64
 import csv
 import re
 import smtplib
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -29,6 +29,11 @@ import streamlit as st
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 Base = declarative_base()
+
+
+def _utc_now():
+    """Return a naive UTC datetime (replacement for deprecated datetime.utcnow())."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _get_secret(key: str, default="") -> str:
@@ -55,7 +60,7 @@ class Guest(Base):
     checked_in = Column(Boolean, default=False)
     band_given = Column(Boolean, default=False)
     checkin_time = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
 
     def to_dict(self):
         return {
@@ -79,7 +84,7 @@ class CheckInLog(Base):
     id = Column(Integer, primary_key=True)
     guest_id = Column(Integer, ForeignKey("guests.id"))
     action = Column(String(50))  # 'checkin', 'band_given'
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=_utc_now)
     device_info = Column(String(200))
 
 
@@ -90,7 +95,7 @@ class PageVisit(Base):
     id = Column(Integer, primary_key=True)
     visitor_token = Column(String(64), nullable=False, index=True)
     page = Column(String(50), default="Home")
-    visited_at = Column(DateTime, default=datetime.utcnow)
+    visited_at = Column(DateTime, default=_utc_now)
 
 
 # ── Database Engine & Session ─────────────────────────────────────────────────
@@ -275,7 +280,7 @@ def record_visit(visitor_token: str, page: str = "Home") -> None:
     """Record a page visit for traffic stats. Safe to call frequently."""
     session = get_db()
     try:
-        visit = PageVisit(visitor_token=visitor_token, page=page, visited_at=datetime.utcnow())
+        visit = PageVisit(visitor_token=visitor_token, page=page, visited_at=_utc_now())
         session.add(visit)
         session.commit()
     except Exception:

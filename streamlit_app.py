@@ -11,7 +11,7 @@ startup_error = None
 try:
     import base64
     import os
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from utils import (
         init_db,
@@ -820,7 +820,7 @@ def _process_checkin(qr_code: str):
             return
 
         guest.checked_in = True
-        guest.checkin_time = datetime.utcnow()
+        guest.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
         log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner")
         session.add(log)
         session.commit()
@@ -1093,7 +1093,7 @@ def page_admin():
                     if not selected_guest.checked_in:
                         if st.button("Check In", use_container_width=True):
                             selected_guest.checked_in = True
-                            selected_guest.checkin_time = datetime.utcnow()
+                            selected_guest.checkin_time = datetime.now(timezone.utc).replace(tzinfo=None)
                             log = CheckInLog(
                                 guest_id=selected_guest.id,
                                 action="checkin",
@@ -1188,7 +1188,7 @@ def main():
             st.rerun()
 
         st.markdown("---")
-        st.markdown("<small>v2.1 • Streamlit Edition</small>", unsafe_allow_html=True)
+        st.markdown("<small>v2.2 • Streamlit Edition</small>", unsafe_allow_html=True)
 
     # Record page visit once per navigation / refresh for traffic stats
     try:
