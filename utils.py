@@ -94,6 +94,27 @@ class PageVisit(Base):
 
 # ── Database Engine & Session ─────────────────────────────────────────────────
 
+def _normalize_postgres_url(db_url: str) -> str:
+    """Normalize any PostgreSQL URL to use the installed driver.
+
+    Supabase and other providers supply URLs in several forms (postgres://,
+    postgresql://, postgresql+psycopg://, postgresql+psycopg2://, etc.).
+    This strips any existing driver suffix and applies a driver that we
+    know is available in the deployed environment.
+    """
+    # Strip the protocol prefix, keeping user/pass/host/db
+    if db_url.startswith("postgres://"):
+        body = db_url[len("postgres://"):]
+    elif db_url.startswith("postgresql://"):
+        body = db_url[len("postgresql://"):]
+    elif db_url.startswith("postgresql+"):
+        # e.g. postgresql+psycopg:// or postgresql+psycopg2://
+        body = db_url.split("://", 1)[1] if "://" in db_url else db_url.split("//", 1)[1]
+    else:
+        return db_url
+    return f"postgresql+psycopg2://{body}"
+
+
 @st.cache_resource(show_spinner=False)
 def get_engine():
     """Create a cached SQLAlchemy engine.
@@ -102,18 +123,38 @@ def get_engine():
     cannot be reached (e.g., paused Supabase project or missing secret).
     """
     db_url = _get_secret("DATABASE_URL", "sqlite:///party_guests.db")
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-    if db_url.startswith("postgresql://"):
-        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    db_url = _normalize_postgres_url(db_url)
+
+    # Log safe diagnostics (driver only, never the password)
+    print(f"DATABASE_URL driver prefix: {db_url.split('://')[0] if '://' in db_url else 'none'}")
+    try:
+        import importlib
+        importlib.import_module("psycopg2")
+        print("psycopg2 import: OK")
+    except Exception as imp_err:
+        print(f"psycopg2 import: FAILED - {imp_err}")
 
     try:
         engine = create_engine(db_url, pool_pre_ping=True, echo=False)
         # Validate the connection by listing table names
         inspector = inspect(engine)
         inspector.get_table_names()
+        print("DATABASE_URL connection: OK")
         return engine
     except Exception as e:
+        err_msg = str(e).lower()
+        # Try the pure-Python pg8000 driver as a fallback if psycopg2 fails
+        if "psycopg2" in err_msg and "pg8000" not in db_url:
+            try:
+                pg_url = db_url.replace("postgresql+psycopg2://", "postgresql+pg8000://", 1)
+                print(f"psycopg2 failed, trying pg8000 driver")
+                engine = create_engine(pg_url, pool_pre_ping=True, echo=False)
+                inspector = inspect(engine)
+                inspector.get_table_names()
+                print("DATABASE_URL connection via pg8000: OK")
+                return engine
+            except Exception as e2:
+                print(f"pg8000 fallback also failed: {e2}")
         # Log the failure without exposing the full URL in the UI
         print(f"DATABASE_URL connection failed, falling back to SQLite: {e}")
         fallback_url = "sqlite:///party_guests.db"

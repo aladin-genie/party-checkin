@@ -1,0 +1,13 @@
+- generic [active]:
+  - generic:
+    - generic:
+      - status "Loading"
+  - iframe [ref=f42e1]:
+    - generic [ref=f43e2]:
+      - generic [ref=f43e11]:
+        - heading [level=1] [ref=f43e12]:
+          - paragraph [ref=f43e13]: Status embed installed correctly
+        - generic [ref=f43e14]: This will be shown if an incident or maintenance is posted on your status page.
+        - link "View latest updates" [ref=f43e16] [cursor=pointer]:
+          - /url: http://www.streamlitstatus.com?utm_source=embed
+      - button [ref=f43e18] [cursor=pointer]
