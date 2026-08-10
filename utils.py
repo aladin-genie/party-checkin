@@ -4,6 +4,7 @@ Database, QR generation, email, and helper functions.
 Works with Streamlit (no Flask dependencies).
 """
 
+import hashlib
 import html
 import os
 import io
@@ -115,9 +116,16 @@ def _normalize_postgres_url(db_url: str) -> str:
     return f"postgresql+psycopg2://{body}"
 
 
+def _get_engine_url_hash() -> str:
+    """Return a stable hash of the configured DATABASE_URL for cache busting."""
+    db_url = _get_secret("DATABASE_URL", "sqlite:///party_guests.db")
+    db_url = _normalize_postgres_url(db_url)
+    return hashlib.sha256(db_url.encode("utf-8")).hexdigest()[:16]
+
+
 @st.cache_resource(show_spinner=False)
-def get_engine():
-    """Create a cached SQLAlchemy engine.
+def _get_engine_cached(_db_url_hash: str = ""):
+    """Create a cached SQLAlchemy engine keyed by the DATABASE_URL hash.
 
     Falls back to a local SQLite database if the configured DATABASE_URL
     cannot be reached (e.g., paused Supabase project or missing secret).
@@ -159,6 +167,11 @@ def get_engine():
         print(f"DATABASE_URL connection failed, falling back to SQLite: {e}")
         fallback_url = "sqlite:///party_guests.db"
         return create_engine(fallback_url, echo=False)
+
+
+def get_engine():
+    """Return the cached engine, automatically re-creating it if the DATABASE_URL secret changed."""
+    return _get_engine_cached(_get_engine_url_hash())
 
 
 def _using_fallback_db() -> bool:
