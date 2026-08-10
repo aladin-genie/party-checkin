@@ -5,5 +5,4 @@ qrcode==7.4.2
 Pillow==10.4.0
 requests==2.32.3
 stripe==7.0.0
-psycopg[binary]==3.3.4
 numpy==1.26.4
