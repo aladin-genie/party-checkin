@@ -14,6 +14,16 @@ A complete event registration and check-in system built with **Streamlit** (free
 - **Ticket price:** $20.00 per ticket
 - **QR-code emails:** Configured and verified — Gmail SMTP sends QR codes automatically after registration.
 
+### Last Verified State (for the next model / handoff)
+
+- **Local tests:** All 23 unit tests pass (`python -m unittest test_party_checkin -v`).
+- **Live deploy:** Auto-deployed from `main` on Streamlit Cloud (workspace `aladin-genie`, yvh1225@gmail.com account).
+- **Database connection:** No temporary-DB warning; Supabase Pooler URL is configured in Streamlit Cloud secrets.
+- **Test data cleaned up:** Four test registrations created during verification were deleted from the Admin Dashboard.
+- **Current live stats (after cleanup):** 3 total guests, 1 checked-in, 2 pending, 5 total tickets, $100 estimated revenue.
+- **Known-good secrets reference:** See `AGENTS.md` for Supabase project ID, current admin password, and required Streamlit Cloud secret names.
+- **Common workflow:** Read `AGENTS.md` → run tests → verify via Kimi WebBridge on the live app → push changes to `main` → reboot Streamlit Cloud app if needed.
+
 ### What works now
 - Modern, mobile-first dark UI with the 2026 event details.
 - Home page shows public **Site Activity** stats (visits, unique visitors, registrations).
