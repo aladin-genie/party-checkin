@@ -751,22 +751,15 @@ def _show_registration_success(guest):
             f"Please contact the organizer with your email ({guest.email}) to receive your QR code."
         )
 
-    plus_one_line = (
-        f"<div style='font-size: 0.9rem; color: #F4E4BC; margin-top: 6px;'>👤 Plus One: {guest.plus_one_name}</div>"
-        if guest.plus_one_name
-        else ""
-    )
-
+    st.markdown("### 🎉 You're In!")
     st.markdown(
-        f"<div style='text-align:center;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.3);border-radius:20px;padding:20px;margin:16px 0;'>"
-        f"<div style='font-size:1.4rem;font-weight:800;color:#F4E4BC;margin-bottom:4px;'>🎉 You're In!</div>"
-        f"<div style='font-size:0.95rem;color:rgba(245,245,245,0.7);'>"
-        f"<strong>{guest.name}</strong> • {guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}<br>"
-        f"{plus_one_line}"
-        f"<small>QR code emailed to {guest.email}</small>"
-        f"</div></div>",
-        unsafe_allow_html=True,
+        f"**{guest.name}** • {guest.ticket_count} Ticket"
+        f"{'s' if guest.ticket_count > 1 else ''}"
     )
+    if guest.plus_one_name:
+        st.markdown(f"👤 Plus One: {guest.plus_one_name}")
+    st.markdown(f"📧 QR code emailed to: `{guest.email}`")
+    st.divider()
 
     st.info("📧 No need to screenshot — your QR code is on its way to your email.")
 
