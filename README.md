@@ -1,13 +1,42 @@
 # Party Check-In System
 
-A complete event registration and check-in system built with **Streamlit** (free hosting on Streamlit Community Cloud). Features QR codes, self check-in, audio announcements, and admin dashboard. Supports 200+ guests.
+A complete event registration and check-in system built with **Streamlit** (free hosting on Streamlit Community Cloud). Features QR codes, self check-in, audio announcements, and an admin dashboard. Supports 200+ guests.
+
+## Current Status — Dallas Boys Party 2026
+
+- **Event:** Friday, October 9, 2026 · 5:30 PM onwards
+- **Venue:** Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
+- **Theme:** 12th Year of Togetherness
+- **Live app:** https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/
+- **GitHub:** `aladin-genie/party-checkin` on `main`
+- **Database:** Supabase PostgreSQL (connected)
+- **Payment:** Zelle → `dallashudugaru@gmail.com`
+- **Ticket price:** $20.00 per ticket
+- **QR-code emails:** Code is ready, but SMTP credentials are **not configured yet** (see [Email Setup](#email-setup) below).
+
+### What works now
+- Modern, mobile-first dark UI with the 2026 event details.
+- Home page shows public **Site Activity** stats (visits, unique visitors, registrations).
+- Registration page enforces field validations and shows red per-field errors.
+- Ticket total updates automatically as guests change the number of tickets.
+- Phone number auto-formats to `+1-XXX-XXX-XXXX` and only digits are accepted.
+- Names accept letters and spaces only; plus-one is optional.
+- Zelle confirmation reference accepts 8–30 letters/digits/hyphens (e.g., `ZELLE12345678`, `TXN-ABCD1234`, `1234567890`).
+- Terms & Conditions / Alcohol Disclaimer must be accepted before registering.
+- QR code is hidden from the UI and is meant to be emailed after registration.
+- Admin dashboard with guest list, CSV export, manual check-in, and band tracking.
+
+### What still needs configuration
+- **SMTP / email credentials** in Streamlit Cloud secrets so QR-code emails actually send.
+
+---
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
 | **Zelle Payments** | Guests pay via Zelle then submit their transaction reference |
-| **Auto QR Email** | QR codes sent automatically after registration |
+| **Auto QR Email** | QR code is emailed automatically after registration (when SMTP is configured) |
 | **Self Check-In** | Guests scan their own QR codes at the door using camera or manual entry |
 | **Audio Announcement** | Speaks name + ticket count for staff via browser TTS |
 | **Wristband Tracking** | Prevents double distribution |
@@ -23,7 +52,7 @@ A complete event registration and check-in system built with **Streamlit** (free
                             |
                     [ Your Guests ]
                             |
-              https://your-app.streamlit.app
+              https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app
                             |
                 +-----------+----------+
                 |                      |
@@ -34,36 +63,28 @@ A complete event registration and check-in system built with **Streamlit** (free
                 |                      |
                 +-----------+----------+
                             |
-                    Your Party App!
+                    Dallas Boys Party App!
 ```
-
-**What each part does:**
 
 | Part | Role | Cost | URL |
 |------|------|------|-----|
-| **Streamlit Cloud** | Runs your app in the cloud | Free | `your-app.streamlit.app` |
-| **Supabase** | Stores guest list & check-in data | Free | No URL — internal database only |
-| **Custom Domain** | Custom web address (optional) | ~$12/yr | e.g. `myparty.com` — not needed |
+| **Streamlit Cloud** | Runs the app in the cloud | Free | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ |
+| **Supabase** | Stores guest list & check-in data | Free | Internal database only |
 
 > **Free tier note:** On Streamlit Cloud's free plan, apps sleep after ~7 days of inactivity and wake up on the next visit. Open the app a minute before guests arrive to pre-warm it.
 
 ---
 
-## Your App URL
-
-Once deployed, your app lives at:
-
-```
-https://<your-app-name>.streamlit.app
-```
+## App URLs
 
 Share these links with your team:
 
 | Page | Who uses it | URL |
 |------|-------------|-----|
-| **Register** | Guests — to register and pay | `https://your-app.streamlit.app?page=Register` |
-| **Scanner** | Check-in staff — scan QR codes | `https://your-app.streamlit.app?page=Scanner` |
-| **Admin** | Organiser — live dashboard | `https://your-app.streamlit.app?page=Admin` |
+| **Home** | Everyone | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ |
+| **Register** | Guests — register and pay | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/?page=Register |
+| **Scanner** | Check-in staff — scan QR codes | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/?page=Scanner |
+| **Admin** | Organiser — live dashboard | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/?page=Admin |
 
 ---
 
@@ -73,14 +94,18 @@ Share these links with your team:
   Organiser shares Zelle details + registration link with guests
           |
           v
-  Guest sends Zelle payment
+  Guest sends $20 per ticket via Zelle to dallashudugaru@gmail.com
           |
           v
   Guest opens the Register page
-  Fills in: Name, Email, Tickets, Zelle Transaction ID
+  Fills in: Name, Email, Phone (optional), Tickets,
+            Plus One (optional), Zelle Transaction Reference
           |
           v
-  QR code emailed to guest instantly
+  Guest accepts Terms & Conditions (Alcohol Disclaimer)
+          |
+          v
+  QR code is emailed to guest
           |
    Night of the party
           |
@@ -96,6 +121,7 @@ Share these links with your team:
           v
   Staff hands wristbands
           |
+          v
   Clicks "Mark Band Given"
           |
           v
@@ -104,83 +130,73 @@ Share these links with your team:
 
 ---
 
-## Deploy: Streamlit Cloud (Free) + Supabase (Free)
+## Deploy / Re-Deploy on Streamlit Community Cloud
 
-### Step 1 — Fork / Push to GitHub
+The app is already deployed. To push a new version:
 
-1. Create a new GitHub repo (or fork this one)
-2. Push all files: `streamlit_app.py`, `utils.py`, `requirements.txt`, `.streamlit/config.toml`
-3. **Do NOT commit `.streamlit/secrets.toml`** — it contains passwords
+1. Commit and push changes to `main` of `aladin-genie/party-checkin`.
+2. Open the deploy page:  
+   `https://share.streamlit.io/deploy?repository=aladin-genie/party-checkin&branch=main&mainModule=streamlit_app.py`
+3. Make sure the workspace is `aladin-genie` (yvh1225@gmail.com account).
+4. Click **Deploy**.
 
----
-
-### Step 2 — Set Up Supabase (database)
-
-1. Go to [supabase.com](https://supabase.com) → **Start your project** (free)
-2. Create a new project — pick any name and region
-3. Wait ~2 minutes for it to provision
-4. Go to **Settings → Database → Connection string → URI**
-5. Copy the URI — it looks like:
-   ```
-   postgresql://postgres:[YOUR-PASSWORD]@db.xxxx.supabase.co:5432/postgres
-   ```
-   Keep this — you'll paste it into Streamlit Cloud in Step 3.
-
-> Supabase free tier: 500MB storage (enough for thousands of guests), 2 free projects. Project pauses after 7 days of inactivity — just log in and unpause before your next event.
+Tables are created automatically on first boot.
 
 ---
 
-### Step 3 — Deploy on Streamlit Community Cloud
+## Required Streamlit Cloud Secrets
 
-1. Go to [streamlit.io/cloud](https://streamlit.io/cloud) → sign in with GitHub
-2. Click **Create app → From existing repo**
-3. Select your GitHub repo (`party-checkin`)
-4. Set:
-   - **Main file path**: `streamlit_app.py`
-   - **Branch**: `main` (or whatever your default is)
-5. Click **Advanced settings → Secrets** and paste the following (replace with your actual values):
+Go to **Streamlit Cloud → App → ⋮ → Settings → Secrets** and paste:
 
 ```toml
 SECRET_KEY = "your-long-random-secret-key-here"
-DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@db.xxxx.supabase.co:5432/postgres"
+# Use the Supabase Pooler connection string, not the direct db.*.supabase.co host.
+DATABASE_URL = "postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres"
 
-# Email (Gmail SMTP example)
+# Email (Gmail SMTP example) — REQUIRED for QR-code emails to send
 MAIL_SERVER = "smtp.gmail.com"
 MAIL_PORT = "587"
-MAIL_USERNAME = "your-email@gmail.com"
-MAIL_PASSWORD = "your-gmail-app-password"
-MAIL_DEFAULT_SENDER = "your-email@gmail.com"
+MAIL_USERNAME = "your-sender@gmail.com"
+MAIL_PASSWORD = "your-gmail-app-password"   # NOT your normal Gmail password
+MAIL_DEFAULT_SENDER = "your-sender@gmail.com"
 
-# Admin password (leave empty for no protection)
-ADMIN_PASSWORD = "your-admin-password"
+# Admin password for the dashboard
+ADMIN_PASSWORD = "party2026"
 
 # Ticket price in cents (e.g., 2000 = $20.00)
 TICKET_PRICE_CENTS = "2000"
 
-# Zelle payment info (shown to guests on registration page)
+# Zelle payment info shown to guests
 ZELLE_INFO = "dallashudugaru@gmail.com"
 ```
 
-6. Click **Deploy** — done! Tables are created automatically on first boot.
-
-Your app is live at `https://<your-app-name>.streamlit.app`
+> **Do not commit `.streamlit/secrets.toml`.** It is already `.gitignore`d.
 
 ---
 
-### Upgrade Path (when you need always-on)
+## Email Setup
 
-No code changes needed — Streamlit Cloud doesn't have a paid "always-on" tier for personal apps, but apps stay awake while being used. For business needs, consider Streamlit in Snowflake or a VPS.
+QR-code emails are sent via SMTP. Without `MAIL_USERNAME` and `MAIL_PASSWORD`, the app still registers guests but cannot email the QR code.
+
+### Gmail App Password (recommended)
+
+1. Google Account → Security → **2-Step Verification** (enable)
+2. Google Account → Security → **App passwords**
+3. Select App: **Mail** / Device: **Other** → name it "Party Check-In"
+4. Copy the 16-character password → use it as `MAIL_PASSWORD` in Streamlit Cloud secrets
+5. Add `MAIL_USERNAME` and `MAIL_DEFAULT_SENDER` (usually the same Gmail address)
+6. Reboot the Streamlit app from the cloud dashboard
 
 ---
 
 ## Zelle Payment Setup
 
-No third-party payment account needed. Zelle works directly through your bank app.
+No third-party payment account is needed. Zelle works directly through each guest's bank app.
 
 ### How It Works
-1. You share your Zelle details (phone number or email) with guests along with the registration link
-2. Guest sends payment via Zelle in their banking app
-3. Guest opens the registration form, fills in their details + Zelle transaction reference
+1. You share the Zelle email `dallashudugaru@gmail.com` with guests
+2. Guest sends $20 per ticket via Zelle in their banking app
+3. Guest opens the registration form and enters the Zelle transaction reference
 4. You can cross-check the transaction reference in your bank app against the guest list in Admin
 
 ### Recommended Message to Share with Guests
@@ -191,31 +207,35 @@ Event: Friday, October 9th, 2026 | 5:30 PM onwards
 Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 
 1. Send $20 per ticket via Zelle to: dallashudugaru@gmail.com
-2. Register here: https://your-app.streamlit.app?page=Register
+2. Register here: https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/?page=Register
    (Enter your Zelle transaction reference number in the form)
 3. You'll receive your QR code by email — bring it on the night!
 ```
 
 ### Verifying Payments at the Door
 - Open the **Admin** page on your phone
-- Guest list shows the Zelle transaction reference each guest submitted
+- The guest list shows the Zelle transaction reference each guest submitted
 - Cross-check against your bank app if needed
 
 ---
 
-## Gmail Setup
+## Input Validation Reference
 
-1. Google Account → Security → **2-Step Verification** (enable)
-2. Google Account → Security → **App passwords**
-3. Select App: Mail / Device: Other → name it "Party Check-In"
-4. Copy the 16-character password → use as `MAIL_PASSWORD` in Streamlit Cloud secrets
+| Field | Rules |
+|-------|-------|
+| **Full Name** | Letters and spaces only; minimum 2 characters |
+| **Email** | Standard email format |
+| **Phone** | Optional; auto-formats to `+1-XXX-XXX-XXXX`; digits only |
+| **Plus One Name** | Optional; letters and spaces only |
+| **Zelle Reference** | Required; 8–30 characters; letters, digits, hyphens |
+| **Terms** | Must accept "I/We Agree" |
 
 ---
 
 ## Party Day Checklist
 
 **1 hour before:**
-- [ ] Open `https://your-app.streamlit.app` to wake it from sleep (free tier cold start)
+- [ ] Open https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ to wake it from sleep (free tier cold start)
 - [ ] Log in to **Admin** and verify guest list and Zelle references look correct
 - [ ] Open **Scanner** on the check-in tablet and test camera
 
@@ -232,7 +252,7 @@ Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 
 ## Ticket Price Configuration
 
-The price displayed on the registration form is controlled by `TICKET_PRICE_CENTS` in your Streamlit Cloud secrets. This is display only — it tells guests how much to send via Zelle.
+The price displayed on the registration form is controlled by `TICKET_PRICE_CENTS` in your Streamlit Cloud secrets. This is display only — guests send the amount via Zelle manually.
 
 | Ticket Price | Value to Set |
 |-------|-------|
@@ -309,13 +329,16 @@ party-checkin/
 **App takes time to load**
 Normal on Streamlit Cloud free tier — it was sleeping. Open it a minute before guests arrive.
 
+**"Running on a temporary local database" warning**
+The `DATABASE_URL` secret is missing or points to the wrong host. Use the **Pooler** connection string from Supabase (`aws-0-*.pooler.supabase.com:6543`), not the direct `db.*.supabase.co` host.
+
 **Supabase project is paused**
 Log in to supabase.com → click your project → Restore. Takes ~30 seconds. Happens after 7 days of no activity.
 
 **Guest says they registered but no QR code received**
 - Check **Admin** to confirm their registration is there
 - Ask them to check spam/junk folder
-- Verify `MAIL_USERNAME` and `MAIL_PASSWORD` are set correctly in Streamlit Cloud secrets
+- Verify `MAIL_USERNAME`, `MAIL_PASSWORD`, and `MAIL_DEFAULT_SENDER` are set in Streamlit Cloud secrets
 
 **Email not sending**
 - Make sure you used the Gmail *app password* (not your normal login password)
