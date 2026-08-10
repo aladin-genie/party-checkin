@@ -12,10 +12,6 @@ try:
     import base64
     from datetime import datetime
 
-    import cv2
-    import numpy as np
-    from PIL import Image
-
     from utils import (
         init_db,
         get_db,
@@ -678,17 +674,25 @@ def page_scanner():
     camera_image = st.camera_input("Capture QR code")
 
     if camera_image is not None:
-        pil_img = Image.open(camera_image)
-        cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-        detector = cv2.QRCodeDetector()
-        data, bbox, _ = detector.detectAndDecode(cv_img)
+        try:
+            import cv2
+            import numpy as np
+            from PIL import Image
 
-        if data:
-            st.success(f"QR Code detected: `{data[:50]}`")
-            if st.button("✅ Confirm Check-In", type="primary", use_container_width=True):
-                _process_checkin(data)
-        else:
-            st.warning("No QR code detected in the photo. Try again or use manual entry below.")
+            pil_img = Image.open(camera_image)
+            cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            detector = cv2.QRCodeDetector()
+            data, bbox, _ = detector.detectAndDecode(cv_img)
+
+            if data:
+                st.success(f"QR Code detected: `{data[:50]}`")
+                if st.button("✅ Confirm Check-In", type="primary", use_container_width=True):
+                    _process_checkin(data)
+            else:
+                st.warning("No QR code detected in the photo. Try again or use manual entry below.")
+        except Exception as e:
+            st.error(f"Camera scan unavailable: {e}")
+            st.info("Please use the manual entry option below.")
 
     st.divider()
 
