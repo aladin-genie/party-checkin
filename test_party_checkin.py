@@ -17,6 +17,7 @@ from utils import (
     get_db,
     Guest,
     CheckInLog,
+    PageVisit,
     get_stats,
     generate_qr_image,
     generate_qr_code_for_guest,
@@ -30,6 +31,8 @@ from utils import (
     sanitize_phone,
     sanitize_zelle_ref,
     _sanitize_csv_field,
+    record_visit,
+    get_visit_stats,
 )
 from datetime import datetime
 
@@ -221,6 +224,17 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertAlmostEqual(stats["checkin_percentage"], 66.7, places=1)
         self.assertEqual(stats["revenue"], 120.0)  # 6 tickets * $20
         session.close()
+    
+    def test_visit_stats(self):
+        # Record a few visits from different tokens
+        record_visit("token-abc", "Home")
+        record_visit("token-abc", "Register")
+        record_visit("token-xyz", "Home")
+        record_visit("token-xyz", "Admin")
+        
+        stats = get_visit_stats()
+        self.assertEqual(stats["total_visits"], 4)
+        self.assertEqual(stats["unique_visitors"], 2)
     
     # ── Security Tests ──────────────────────────────────────────────────────
     

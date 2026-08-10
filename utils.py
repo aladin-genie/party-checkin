@@ -82,6 +82,16 @@ class CheckInLog(Base):
     device_info = Column(String(200))
 
 
+class PageVisit(Base):
+    """Lightweight page-visit counter for fun traffic stats."""
+    __tablename__ = "page_visits"
+
+    id = Column(Integer, primary_key=True)
+    visitor_token = Column(String(64), nullable=False, index=True)
+    page = Column(String(50), default="Home")
+    visited_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ── Database Engine & Session ─────────────────────────────────────────────────
 
 @st.cache_resource(show_spinner=False)
@@ -126,7 +136,11 @@ def init_db():
     engine = get_engine()
     inspector = inspect(engine)
     existing = inspector.get_table_names()
-    if "guests" not in existing or "checkin_logs" not in existing:
+    if (
+        "guests" not in existing
+        or "checkin_logs" not in existing
+        or "page_visits" not in existing
+    ):
         Base.metadata.create_all(engine)
     # Check if guests table has zelle_ref column (migration for existing DBs)
     elif "guests" in existing:
@@ -196,6 +210,37 @@ def get_stats() -> dict:
             "avg_tickets_per_guest": avg_tickets,
             "checkin_percentage": checkin_pct,
             "revenue": revenue,
+        }
+    finally:
+        session.close()
+
+
+# ── Page Visit Tracking ─────────────────────────────────────────────────────────
+
+def record_visit(visitor_token: str, page: str = "Home") -> None:
+    """Record a page visit for traffic stats. Safe to call frequently."""
+    session = get_db()
+    try:
+        visit = PageVisit(visitor_token=visitor_token, page=page, visited_at=datetime.utcnow())
+        session.add(visit)
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
+def get_visit_stats() -> dict:
+    """Return traffic stats: total visits and unique visitors."""
+    session = get_db()
+    try:
+        total_visits = session.query(PageVisit).count()
+        unique_visitors = (
+            session.query(func.count(func.distinct(PageVisit.visitor_token))).scalar() or 0
+        )
+        return {
+            "total_visits": int(total_visits),
+            "unique_visitors": int(unique_visitors),
         }
     finally:
         session.close()

@@ -10,6 +10,7 @@ import streamlit as st
 startup_error = None
 try:
     import base64
+    import os
     from datetime import datetime, timedelta
 
     from utils import (
@@ -30,6 +31,8 @@ try:
         sanitize_phone,
         sanitize_zelle_ref,
         _using_fallback_db,
+        record_visit,
+        get_visit_stats,
     )
 
     # ── Initialize DB ────────────────────────────────────────────────────────────
@@ -295,6 +298,9 @@ try:
     TICKET_PRICE = float(st.secrets.get("TICKET_PRICE_CENTS", 2000)) / 100
 except Exception:
     TICKET_PRICE = 20.00
+
+# Event date for check-in timeline charts
+EVENT_DATE = datetime(2026, 10, 9)
 
 _DEFAULT_ZELLE = "dallashudugaru@gmail.com"
 _PLACEHOLDER_ZELLE = "your-zelle-phone@email.com or +1-234-567-8900"
@@ -930,50 +936,64 @@ def page_admin():
         text=f"Check-in rate: {stats['checkin_percentage']}%",
     )
 
-    # ── Charts ─────────────────────────────────────────────────────────────────
+    # ── Traffic Stats ────────────────────────────────────────────────────────────
+    visit_stats = get_visit_stats()
+    st.subheader("🌐 Traffic (just for fun)")
+    v1, v2 = st.columns(2)
+    v1.metric("Unique Visitors", visit_stats["unique_visitors"])
+    v2.metric("Total Page Views", visit_stats["total_visits"])
+
+    # ── Charts ───────────────────────────────────────────────────────────────────
+    st.subheader("📈 Activity")
     session = get_db()
     try:
-        now = datetime.utcnow()
-        hours = 12
-        start = now - timedelta(hours=hours)
+        from collections import defaultdict
+        import pandas as pd
 
-        recent_guests = session.query(Guest).filter(Guest.created_at >= start).all()
-        recent_checkins = (
+        # Registrations by day (registration happens over weeks, not hours)
+        all_guests = session.query(Guest).order_by(Guest.created_at).all()
+        if all_guests:
+            daily_regs = defaultdict(int)
+            for g in all_guests:
+                day = g.created_at.date()
+                daily_regs[day] += 1
+            days = sorted(daily_regs.keys())
+            reg_counts = [daily_regs[d] for d in days]
+            reg_df = pd.DataFrame(
+                {"Registrations": reg_counts},
+                index=[d.strftime("%b %d") for d in days],
+            )
+            st.caption("Registrations by day")
+            st.bar_chart(reg_df, use_container_width=True)
+        else:
+            st.info("No registrations yet.")
+
+        # Check-ins on event day by hour
+        event_start = EVENT_DATE.replace(hour=0, minute=0, second=0, microsecond=0)
+        event_end = event_start + timedelta(days=1)
+        event_checkins = (
             session.query(Guest)
-            .filter(Guest.checked_in == True, Guest.checkin_time >= start)
+            .filter(
+                Guest.checked_in == True,
+                Guest.checkin_time >= event_start,
+                Guest.checkin_time < event_end,
+            )
             .all()
         )
-
-        from collections import defaultdict
-
-        reg_buckets = defaultdict(int)
-        for g in recent_guests:
-            hour = g.created_at.replace(minute=0, second=0, microsecond=0)
-            reg_buckets[hour] += 1
-
-        checkin_buckets = defaultdict(int)
-        for g in recent_checkins:
-            hour = g.checkin_time.replace(minute=0, second=0, microsecond=0)
-            checkin_buckets[hour] += 1
-
-        labels = [(start + timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(hours + 1)]
-        reg_values = [reg_buckets.get(h, 0) for h in labels]
-        checkin_values = [checkin_buckets.get(h, 0) for h in labels]
-
-        if any(reg_values) or any(checkin_values):
-            st.subheader("📈 Activity Timeline (Last 12 Hours)")
-            import pandas as pd
-
-            chart_df = pd.DataFrame(
-                {
-                    "Registrations": reg_values,
-                    "Check-ins": checkin_values,
-                },
-                index=[h.strftime("%I %p") for h in labels],
+        if event_checkins:
+            hourly = defaultdict(int)
+            for g in event_checkins:
+                hourly[g.checkin_time.hour] += 1
+            hours = list(range(24))
+            checkin_counts = [hourly[h] for h in hours]
+            checkin_df = pd.DataFrame(
+                {"Check-ins": checkin_counts},
+                index=[f"{h:02d}:00" for h in hours],
             )
-            st.bar_chart(chart_df, use_container_width=True)
+            st.caption(f"Check-ins on event day ({EVENT_DATE.strftime('%b %d, %Y')})")
+            st.bar_chart(checkin_df, use_container_width=True)
         else:
-            st.info("No registration or check-in activity in the last 12 hours.")
+            st.info(f"No check-ins yet on event day ({EVENT_DATE.strftime('%b %d, %Y')}).")
     finally:
         session.close()
 
@@ -1154,6 +1174,19 @@ def main():
 
         st.markdown("---")
         st.markdown("<small>v2.1 • Streamlit Edition</small>", unsafe_allow_html=True)
+
+    # Record page visit once per navigation / refresh for traffic stats
+    try:
+        current_page = st.session_state.get("page", "Home")
+        if st.session_state.get("last_recorded_page") != current_page:
+            if "visitor_token" not in st.session_state:
+                st.session_state["visitor_token"] = base64.urlsafe_b64encode(
+                    os.urandom(12)
+                ).decode()
+            record_visit(st.session_state["visitor_token"], current_page)
+            st.session_state["last_recorded_page"] = current_page
+    except Exception:
+        pass
 
     # Render selected page
     if page == "Home":
