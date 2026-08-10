@@ -482,7 +482,7 @@ def page_register():
         "Number of Tickets *",
         min_value=1,
         max_value=20,
-        value=1,
+        value=st.session_state.get("ticket_count", 1),
         step=1,
         key="ticket_count",
         help="Select number of tickets. The total updates automatically as you change it.",
