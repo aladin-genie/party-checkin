@@ -11,6 +11,7 @@ startup_error = None
 try:
     import base64
     import os
+    import re
     from datetime import datetime, timedelta, timezone
 
     from utils import (
@@ -33,6 +34,7 @@ try:
         _using_fallback_db,
         record_visit,
         get_visit_stats,
+        get_site_stats,
     )
 
     # ── Initialize DB ────────────────────────────────────────────────────────────
@@ -313,7 +315,7 @@ if not ZELLE_INFO or ZELLE_INFO == _PLACEHOLDER_ZELLE or "organizer will share" 
 # HOME PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_home():
-    stats = get_stats()
+    site_stats = get_site_stats()
 
     # Hero banner
     st.markdown(
@@ -345,20 +347,17 @@ def page_home():
     except Exception:
         pass
 
-    # Stats cards — 2x2 grid for mobile
+    # Site usage stats — public, popularity/engagement focus
+    st.markdown("### 📊 Site Activity")
     c1, c2 = st.columns(2)
-    c1.metric("Registered", stats["total_guests"])
-    c2.metric("Checked In", stats["checked_in"])
+    c1.metric("Visits Today", site_stats["today_visits"])
+    c2.metric("Total Visits", site_stats["total_visits"])
     c3, c4 = st.columns(2)
-    c3.metric("Bands Given", stats["bands_distributed"])
-    c4.metric("Total Tickets", stats["total_tickets"])
-
-    # Attendance progress (public, non-sensitive)
-    if stats["total_guests"] > 0:
-        st.progress(
-            stats["checkin_percentage"] / 100,
-            text=f"Attendance: {stats['checkin_percentage']}% ({stats['checked_in']}/{stats['total_guests']})",
-        )
+    c3.metric("Unique Visitors Today", site_stats["today_unique"])
+    c4.metric("Total Unique Visitors", site_stats["unique_visitors"])
+    c5, c6 = st.columns(2)
+    c5.metric("Registrations Today", site_stats["today_regs"])
+    c6.metric("Total Registered", site_stats["total_regs"])
 
     st.markdown("### ✨ Get Started")
 
@@ -392,10 +391,47 @@ def _home_button(key="home_button"):
         st.rerun()
 
 
+def _field_error(message: str):
+    """Render a small red error message directly under a form field."""
+    st.markdown(
+        f"<p style='color:#ff4b4b; font-size:0.85em; margin-top:0.2rem; margin-bottom:0.8rem;'>"
+        f"{message}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def _format_phone_input():
+    """Format the phone input as +1-XXX-XXX-XXXX once 10 digits are entered.
+
+    Streamlit calls this callback on every change, before the main script runs,
+    so we can safely mutate the widget's session-state value before it is drawn.
+    """
+    raw = st.session_state.get("reg_phone", "")
+    digits = re.sub(r"\D", "", raw)
+    # Accept either a bare 10-digit US number or an 11-digit number starting with 1
+    if len(digits) == 10:
+        st.session_state["reg_phone"] = f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    elif len(digits) == 11 and digits.startswith("1"):
+        d = digits[1:]
+        st.session_state["reg_phone"] = f"+1-{d[:3]}-{d[3:6]}-{d[6:]}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_register():
+    # Reset form fields at the very top, before any widgets are instantiated,
+    # so stale values don't appear when re-entering the page or clicking "Register Another".
+    if st.session_state.get("reset_register_form"):
+        st.session_state["reg_name"] = ""
+        st.session_state["reg_email"] = ""
+        st.session_state["reg_phone"] = "+1-"
+        st.session_state["reg_plus_one"] = ""
+        st.session_state["reg_zelle"] = ""
+        st.session_state["reg_agree"] = False
+        st.session_state["ticket_count"] = 1
+        st.session_state["reset_register_form"] = False
+
     header_col1, header_col2 = st.columns([4, 1])
     with header_col1:
         st.title("📝 Register Guest")
@@ -463,36 +499,73 @@ def page_register():
         unsafe_allow_html=True,
     )
 
-    # ── Registration Form ────────────────────────────────────────────────────
-    with st.form("register_form", clear_on_submit=True):
-        st.markdown("### 📝 Step 2: Fill Your Details")
+    # ── Registration Details ───────────────────────────────────────────────────
+    st.markdown("### 📝 Step 2: Fill Your Details")
 
+    # Track submission across reruns so per-field errors can appear directly under
+    # the relevant input. The flag is reset when navigating away from this page.
+    submitted = st.session_state.get("reg_submit_clicked", False)
+
+    with st.container(border=True):
         name = st.text_input(
             "Full Name *",
+            key="reg_name",
+            value="",
             placeholder="Enter your full name (letters only)",
             max_chars=100,
             help="Use letters and spaces only. Example: John Smith or Mary Jane",
         )
-        email = st.text_input("Email Address *", placeholder="your@email.com", max_chars=120)
+        if submitted and not sanitize_name(name):
+            _field_error("Please enter a valid full name using letters and spaces only.")
+
+        email = st.text_input(
+            "Email Address *",
+            key="reg_email",
+            value="",
+            placeholder="your@email.com",
+            max_chars=120,
+        )
+        if submitted and not sanitize_email(email):
+            _field_error("Please enter a valid email address.")
+
         phone = st.text_input(
             "Phone Number (optional)",
-            placeholder="+1 234 567 8900",
-            max_chars=30,
-            help="Optional. If provided, enter a valid 10-15 digit number.",
+            key="reg_phone",
+            value="+1-",
+            placeholder="+1-XXX-XXX-XXXX",
+            max_chars=20,
+            help="US numbers only. Enter 10 digits after +1-. The format will update automatically.",
+            on_change=_format_phone_input,
         )
+        _phone_touched = phone.strip() and phone.strip() not in ("+", "+1", "+1-")
+        if submitted and _phone_touched and not sanitize_phone(phone):
+            _field_error(
+                "Please enter a valid 10-digit US phone number (only numbers after +1-)."
+            )
+
         plus_one_name = st.text_input(
             "Plus One Name (optional)",
+            key="reg_plus_one",
+            value="",
             placeholder="Name of your guest",
             max_chars=100,
-            help="Optional. If you're bringing a guest, enter their name.",
+            help="Optional. Letters and spaces only.",
         )
+        if submitted and plus_one_name.strip() and not sanitize_name(plus_one_name):
+            _field_error("Plus one name must contain letters and spaces only.")
 
         zelle_ref = st.text_input(
             "Zelle Transaction Reference *",
+            key="reg_zelle",
+            value="",
             placeholder="e.g. ZELLE12345678",
-            help="Zelle confirmation numbers are typically 8-12 letters/digits from your bank. Accepted formats: 8-30 letters, digits, or hyphens. Examples: ZELLE12345678, 1234567890, TXN-ABCD1234, CONF-9876543210",
             max_chars=30,
+            help="8-30 letters, digits, or hyphens. Examples: ZELLE12345678, TXN-ABCD1234, 1234567890",
         )
+        if submitted and not sanitize_zelle_ref(zelle_ref):
+            _field_error(
+                "Zelle transaction reference is required (8-30 letters, digits, hyphens)."
+            )
 
         # ── Terms & Conditions ───────────────────────────────────────────────────
         with st.expander("📜 Terms & Conditions — Alcohol Disclaimer & Waiver"):
@@ -525,41 +598,38 @@ def page_register():
                 """,
                 unsafe_allow_html=True,
             )
-            agree_terms = st.checkbox("I/We Agree", value=False)
+            agree_terms = st.checkbox("I/We Agree", key="reg_agree", value=False)
+        if submitted and not agree_terms:
+            _field_error("Please check I/We Agree in the Terms & Conditions to continue.")
 
-        st.markdown(
-            "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions, show your QR code at the entrance, and follow event guidelines.</small>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. Your QR code will be emailed to you.</small>",
+        unsafe_allow_html=True,
+    )
 
-        submitted = st.form_submit_button(
-            "✅ Get My QR Code", use_container_width=True, type="primary"
-        )
+    submitted_btn = st.button("✅ Get My QR Code", type="primary", use_container_width=True)
+    if submitted_btn:
+        st.session_state["reg_submit_clicked"] = True
+        st.rerun()
 
     if submitted:
         name_clean = sanitize_name(name)
         email_clean = sanitize_email(email)
-        phone_clean = sanitize_phone(phone)
+        phone_clean = sanitize_phone(phone) if _phone_touched else ""
         plus_one_clean = sanitize_name(plus_one_name) if plus_one_name.strip() else ""
         zelle_clean = sanitize_zelle_ref(zelle_ref)
 
-        if not name_clean:
-            st.error("Please enter a valid full name using letters and spaces only.")
-            return
-        if not email_clean:
-            st.error("Please enter a valid email address.")
-            return
-        if phone and not phone_clean:
-            st.error("Please enter a valid phone number with 10-15 digits, or leave it blank.")
-            return
-        if plus_one_name.strip() and not plus_one_clean:
-            st.error("Plus one name must contain letters and spaces only.")
-            return
-        if not agree_terms:
-            st.error("Please check I/We Agree in the Terms & Conditions to continue.")
-            return
-        if not zelle_clean:
-            st.error("Zelle transaction reference is required (8-30 characters: letters, digits, hyphens). Example: ZELLE12345678, TXN-ABCD1234, 1234567890")
+        errors = (
+            not name_clean
+            or not email_clean
+            or not zelle_clean
+            or not agree_terms
+            or (_phone_touched and not phone_clean)
+            or (plus_one_name.strip() and not plus_one_clean)
+        )
+
+        if errors:
+            st.error("Please fix the highlighted fields and try again.")
             return
 
         session = get_db()
@@ -584,11 +654,11 @@ def page_register():
             guest_id = guest.id
 
             email_sent = send_qr_email(guest)
-            if not email_sent:
-                st.warning("QR code generated but email could not be sent. Please download below.")
-            else:
-                st.success(f"QR code emailed to {email_clean}")
+            st.session_state["reg_email_sent"] = email_sent
 
+            # Show the success screen; form values are reset on the next visit
+            # to this page via the reset_register_form flag.
+            st.session_state["reg_submit_clicked"] = False
             st.session_state["registered_guest_id"] = guest_id
             st.rerun()
         finally:
@@ -596,17 +666,32 @@ def page_register():
 
 
 def _show_registration_success(guest):
-    """Display the post-registration success screen with QR code."""
-    st.success(f"✅ Registration successful! Welcome, {guest.name}!")
+    """Display the post-registration confirmation. QR code is emailed; not shown here."""
     st.balloons()
 
-    plus_one_line = f"<div style='font-size: 0.9rem; color: #F4E4BC; margin-top: 6px;'>👤 Plus One: {guest.plus_one_name}</div>" if guest.plus_one_name else ""
+    email_sent = st.session_state.get("reg_email_sent", False)
+
+    if email_sent:
+        st.success(
+            f"🎉 You're registered, {guest.name}! Your QR code has been emailed to {guest.email}. "
+            "Let's party! Check your inbox (and spam) shortly."
+        )
+    else:
+        st.warning(
+            f"🎉 You're registered, {guest.name}! However, we couldn't email your QR code automatically. "
+            f"Please contact the organizer with your email ({guest.email}) to receive your QR code."
+        )
+
+    plus_one_line = (
+        f"<div style='font-size: 0.9rem; color: #F4E4BC; margin-top: 6px;'>👤 Plus One: {guest.plus_one_name}</div>"
+        if guest.plus_one_name
+        else ""
+    )
 
     st.markdown(
         f"""
         <div style='text-align: center; background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.3); border-radius: 20px; padding: 20px; margin: 16px 0;'>
             <div style='font-size: 1.4rem; font-weight: 800; color: #F4E4BC; margin-bottom: 4px;'>🎉 You're In!</div>
-            <div style='font-size: 1rem; color: #F5F5F5; margin-bottom: 12px;'>Screenshot or download your QR code</div>
             <div style='font-size: 0.95rem; color: rgba(245,245,245,0.7);'>
                 <strong>{guest.name}</strong> • {guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}<br>
                 {plus_one_line}
@@ -617,29 +702,13 @@ def _show_registration_success(guest):
         unsafe_allow_html=True,
     )
 
-    qr_bytes = generate_qr_image(guest.qr_code, guest.name)
+    st.info("📧 No need to screenshot — your QR code is on its way to your email.")
 
-    # Center and enlarge QR for mobile screenshot
-    col1, col2, col3 = st.columns([1, 3, 1])
-    with col2:
-        st.image(qr_bytes, use_container_width=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button(
-            label="💾 Download QR",
-            data=qr_bytes,
-            file_name=f"party_qr_{guest.name.replace(' ', '_')}.png",
-            mime="image/png",
-            use_container_width=True,
-        )
-    with c2:
-        if st.button("🔄 Register Another", use_container_width=True):
-            st.session_state["registered_guest_id"] = None
-            st.session_state["ticket_count"] = 1
-            st.rerun()
-
-    st.info("📧 A copy has also been sent to your email. Check spam/junk if not found.")
+    if st.button("🔄 Register Another", use_container_width=True):
+        st.session_state["registered_guest_id"] = None
+        st.session_state["reg_email_sent"] = False
+        st.session_state["reset_register_form"] = True
+        st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1202,6 +1271,15 @@ def main():
             st.session_state["last_recorded_page"] = current_page
     except Exception:
         pass
+
+    # Reset registration state when navigating to the Register page from elsewhere
+    current_page = st.session_state.get("page", "Home")
+    if st.session_state.get("_prev_page") != current_page:
+        if current_page == "Register":
+            st.session_state["reg_submit_clicked"] = False
+            st.session_state["registered_guest_id"] = None
+            st.session_state["reset_register_form"] = True
+        st.session_state["_prev_page"] = current_page
 
     # Render selected page
     if page == "Home":

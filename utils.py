@@ -305,6 +305,40 @@ def get_visit_stats() -> dict:
         session.close()
 
 
+def get_site_stats() -> dict:
+    """Return public site-usage stats for the home page."""
+    session = get_db()
+    try:
+        today = _utc_now().date()
+        total_visits = session.query(PageVisit).count()
+        unique_visitors = (
+            session.query(func.count(func.distinct(PageVisit.visitor_token))).scalar() or 0
+        )
+        today_visits = (
+            session.query(PageVisit).filter(func.date(PageVisit.visited_at) == today).count()
+        )
+        today_unique = (
+            session.query(func.count(func.distinct(PageVisit.visitor_token)))
+            .filter(func.date(PageVisit.visited_at) == today)
+            .scalar()
+            or 0
+        )
+        total_regs = session.query(Guest).count()
+        today_regs = (
+            session.query(Guest).filter(func.date(Guest.created_at) == today).count()
+        )
+        return {
+            "total_visits": int(total_visits),
+            "unique_visitors": int(unique_visitors),
+            "today_visits": int(today_visits),
+            "today_unique": int(today_unique),
+            "total_regs": int(total_regs),
+            "today_regs": int(today_regs),
+        }
+    finally:
+        session.close()
+
+
 # ── QR Code Generation ────────────────────────────────────────────────────────
 
 def generate_qr_image(qr_data: str, guest_name: str) -> bytes:
@@ -534,16 +568,32 @@ def sanitize_name(name: str) -> str:
 
 
 def sanitize_phone(phone: str) -> str:
-    """Sanitize and validate phone number; optional but validated if provided."""
+    """Sanitize and validate US phone numbers.
+
+    Accepts only digits and the formatting characters +, -, (, ), ., and space.
+    A leading +1 country code is optional. The result is formatted as +1-XXX-XXX-XXXX.
+    Returns an empty string if the input is blank/only-prefix or invalid.
+    """
     phone = phone.strip()
-    if not phone:
+    if not phone or phone in ("+", "+1", "+1-"):
         return ""
-    phone = re.sub(r'[^0-9+\-\(\)\.\s]', '', phone)
-    digits = re.sub(r'\D', '', phone)
-    # Require 10-15 digits (covers US + international)
-    if len(digits) < 10 or len(digits) > 15:
+
+    # Reject anything that isn't a digit or allowed US formatting character
+    if re.search(r"[^0-9+\-\(\)\.\s]", phone):
         return ""
-    return phone[:30]
+
+    digits = re.sub(r"\D", "", phone)
+
+    # 10 digits -> assume US number
+    if len(digits) == 10:
+        return f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+    # 11 digits starting with 1 -> +1 US number
+    if len(digits) == 11 and digits.startswith("1"):
+        d = digits[1:]
+        return f"+1-{d[:3]}-{d[3:6]}-{d[6:]}"
+
+    return ""
 
 
 def sanitize_zelle_ref(ref: str) -> str:

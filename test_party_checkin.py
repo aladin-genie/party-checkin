@@ -267,12 +267,20 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_name("Mary-Jane O'Connor"), "")
     
     def test_phone_sanitization(self):
-        self.assertEqual(sanitize_phone("+1 (555) 123-4567"), "+1 (555) 123-4567")
+        # Default +1 prefix only is treated as empty (optional field)
+        self.assertEqual(sanitize_phone("+1-"), "")
+        # Formatted US number
+        self.assertEqual(sanitize_phone("+1 (555) 123-4567"), "+1-555-123-4567")
+        # Bare 10 digits
+        self.assertEqual(sanitize_phone("5551234567"), "+1-555-123-4567")
+        # Empty is fine (optional)
         self.assertEqual(sanitize_phone(""), "")
-        # Too few digits should be rejected
+        # Too few digits rejected
         self.assertEqual(sanitize_phone("123"), "")
-        # Valid 10-digit number
-        self.assertEqual(sanitize_phone("5551234567"), "5551234567")
+        # Letters rejected
+        self.assertEqual(sanitize_phone("+1-555-123-abc"), "")
+        # Non-US length rejected
+        self.assertEqual(sanitize_phone("+44 20 7946 0958"), "")
     
     def test_zelle_ref_sanitization(self):
         # Valid 8-30 character refs (uppercased, cleaned)
