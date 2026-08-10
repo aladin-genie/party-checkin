@@ -55,7 +55,7 @@ def _record_submission_safe(**kwargs):
     """Call utils.record_submission when available; fall back to raw SQL."""
     if _record_submission is not None:
         try:
-            __record_submission_safe(**kwargs)
+            _record_submission(**kwargs)
             return
         except Exception:
             pass
@@ -560,7 +560,6 @@ def page_register():
         name = st.text_input(
             "Full Name *",
             key="reg_name",
-            value="",
             placeholder="Enter your full name (letters only)",
             max_chars=100,
             help="Use letters and spaces only. Example: John Smith or Mary Jane",
@@ -571,7 +570,6 @@ def page_register():
         email = st.text_input(
             "Email Address *",
             key="reg_email",
-            value="",
             placeholder="your@email.com",
             max_chars=120,
         )
@@ -599,7 +597,6 @@ def page_register():
         plus_one_name = st.text_input(
             "Plus One Name (optional)",
             key="reg_plus_one",
-            value="",
             placeholder="Name of your guest",
             max_chars=100,
             help="Optional. Letters and spaces only.",
@@ -610,7 +607,6 @@ def page_register():
         zelle_ref = st.text_input(
             "Zelle Transaction Reference *",
             key="reg_zelle",
-            value="",
             placeholder="e.g. ZELLE12345678",
             max_chars=30,
             help="8-30 letters, digits, or hyphens. Examples: ZELLE12345678, TXN-ABCD1234, 1234567890",
@@ -651,7 +647,7 @@ def page_register():
                 """,
                 unsafe_allow_html=True,
             )
-            agree_terms = st.checkbox("I/We Agree", key="reg_agree", value=False)
+            agree_terms = st.checkbox("I/We Agree", key="reg_agree")
         if submitted and not agree_terms:
             _field_error("Please check I/We Agree in the Terms & Conditions to continue.")
 
