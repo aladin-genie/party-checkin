@@ -423,13 +423,11 @@ def page_register():
     # Reset form fields at the very top, before any widgets are instantiated,
     # so stale values don't appear when re-entering the page or clicking "Register Another".
     if st.session_state.get("reset_register_form"):
-        st.session_state["reg_name"] = ""
-        st.session_state["reg_email"] = ""
-        st.session_state["reg_phone"] = "+1-"
-        st.session_state["reg_plus_one"] = ""
-        st.session_state["reg_zelle"] = ""
+        # Delete widget keys that also have a `value=` argument so Streamlit
+        # doesn't warn about both a default value and session state.
+        for _key in ("reg_name", "reg_email", "reg_phone", "reg_plus_one", "reg_zelle", "ticket_count"):
+            st.session_state.pop(_key, None)
         st.session_state["reg_agree"] = False
-        st.session_state["ticket_count"] = 1
         st.session_state["reset_register_form"] = False
 
     header_col1, header_col2 = st.columns([4, 1])
@@ -482,7 +480,7 @@ def page_register():
         "Number of Tickets *",
         min_value=1,
         max_value=20,
-        value=st.session_state.get("ticket_count", 1),
+        value=1,
         step=1,
         key="ticket_count",
         help="Select number of tickets. The total updates automatically as you change it.",
@@ -528,10 +526,13 @@ def page_register():
         if submitted and not sanitize_email(email):
             _field_error("Please enter a valid email address.")
 
+        # Default the phone widget to +1- via session state so the on_change
+        # callback can overwrite it with the formatted number without fighting
+        # the widget's `value=` argument.
+        st.session_state.setdefault("reg_phone", "+1-")
         phone = st.text_input(
             "Phone Number (optional)",
             key="reg_phone",
-            value="+1-",
             placeholder="+1-XXX-XXX-XXXX",
             max_chars=20,
             help="US numbers only. Enter 10 digits after +1-. The format will update automatically.",
@@ -605,6 +606,44 @@ def page_register():
     st.markdown(
         "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. Your QR code will be emailed to you.</small>",
         unsafe_allow_html=True,
+    )
+
+    # ── Client-side formatting & restrictions for a smoother mobile UX ───────
+    st.components.v1.html(
+        """
+        <script>
+        (function() {
+            if (window.parent._partyInputHooked) return;
+            window.parent._partyInputHooked = true;
+            var parentDoc = window.parent.document;
+
+            function formatPhone(input) {
+                var digits = input.value.replace(/\D/g, "").replace(/^1/, "");
+                if (digits.length > 10) digits = digits.slice(0, 10);
+                var out = "+1";
+                if (digits.length > 0) out += "-" + digits.slice(0, 3);
+                if (digits.length > 3) out += "-" + digits.slice(3, 6);
+                if (digits.length > 6) out += "-" + digits.slice(6, 10);
+                input.value = out;
+            }
+
+            parentDoc.addEventListener("input", function(e) {
+                var input = e.target;
+                var label = input.getAttribute("aria-label") || "";
+                if (label === "Phone Number (optional)") {
+                    formatPhone(input);
+                }
+                if (label === "Full Name *" || label === "Plus One Name (optional)") {
+                    input.value = input.value.replace(/[^A-Za-z\s]/g, "");
+                }
+                if (label === "Zelle Transaction Reference *") {
+                    input.value = input.value.toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+                }
+            }, true);
+        })();
+        </script>
+        """,
+        height=0,
     )
 
     submitted_btn = st.button("✅ Get My QR Code", type="primary", use_container_width=True)
