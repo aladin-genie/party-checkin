@@ -555,14 +555,12 @@ def page_register():
             max_chars=120,
         )
 
-        # Default the phone widget to +1-; client-side JS formats as the user types.
-        st.session_state.setdefault("reg_phone", "+1-")
         phone = st.text_input(
             "Phone Number (optional)",
             key="reg_phone",
             placeholder="+1-XXX-XXX-XXXX",
             max_chars=20,
-            help="US numbers only. Enter 10 digits after +1-. The format will update automatically.",
+            help="US numbers only. Enter 10 digits; the format +1-XXX-XXX-XXXX will be applied when you submit.",
         )
 
         plus_one_name = st.text_input(
