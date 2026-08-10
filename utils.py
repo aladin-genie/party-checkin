@@ -478,11 +478,16 @@ def _create_postgres_views(engine) -> None:
 # ── QR Code Generation ────────────────────────────────────────────────────────
 
 def generate_qr_image(qr_data: str, guest_name: str) -> bytes:
-    """Generate a QR code PNG image with guest name below."""
+    """Generate a clean QR code PNG image with a generous white border.
+
+    The image contains only the QR code (no text below) so email clients cannot
+    clip or scale the code when displaying it inline. A large box size and high
+    error correction make it easy to scan from phone screens and printouts.
+    """
     qr = qrcode.QRCode(
-        version=3,
+        version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
-        box_size=12,
+        box_size=20,
         border=4,
     )
     qr.add_data(qr_data)
@@ -493,38 +498,8 @@ def generate_qr_image(qr_data: str, guest_name: str) -> bytes:
     if img.mode != "RGB":
         img = img.convert("RGB")
 
-    # Try system fonts, fallback to default
-    font = None
-    for font_path in [
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/HelveticaNeue.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    ]:
-        try:
-            font = ImageFont.truetype(font_path, 24)
-            break
-        except Exception:
-            continue
-    if font is None:
-        font = ImageFont.load_default()
-
-    width, height = img.size
-    new_img = Image.new("RGB", (width, height + 80), "white")
-    new_img.paste(img, (0, 0))
-
-    draw = ImageDraw.Draw(new_img)
-    text = f"Dallas Boys Party 2026 - {guest_name}"
-
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    x = (width - text_width) // 2
-
-    draw.text((x, height + 20), text, fill="black", font=font)
-    draw.text((x, height + 48), "Show this at the entrance", fill="#666666", font=font)
-
     img_io = io.BytesIO()
-    new_img.save(img_io, "PNG")
+    img.save(img_io, "PNG")
     img_io.seek(0)
     return img_io.getvalue()
 
@@ -550,30 +525,65 @@ def send_qr_email(guest: Guest) -> bool:
 
     qr_image = generate_qr_image(guest.qr_code, guest.name)
 
-    msg = MIMEMultipart()
+    msg = MIMEMultipart("related")
     msg["Subject"] = "🎉 Your Dallas Boys Party 2026 QR Code!"
     msg["From"] = mail_sender
     msg["To"] = guest.email
 
-    plus_one_line = f"👤 Plus One: {guest.plus_one_name}\n" if guest.plus_one_name else ""
+    plus_one_line = f"<p>👤 Plus One: {html.escape(guest.plus_one_name)}</p>" if guest.plus_one_name else ""
+    my_qr_url = f"https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/?page=My%20QR&guest_id={guest.id}"
 
-    body = f"""Hi {guest.name}!
+    # HTML body with inline QR image and a plain-text fallback
+    html_body = f"""\
+<html>
+<body style="font-family: Arial, sans-serif; color: #333;">
+    <h2>Hi {html.escape(guest.name)}!</h2>
+    <p>You're registered for <strong>Dallas Boys Party 2026 — 12th Year of Togetherness!</strong></p>
+    <p>🎫 Tickets: {guest.ticket_count}</p>
+    {plus_one_line}
+    <p>📅 Date: Friday, October 9th, 2026<br>
+       🕕 Time: 5:30 PM onwards<br>
+       📍 Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024</p>
+    <p>Your QR code is below. Please show it at the entrance for check-in.</p>
+    <p><img src="cid:party_qr" alt="Your QR Code" width="320" style="border: 12px solid white;"></p>
+    <p style="font-size: 0.9em; color: #666;">
+        If the QR code doesn't scan, show this code to the staff:<br>
+        <code style="font-size: 1.1em; background: #f4f4f4; padding: 4px 8px; border-radius: 4px;">{guest.qr_code}</code>
+    </p>
+    <p><a href="{my_qr_url}">Open your QR code on the website</a></p>
+    <p>See you there!</p>
+</body>
+</html>
+"""
+
+    plain_body = f"""Hi {guest.name}!
 
 You're registered for Dallas Boys Party 2026 — 12th Year of Togetherness!
 
 🎫 Tickets: {guest.ticket_count}
-{plus_one_line}📅 Date: Friday, October 9th, 2026
+{('👤 Plus One: ' + guest.plus_one_name) if guest.plus_one_name else ''}
+📅 Date: Friday, October 9th, 2026
 🕕 Time: 5:30 PM onwards
 📍 Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 
-Your QR code is attached. Please show this at the entrance for check-in.
+Your QR code is attached (party_qr.png). Please show it at the entrance for check-in.
+
+If the QR code doesn't scan, show this code to the staff:
+{guest.qr_code}
+
+You can also view it here: {my_qr_url}
 
 See you there!
 """
-    msg.attach(MIMEText(body, "plain"))
+
+    msg_alternative = MIMEMultipart("alternative")
+    msg_alternative.attach(MIMEText(plain_body, "plain"))
+    msg_alternative.attach(MIMEText(html_body, "html"))
+    msg.attach(msg_alternative)
 
     img_attachment = MIMEImage(qr_image, _subtype="png")
-    img_attachment.add_header("Content-Disposition", "attachment", filename="party_qr.png")
+    img_attachment.add_header("Content-ID", "<party_qr>")
+    img_attachment.add_header("Content-Disposition", "inline", filename="party_qr.png")
     msg.attach(img_attachment)
 
     try:

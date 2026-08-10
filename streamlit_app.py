@@ -764,7 +764,7 @@ def _show_registration_success(guest):
             <div style='font-size: 0.95rem; color: rgba(245,245,245,0.7);'>
                 <strong>{guest.name}</strong> • {guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}<br>
                 {plus_one_line}
-                <small>Zelle Ref: {guest.zelle_ref}</small>
+                <small>QR code emailed to {guest.email}</small>
             </div>
         </div>
         """,
