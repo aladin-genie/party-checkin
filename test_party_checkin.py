@@ -42,6 +42,9 @@ from utils import (
     record_visit,
     get_visit_stats,
     record_submission,
+    get_table_counts,
+    get_engine,
+    reset_all_data,
     validate_registration,
     register_guest,
     check_in_by_code,
@@ -1177,6 +1180,81 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertNotIn("pool_size", kwargs)
         self.assertNotIn("max_overflow", kwargs)
         self.assertNotIn("pool_recycle", kwargs)
+
+
+    # ── Reset / wipe-all (destructive admin action) ────────────────────────
+
+    def _seed_for_reset(self):
+        """Populate every table reset_all_data() is supposed to empty."""
+        session = get_db()
+        try:
+            g = Guest(name="Reset Me", email="reset.me@test.com", ticket_count=2,
+                      zelle_ref="ZELLE-RESET1", qr_code=generate_qr_code())
+            session.add(g)
+            session.commit()
+            gid = g.id
+            session.add(CheckInLog(guest_id=gid, action="checkin", device_info="Test"))
+            session.commit()
+        finally:
+            session.close()
+        record_visit("reset-token", "Home")
+        record_submission("Reset Me", "reset.me@test.com", "", 2, "", "ZELLE-RESET1",
+                          status="registered", guest_id=gid)
+        return gid
+
+    def test_get_table_counts_matches_reality(self):
+        self._seed_for_reset()
+        counts = get_table_counts()
+        self.assertEqual(set(counts), {"guests", "checkin_logs", "page_visits", "submission_logs"})
+        self.assertEqual(counts["guests"], 1)
+        self.assertEqual(counts["checkin_logs"], 1)
+        self.assertGreaterEqual(counts["page_visits"], 1)
+        self.assertGreaterEqual(counts["submission_logs"], 1)
+
+    def test_reset_all_data_empties_every_table(self):
+        self._seed_for_reset()
+        result = reset_all_data()
+
+        self.assertEqual(result["guests"], 1)
+        self.assertEqual(result["checkin_logs"], 1)
+        self.assertGreaterEqual(result["page_visits"], 1)
+        self.assertGreaterEqual(result["submission_logs"], 1)
+
+        after = get_table_counts()
+        self.assertEqual(after["guests"], 0)
+        self.assertEqual(after["checkin_logs"], 0)
+        self.assertEqual(after["page_visits"], 0)
+        self.assertEqual(after["submission_logs"], 0)
+
+    def test_reset_all_data_preserves_schema(self):
+        """It must empty tables, never drop them — the app has to keep working."""
+        self._seed_for_reset()
+        reset_all_data()
+        from sqlalchemy import inspect as sa_inspect
+        tables = set(sa_inspect(get_engine()).get_table_names())
+        for expected in ("guests", "checkin_logs", "page_visits", "submission_logs", "app_settings"):
+            self.assertIn(expected, tables)
+        # and the app can still write afterwards
+        res = register_guest("After Reset", "after.reset@test.com", "", 1, "", "ZELLE-AFTER01")
+        self.assertTrue(res["ok"])
+
+    def test_reset_all_data_restores_auto_checkin_mode(self):
+        """A wipe must not leave check-in forced open from testing."""
+        set_checkin_mode(CHECKIN_MODE_OPEN)
+        self.assertEqual(get_checkin_mode(), CHECKIN_MODE_OPEN)
+        reset_all_data()
+        self.assertEqual(get_checkin_mode(), CHECKIN_MODE_AUTO)
+
+    def test_reset_all_data_keep_settings_false_clears_settings(self):
+        set_checkin_mode(CHECKIN_MODE_CLOSED)
+        reset_all_data(keep_settings=False)
+        # With no rows left, get_checkin_mode() falls back to its own default.
+        self.assertEqual(get_checkin_mode(), CHECKIN_MODE_AUTO)
+
+    def test_reset_all_data_on_empty_db_is_a_harmless_noop(self):
+        result = reset_all_data()
+        self.assertEqual(result["guests"], 0)
+        self.assertEqual(get_table_counts()["guests"], 0)
 
 
 def run_tests():

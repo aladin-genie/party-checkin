@@ -276,6 +276,39 @@ def _ensure_unique_email_index(engine) -> None:
         print(f"Unique email index creation skipped: {e}")
 
 
+def _ensure_secondary_indexes(engine) -> None:
+    """Create the non-unique indexes the hot queries rely on, if missing.
+
+    Columns declared `index=True` on the models only get their index when
+    SQLAlchemy CREATEs the table. On a database whose tables already existed
+    before those declarations were added (i.e. production), create_all() is a
+    no-op and the indexes are silently absent — which is exactly what a live
+    inspection of the Supabase database showed: guests had only the two unique
+    indexes, while the admin dashboard filters on checked_in and orders by
+    created_at on every load.
+
+    CREATE INDEX IF NOT EXISTS is supported by both PostgreSQL and SQLite, so
+    this is idempotent and cheap. Failures are logged, never raised — this
+    runs at startup against the live database.
+    """
+    from sqlalchemy import text
+
+    indexes = [
+        ("ix_guests_checked_in", "guests", "checked_in"),
+        ("ix_guests_created_at", "guests", "created_at"),
+        ("ix_page_visits_visited_at", "page_visits", "visited_at"),
+        ("ix_submission_logs_created_at", "submission_logs", "created_at"),
+        ("ix_checkin_logs_guest_id", "checkin_logs", "guest_id"),
+    ]
+    for name, table, column in indexes:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"))
+                conn.commit()
+        except Exception as e:
+            print(f"Index {name} creation skipped: {e}")
+
+
 def init_db():
     """Create tables if they don't exist and set up reporting views on Postgres."""
     engine = get_engine()
@@ -319,6 +352,8 @@ def init_db():
                     conn.commit()
             except Exception as e:
                 print(f"Migration skipped: widen {table}.{column} to VARCHAR(1000): {e}")
+
+    _ensure_secondary_indexes(engine)
 
     # Enforce email uniqueness at the DB level when it's safe to do so.
     _ensure_unique_email_index(engine)
@@ -1562,5 +1597,90 @@ def get_event_day_hourly_checkins() -> list:
             if g.checkin_time:
                 hourly[g.checkin_time.hour] += 1
         return hourly
+    finally:
+        session.close()
+
+
+# ── Data Reset (Admin "Danger Zone") ─────────────────────────────────────────
+
+def get_table_counts() -> dict:
+    """Return current row counts for every table reset_all_data() can wipe.
+
+    Used by the admin Danger Zone UI so the operator can see exactly what a
+    reset is about to destroy before they confirm it.
+    """
+    session = get_db()
+    try:
+        return {
+            "guests": session.query(Guest).count(),
+            "checkin_logs": session.query(CheckInLog).count(),
+            "page_visits": session.query(PageVisit).count(),
+            "submission_logs": session.query(SubmissionLog).count(),
+        }
+    finally:
+        session.close()
+
+
+def reset_all_data(keep_settings: bool = True) -> dict:
+    """Delete ALL rows from guests, checkin_logs, page_visits, submission_logs.
+
+    Does NOT drop any table and does NOT touch the schema — this only empties
+    tables that already exist. Everything happens in ONE transaction (a
+    single session, committed once at the end): if anything fails partway
+    through, the whole reset rolls back rather than leaving e.g. guests
+    deleted with their checkin_logs orphaned. Children are deleted before
+    parents — checkin_logs.guest_id references guests.id.
+
+    Always resets the persisted check-in mode back to CHECKIN_MODE_AUTO —
+    a clean slate should not leave check-in forced open/closed by a leftover
+    testing override.
+
+    keep_settings=False additionally clears app_settings entirely (including
+    the checkin_mode row this function would otherwise write); with no rows
+    left, get_checkin_mode() falls back to its own "auto" default, so the
+    effective behavior is the same either way.
+
+    Returns the per-table counts actually deleted, e.g.
+    {"guests": 12, "checkin_logs": 9, "page_visits": 40, "submission_logs": 15}.
+    Raises on failure (after rolling back) — callers must not report success
+    without catching it.
+    """
+    session = get_db()
+    try:
+        # Children before parents: checkin_logs.guest_id references guests.id.
+        # Query.delete() returns the number of rows actually removed, so the
+        # reported counts reflect this transaction's DELETEs exactly rather
+        # than a separate COUNT(*) that could race with a concurrent write.
+        checkin_logs_deleted = session.query(CheckInLog).delete(synchronize_session=False)
+        guests_deleted = session.query(Guest).delete(synchronize_session=False)
+        page_visits_deleted = session.query(PageVisit).delete(synchronize_session=False)
+        submission_logs_deleted = session.query(SubmissionLog).delete(synchronize_session=False)
+
+        if keep_settings:
+            row = session.query(AppSetting).filter_by(key=_CHECKIN_MODE_SETTING_KEY).first()
+            if row is None:
+                session.add(
+                    AppSetting(
+                        key=_CHECKIN_MODE_SETTING_KEY,
+                        value=CHECKIN_MODE_AUTO,
+                        updated_at=_utc_now(),
+                    )
+                )
+            else:
+                row.value = CHECKIN_MODE_AUTO
+                row.updated_at = _utc_now()
+        else:
+            session.query(AppSetting).delete(synchronize_session=False)
+
+        session.commit()
+        return {
+            "guests": guests_deleted,
+            "checkin_logs": checkin_logs_deleted,
+            "page_visits": page_visits_deleted,
+            "submission_logs": submission_logs_deleted,
+        }
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()

@@ -230,6 +230,122 @@ sanitization, CSV-injection and XSS escaping, and Postgres URL normalization.
 
 ---
 
+## Database Schema
+
+Everything lives in one Supabase PostgreSQL database. Tables are created automatically on
+first boot, and the migrations are additive and idempotent — no manual SQL is ever required.
+To inspect it yourself: **supabase.com → your project → Table Editor** (browse) or **SQL
+Editor** (query).
+
+### `guests` — one row per registration
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer | Primary key |
+| `name` | varchar(100) | Letters and spaces only; validated on entry |
+| `email` | varchar(120) | **Unique** — one registration per address |
+| `phone` | varchar(30) | Optional; stored normalized as `+1-XXX-XXX-XXXX` |
+| `ticket_count` | integer | 1–20 |
+| `plus_one_name` | varchar(1000) | Additional guest names, **newline-separated** (up to 20) |
+| `zelle_ref` | varchar(100) | Payment reference, uppercased; cross-check against your bank |
+| `qr_code` | varchar(200) | **Unique**; format `PARTY2026-YYYYMMDD-<random>` |
+| `checked_in` | boolean | Set at the door |
+| `band_given` | boolean | Wristband handed out |
+| `checkin_time` | timestamp | UTC. May be NULL even when `checked_in` is true |
+| `created_at` | timestamp | UTC registration time |
+
+Indexes: unique on `email` and `qr_code`; plain indexes on `checked_in` and `created_at`.
+
+### `checkin_logs` — audit trail of door actions
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer | Primary key |
+| `guest_id` | integer | → `guests.id` |
+| `action` | varchar(50) | `checkin` or `band_given` |
+| `timestamp` | timestamp | UTC |
+| `device_info` | varchar(200) | e.g. `Streamlit Scanner`, `Admin Dashboard` |
+
+### `submission_logs` — every registration attempt, successful or not
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer | Primary key |
+| `name`, `email`, `phone`, `ticket_count`, `plus_one_name`, `zelle_ref` | — | What was submitted |
+| `status` | varchar(50) | `registered`, `validation_error`, `duplicate_email`, `db_error`, `email_failed` |
+| `errors` | varchar(500) | Why it failed |
+| `guest_id` | integer | Set when the attempt succeeded |
+| `created_at` | timestamp | UTC |
+
+Use this to see how many people *tried* to register and where they got stuck.
+
+### `page_visits` — anonymous traffic counter
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | integer | Primary key |
+| `visitor_token` | varchar(64) | Random per-session token — **not** tied to any identity |
+| `page` | varchar(50) | Home / Register / My QR / Scanner / Admin |
+| `visited_at` | timestamp | UTC |
+
+### `app_settings` — organiser-wide switches
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `key` | varchar(50) | Primary key. Currently only `checkin_mode` |
+| `value` | varchar(200) | For `checkin_mode`: `auto`, `open`, or `closed` |
+| `updated_at` | timestamp | UTC |
+
+### Handy queries for the Supabase SQL Editor
+
+```sql
+-- Who has not arrived yet?
+SELECT name, email, ticket_count, zelle_ref
+FROM guests WHERE NOT checked_in ORDER BY name;
+
+-- Money owed vs collected (cross-check against your Zelle history)
+SELECT COUNT(*) AS guests, SUM(ticket_count) AS tickets,
+       SUM(ticket_count) * 20 AS expected_dollars
+FROM guests;
+
+-- Everyone who listed extra guests, one name per line
+SELECT name, ticket_count, plus_one_name FROM guests
+WHERE COALESCE(plus_one_name, '') <> '';
+
+-- Registrations that failed, and why
+SELECT created_at, email, status, errors
+FROM submission_logs WHERE status <> 'registered'
+ORDER BY created_at DESC;
+
+-- Is the door open right now?
+SELECT * FROM app_settings WHERE key = 'checkin_mode';
+
+-- Data-integrity spot checks (all should return 0)
+SELECT COUNT(*) FROM (SELECT email FROM guests GROUP BY email HAVING COUNT(*) > 1) d;
+SELECT COUNT(*) FROM guests WHERE qr_code IS NULL OR qr_code = '';
+SELECT COUNT(*) FROM guests WHERE checked_in AND checkin_time IS NULL;
+```
+
+> All timestamps are stored in **UTC**, not Central time. The event is 5:30 PM CDT =
+> 22:30 UTC, so an event-evening check-in shows as the *following* date in UTC after 7 PM local.
+
+---
+
+## Resetting after testing
+
+When you're done testing and want a clean slate for the real event:
+
+**Admin → scroll to the bottom → ⚠️ Danger Zone → type `RESET` → Permanently delete all data.**
+
+This empties `guests`, `checkin_logs`, `page_visits`, and `submission_logs`, and puts the
+check-in mode back to `auto`. It does **not** drop any table, so the app keeps working
+immediately afterwards.
+
+> **This cannot be undone.** Download the CSV from the Guests tab first if you want a copy.
+> The button stays disabled until you type `RESET` exactly, in capitals.
+
+---
+
 ## Submission Tracking & Supabase Views
 
 Every registration submit is written to `submission_logs` with a status of `validation_error`,

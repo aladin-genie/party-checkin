@@ -220,6 +220,16 @@ button[kind="secondary"], .stButton > button[kind="secondary"] {
     border: 1px solid var(--border-strong) !important;
     box-shadow: none !important;
 }
+/* Disabled buttons (e.g. the Danger Zone delete button before the RESET
+   phrase matches) must read as visibly inert, not just refuse clicks —
+   otherwise a disabled gold button looks identical to an enabled one. */
+button:disabled, .stButton > button:disabled,
+button[disabled], .stButton > button[disabled] {
+    opacity: 0.4 !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
 .stDownloadButton > button {
     min-height: 48px !important;
     border-radius: var(--radius-md) !important;
@@ -400,6 +410,8 @@ div[data-testid="stContainer"] {
     margin: var(--space-3) 0 var(--space-5) 0;
 }
 .stat-tile {
+    position: relative;
+    overflow: hidden; /* clip the ::before accent bar to the tile's rounded corners */
     display: flex;
     flex-direction: column;
     background: var(--elevated);
@@ -409,7 +421,28 @@ div[data-testid="stContainer"] {
     box-shadow: var(--shadow-md);
     min-width: 0;
 }
+/* Every tile gets a top-edge accent bar — neutral by default, colored per
+   `accent` for tiles that opt in (see theme.stat_tiles()). Gives each stat
+   a bit of identity instead of a uniform grid of flat grey boxes. */
+.stat-tile::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--border-strong);
+}
+.stat-tile.accent-gold::before { background: linear-gradient(90deg, var(--gold-dark), var(--gold)); }
+.stat-tile.accent-ok::before { background: var(--ok); }
+.stat-tile.accent-warn::before { background: var(--warn); }
+.stat-tile.accent-err::before { background: var(--err); }
+.stat-tile.accent-info::before { background: var(--info); }
+.stat-tile.accent-violet::before { background: var(--violet); }
+.stat-tile.accent-cyan::before { background: var(--cyan); }
+
 .stat-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.72rem;
     line-height: 1.3;
     text-transform: uppercase;
@@ -421,6 +454,27 @@ div[data-testid="stContainer"] {
     min-height: 2.6em;
     overflow-wrap: break-word;
 }
+.stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--elevated-strong);
+    font-size: 0.82rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.stat-tile.accent-gold .stat-icon { background: rgba(var(--gold-rgb), 0.18); }
+.stat-tile.accent-ok .stat-icon { background: var(--ok-bg); }
+.stat-tile.accent-warn .stat-icon { background: var(--warn-bg); }
+.stat-tile.accent-err .stat-icon { background: var(--err-bg); }
+.stat-tile.accent-info .stat-icon { background: var(--info-bg); }
+.stat-tile.accent-violet .stat-icon { background: rgba(var(--violet-rgb), 0.18); }
+.stat-tile.accent-cyan .stat-icon { background: rgba(var(--cyan-rgb), 0.18); }
+
 .stat-value {
     font-size: 1.8rem;
     font-weight: 800;
@@ -432,10 +486,113 @@ div[data-testid="stContainer"] {
        grid-stretched to the row's tallest neighbor. */
     margin-top: auto;
 }
+.stat-tile.accent-ok .stat-value { color: var(--ok); }
+.stat-tile.accent-warn .stat-value { color: var(--warn); }
+.stat-tile.accent-err .stat-value { color: var(--err); }
+.stat-tile.accent-info .stat-value { color: var(--info); }
+.stat-tile.accent-violet .stat-value { color: var(--violet); }
+.stat-tile.accent-cyan .stat-value { color: var(--cyan); }
+
 .stat-caption {
     font-size: 0.78rem;
     color: var(--text-dimmer);
     margin-top: 4px;
+}
+
+/* ── Hero stat tile ────────────────────────────────────────────────────── */
+/* Reserved for the 1-2 numbers that actually matter operationally on a given
+   page (e.g. Checked In / Total Guests) — bigger value, tinted wash, and it
+   spans two grid tracks so it visually leads the row instead of blending
+   into a uniform grid of identical boxes. */
+.stat-tile-hero {
+    grid-column: span 2;
+    padding: var(--space-5) var(--space-6);
+    border-color: var(--border-strong);
+}
+.stat-tile-hero .stat-label {
+    font-size: 0.78rem;
+    min-height: 0;
+}
+.stat-tile-hero .stat-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 0.95rem;
+}
+.stat-tile-hero .stat-value {
+    font-size: 2.5rem;
+}
+.stat-tile-hero.accent-gold { background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-ok { background: linear-gradient(135deg, rgba(var(--ok-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-warn { background: linear-gradient(135deg, rgba(var(--warn-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-err { background: linear-gradient(135deg, rgba(var(--err-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-info { background: linear-gradient(135deg, rgba(var(--info-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-violet { background: linear-gradient(135deg, rgba(var(--violet-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-cyan { background: linear-gradient(135deg, rgba(var(--cyan-rgb), 0.16) 0%, var(--elevated) 100%); }
+
+@media (max-width: 380px) {
+    /* Even a 2-column layout gets tight under ~380px with tile padding —
+       let the hero tile take the full row's single column there instead of
+       forcing two 150px tracks to squeeze in. */
+    .stat-tile-hero { grid-column: 1 / -1; }
+}
+
+/* ── Progress meter (real labelled progress, not a bare st.progress) ────── */
+.progress-meter {
+    margin: var(--space-2) 0 var(--space-5) 0;
+}
+.progress-meter-track {
+    position: relative;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: var(--elevated-strong);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.progress-meter-fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--gold-dark) 0%, var(--gold) 60%, var(--gold-soft) 100%);
+    box-shadow: 0 0 10px rgba(var(--gold-rgb), 0.45);
+    transition: width 0.4s ease;
+}
+.progress-meter-detail {
+    margin-top: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────── */
+/* A friendly placeholder for an otherwise-empty section (fresh install or
+   just after an admin Danger Zone reset) so it reads as "nothing here yet",
+   not "something is broken". */
+.empty-state {
+    text-align: center;
+    padding: var(--space-6) var(--space-5);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--elevated);
+    margin: var(--space-3) 0 var(--space-5) 0;
+}
+.empty-state-icon { font-size: 2rem; margin-bottom: 6px; }
+.empty-state-title {
+    font-weight: 800;
+    color: var(--gold-soft);
+    font-size: 1.05rem;
+    margin-bottom: 4px;
+}
+.empty-state-message {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    max-width: 46ch;
+    margin: 0 auto;
+}
+
+/* ── Danger Zone (admin) ───────────────────────────────────────────────── */
+.danger-zone-warning {
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1.5;
 }
 
 /* ── Nav cards ─────────────────────────────────────────────────────────── */
@@ -843,25 +1000,111 @@ def hero() -> str:
     """
 
 
-def stat_tiles(items: list) -> str:
-    """A responsive CSS-grid of stat tiles.
+_STAT_ACCENTS = {"gold", "ok", "warn", "err", "info", "violet", "cyan"}
 
-    `items` is a list of (label, value, caption) tuples. `caption` may be
-    empty/None to omit the caption line.
+
+def stat_tiles(items: list) -> str:
+    """A responsive CSS-grid of stat tiles with per-tile visual hierarchy.
+
+    `items` is a list of dicts, each describing one tile:
+        {
+            "label": str,             # required
+            "value": Any,             # required — stringified + escaped
+            "caption": str = "",      # optional secondary line
+            "icon": str = "",         # optional emoji shown beside the label
+            "accent": str = "",       # one of _STAT_ACCENTS, or "" for neutral
+            "emphasis": str = "normal",  # "hero" for the number(s) that matter most
+        }
+
+    `accent` is purely a styling hook onto the existing design tokens
+    (--ok/--warn/--err/--info/--gold/--violet/--cyan) — never a new raw
+    color — and unrecognized values are dropped rather than interpolated, so
+    a typo can't leak an arbitrary CSS class. A "hero" tile renders larger,
+    with a tinted background, and spans two grid tracks so the operationally
+    important numbers (e.g. Checked In vs Total Guests) visually lead the
+    row instead of blending into a uniform grid of identical boxes; a hero
+    tile with no explicit accent defaults to "gold" so it never looks flat.
     """
     tiles = []
-    for label, value, caption in items:
+    for item in items:
+        label = item.get("label", "")
+        value = item.get("value", "")
+        caption = item.get("caption") or ""
+        icon = item.get("icon") or ""
+        emphasis = item.get("emphasis") or "normal"
+        accent = item.get("accent") or ("gold" if emphasis == "hero" else "")
+        if accent not in _STAT_ACCENTS:
+            accent = ""
+
+        classes = ["stat-tile"]
+        if emphasis == "hero":
+            classes.append("stat-tile-hero")
+        if accent:
+            classes.append(f"accent-{accent}")
+
+        icon_html = f'<span class="stat-icon">{html.escape(icon)}</span>' if icon else ""
         cap_html = (
             f'<div class="stat-caption">{html.escape(str(caption))}</div>' if caption else ""
         )
         tiles.append(
-            f'<div class="stat-tile">'
-            f'<div class="stat-label">{html.escape(str(label))}</div>'
+            f'<div class="{" ".join(classes)}">'
+            f'<div class="stat-label">{icon_html}<span>{html.escape(str(label))}</span></div>'
             f'<div class="stat-value">{html.escape(str(value))}</div>'
             f'{cap_html}'
             f'</div>'
         )
     return f'<div class="stat-grid">{"".join(tiles)}</div>'
+
+
+def checkin_progress_meter(checked_in: int, total: int) -> str:
+    """A labelled check-in progress meter, e.g. '6 of 13 checked in · 46%'.
+
+    Replaces a bare st.progress() bar with a real progress element that
+    states the counts in plain language rather than a lone percentage, and
+    handles the zero-guests case (fresh install / just after a Danger Zone
+    reset) without dividing by zero or drawing a meaningless empty bar.
+    """
+    checked_in = int(checked_in)
+    total = int(total)
+
+    if total <= 0:
+        return (
+            '<div class="progress-meter">'
+            '<div class="progress-meter-track" role="progressbar" '
+            'aria-valuenow="0" aria-valuemin="0" aria-valuemax="0" aria-label="Check-in progress">'
+            '<div class="progress-meter-fill" style="width:0%;"></div></div>'
+            '<div class="progress-meter-detail">No guests registered yet — the check-in rate '
+            'will show up here once people sign up.</div>'
+            '</div>'
+        )
+
+    pct = round(checked_in / total * 100, 1)
+    pct_display = int(pct) if pct == int(pct) else pct
+    pct_clamped = max(0.0, min(100.0, pct))
+    return (
+        '<div class="progress-meter">'
+        f'<div class="progress-meter-track" role="progressbar" '
+        f'aria-valuenow="{checked_in}" aria-valuemin="0" aria-valuemax="{total}" '
+        f'aria-label="Check-in progress">'
+        f'<div class="progress-meter-fill" style="width:{pct_clamped}%;"></div></div>'
+        f'<div class="progress-meter-detail">{checked_in} of {total} checked in · {pct_display}%</div>'
+        '</div>'
+    )
+
+
+def empty_state(icon: str, title: str, message: str) -> str:
+    """A friendly placeholder for an otherwise-empty section.
+
+    Used so a fresh install or a just-reset dashboard reads as "nothing here
+    yet" rather than "something is broken".
+    """
+    return (
+        '<div class="empty-state">'
+        f'<div class="empty-state-icon">{html.escape(icon)}</div>'
+        f'<div class="empty-state-title">{html.escape(title)}</div>'
+        f'<div class="empty-state-message">{html.escape(message)}</div>'
+        '</div>'
+    )
 
 
 def section_header(title: str, subtitle: str = "") -> str:

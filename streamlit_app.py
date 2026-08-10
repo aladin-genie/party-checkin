@@ -186,17 +186,27 @@ def page_home():
         ),
         unsafe_allow_html=True,
     )
-    st.markdown(
-        theme.stat_tiles(
-            [
-                ("Unique Visitors", site_stats["unique_visitors"], "All time"),
-                ("Page Views", site_stats["total_visits"], "All time"),
-                ("Registered Guests", site_stats["total_regs"], f"+{site_stats['today_regs']} today"),
-                ("Visitors Today", site_stats["today_unique"], f"{site_stats['today_visits']} views"),
-            ]
-        ),
-        unsafe_allow_html=True,
-    )
+    if site_stats["total_visits"] == 0 and site_stats["total_regs"] == 0:
+        st.markdown(
+            theme.empty_state(
+                "🌱", "The buzz starts here",
+                "Nobody's visited yet — traffic and registration numbers will start moving "
+                "the moment the first guest opens this site.",
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            theme.stat_tiles(
+                [
+                    {"label": "Unique Visitors", "value": site_stats["unique_visitors"], "caption": "All time", "icon": "👀", "accent": "info"},
+                    {"label": "Page Views", "value": site_stats["total_visits"], "caption": "All time", "icon": "📈", "accent": "cyan"},
+                    {"label": "Registered Guests", "value": site_stats["total_regs"], "caption": f"+{site_stats['today_regs']} today", "icon": "📝", "accent": "gold"},
+                    {"label": "Visitors Today", "value": site_stats["today_unique"], "caption": f"{site_stats['today_visits']} views", "icon": "🔥", "accent": "warn"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
 
     daily_counts = _cached_registration_daily_counts()
     if daily_counts:
@@ -649,15 +659,25 @@ def page_scanner():
         _home_button(key="home_scanner")
 
     stats = _cached_stats()
-    st.markdown(
-        theme.stat_tiles(
-            [
-                ("Checked In", stats["checked_in"], ""),
-                ("Total Guests", stats["total_guests"], ""),
-            ]
-        ),
-        unsafe_allow_html=True,
-    )
+    if stats["total_guests"] == 0:
+        st.markdown(
+            theme.empty_state(
+                "🎟️", "No guests yet",
+                "Once people register, this will show who's checked in and how many "
+                "are still on their way.",
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            theme.stat_tiles(
+                [
+                    {"label": "Checked In", "value": stats["checked_in"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
+                    {"label": "Total Guests", "value": stats["total_guests"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
 
     st.divider()
 
@@ -914,30 +934,136 @@ def page_admin():
     with tab_checkins:
         _admin_checkins_tab()
 
+    _admin_danger_zone()
+
+
+RESET_CONFIRM_PHRASE = "RESET"
+
+
+def _admin_danger_zone():
+    """The destructive "wipe everything" control.
+
+    Collapsed by default (st.expander) so it can't be triggered by accident,
+    and gated behind a typed confirmation phrase — a single click is never
+    enough. Lives at the very bottom of the Admin page, below all three tabs.
+    """
+    with st.expander("⚠️ Danger Zone", expanded=False):
+        st.markdown(
+            '<div class="danger-zone-warning">'
+            "🚨 <strong>This permanently deletes every guest, check-in log, page-visit "
+            "record, and submission log — for everyone, with no undo.</strong> The check-in "
+            "window is also reset back to Auto. If you want to keep a copy of the guest "
+            "list first, download it from the <strong>Guests</strong> tab (⬇ Download CSV) "
+            "before you proceed."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        counts = utils.get_table_counts()
+        st.markdown(
+            theme.section_header("About to delete", "Live counts — refreshed every time you open this section."),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            theme.stat_tiles(
+                [
+                    {"label": "Guests", "value": counts["guests"], "icon": "👤", "accent": "err"},
+                    {"label": "Check-in Logs", "value": counts["checkin_logs"], "icon": "🧾", "accent": "err"},
+                    {"label": "Page Visits", "value": counts["page_visits"], "icon": "👣", "accent": "err"},
+                    {"label": "Submissions", "value": counts["submission_logs"], "icon": "📝", "accent": "err"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+
+        if sum(counts.values()) == 0:
+            st.info("Nothing to reset — every table is already empty.")
+
+        st.markdown(f"Type **{RESET_CONFIRM_PHRASE}** below to enable the delete button.")
+        confirm_text = st.text_input(
+            "Confirmation phrase",
+            key="admin_reset_confirm_text",
+            placeholder=f"Type {RESET_CONFIRM_PHRASE} to confirm",
+            label_visibility="collapsed",
+        )
+        confirmed = confirm_text.strip() == RESET_CONFIRM_PHRASE
+        if confirm_text and not confirmed:
+            st.caption(f"That doesn't match. Type “{RESET_CONFIRM_PHRASE}” exactly (all caps) to proceed.")
+
+        if st.button(
+            "🗑️ Permanently delete all data",
+            type="primary",
+            use_container_width=True,
+            disabled=not confirmed,
+            key="admin_reset_button",
+        ):
+            # Re-check server-side — disabled= only guards the button in the
+            # browser; a stale rerun must never be able to fire this.
+            if confirm_text.strip() != RESET_CONFIRM_PHRASE:
+                st.error(f"Type “{RESET_CONFIRM_PHRASE}” exactly to confirm.")
+            else:
+                result = utils.reset_all_data()
+                _clear_all_caches_and_state_after_reset()
+                summary = (
+                    f"✅ Reset complete — deleted {result['guests']} guest(s), "
+                    f"{result['checkin_logs']} check-in log(s), {result['page_visits']} page visit(s), "
+                    f"{result['submission_logs']} submission log(s). Check-in mode is back to Auto."
+                )
+                _set_flash("success", summary)
+                st.rerun()
+
+
+def _clear_all_caches_and_state_after_reset() -> None:
+    """After utils.reset_all_data(): drop every cached stat and any session
+    state that could still reference a now-deleted guest, so the dashboard
+    reads zero immediately instead of showing stale cached numbers or a
+    "guest not found" error from a lingering id (see PART 7 / the flash
+    message pattern notes at the top of this file).
+    """
+    _cached_stats.clear()
+    _cached_site_stats.clear()
+    _cached_registration_daily_counts.clear()
+    _cached_event_day_hourly_checkins.clear()
+    st.session_state["registered_guest_id"] = None
+    st.session_state["scanner_result"] = None
+    st.session_state["admin_pending_changes"] = None
+    st.session_state.pop("admin_guest_editor", None)
+    st.session_state.pop("admin_reset_confirm_text", None)
+
 
 def _admin_overview_tab():
     stats = _cached_stats()
     st.markdown(theme.section_header("At a Glance"), unsafe_allow_html=True)
-    st.markdown(
-        theme.stat_tiles(
-            [
-                ("Total Guests", stats["total_guests"], ""),
-                ("Checked In", stats["checked_in"], ""),
-                ("Pending", stats["pending"], ""),
-                ("Bands Given", stats["bands_distributed"], ""),
-                ("Total Tickets", stats["total_tickets"], ""),
-                ("Admitted", stats["admitted_tickets"], ""),
-                ("Revenue (est.)", f"${stats['revenue']:,.2f}", ""),
-                ("Plus Ones", stats["plus_one_count"], ""),
-            ]
-        ),
-        unsafe_allow_html=True,
-    )
 
-    st.progress(
-        stats["checkin_percentage"] / 100,
-        text=f"Check-in rate: {stats['checkin_percentage']}%",
-    )
+    if stats["total_guests"] == 0:
+        st.markdown(
+            theme.empty_state(
+                "🪄", "Nothing to show yet",
+                "No guests registered yet. Once people sign up and check in, your stats, "
+                "check-in rate, and revenue will show up here.",
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            theme.stat_tiles(
+                [
+                    {"label": "Total Guests", "value": stats["total_guests"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
+                    {"label": "Checked In", "value": stats["checked_in"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
+                    {"label": "Pending", "value": stats["pending"], "icon": "⏳", "accent": "warn"},
+                    {"label": "Bands Given", "value": stats["bands_distributed"], "icon": "🏷️", "accent": "cyan"},
+                    {"label": "Total Tickets", "value": stats["total_tickets"], "icon": "🎫"},
+                    {"label": "Admitted Tickets", "value": stats["admitted_tickets"], "icon": "🚪", "accent": "info"},
+                    {"label": "Revenue (est.)", "value": f"${stats['revenue']:,.2f}", "icon": "💰", "accent": "gold"},
+                    {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "violet"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            theme.checkin_progress_meter(stats["checked_in"], stats["total_guests"]),
+            unsafe_allow_html=True,
+        )
 
     # ── Check-in window control (see PART 3) ───────────────────────────────
     st.markdown(
