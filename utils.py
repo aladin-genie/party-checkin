@@ -105,7 +105,7 @@ def get_engine():
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     if db_url.startswith("postgresql://"):
-        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
     try:
         engine = create_engine(db_url, pool_pre_ping=True, echo=False)
