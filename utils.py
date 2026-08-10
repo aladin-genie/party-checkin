@@ -181,7 +181,7 @@ def get_engine():
 
 def _using_fallback_db() -> bool:
     """Return True if the active engine is the SQLite fallback."""
-    return get_engine().url.drivername == "sqlite"
+    return get_engine().url.drivername.startswith("sqlite")
 
 
 @st.cache_resource(show_spinner=False)
