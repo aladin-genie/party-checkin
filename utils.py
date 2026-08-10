@@ -545,7 +545,7 @@ def send_qr_email(guest: Guest) -> bool:
        🕕 Time: 5:30 PM onwards<br>
        📍 Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024</p>
     <p>Your QR code is below. Please show it at the entrance for check-in.</p>
-    <p><img src="cid:party_qr" alt="Your QR Code" width="320" style="border: 12px solid white;"></p>
+    <p style="text-align: center;"><img src="cid:party_qr" alt="Your QR Code" width="400" style="width: 100%; max-width: 420px; height: auto; border: 16px solid white; display: block; margin: 0 auto;"></p>
     <p style="font-size: 0.9em; color: #666;">
         If the QR code doesn't scan, show this code to the staff:<br>
         <code style="font-size: 1.1em; background: #f4f4f4; padding: 4px 8px; border-radius: 4px;">{guest.qr_code}</code>

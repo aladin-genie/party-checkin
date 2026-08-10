@@ -758,16 +758,13 @@ def _show_registration_success(guest):
     )
 
     st.markdown(
-        f"""
-        <div style='text-align: center; background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.3); border-radius: 20px; padding: 20px; margin: 16px 0;'>
-            <div style='font-size: 1.4rem; font-weight: 800; color: #F4E4BC; margin-bottom: 4px;'>🎉 You're In!</div>
-            <div style='font-size: 0.95rem; color: rgba(245,245,245,0.7);'>
-                <strong>{guest.name}</strong> • {guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}<br>
-                {plus_one_line}
-                <small>QR code emailed to {guest.email}</small>
-            </div>
-        </div>
-        """,
+        f"<div style='text-align:center;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.3);border-radius:20px;padding:20px;margin:16px 0;'>"
+        f"<div style='font-size:1.4rem;font-weight:800;color:#F4E4BC;margin-bottom:4px;'>🎉 You're In!</div>"
+        f"<div style='font-size:0.95rem;color:rgba(245,245,245,0.7);'>"
+        f"<strong>{guest.name}</strong> • {guest.ticket_count} Ticket{'s' if guest.ticket_count > 1 else ''}<br>"
+        f"{plus_one_line}"
+        f"<small>QR code emailed to {guest.email}</small>"
+        f"</div></div>",
         unsafe_allow_html=True,
     )
 
