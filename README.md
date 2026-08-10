@@ -12,22 +12,19 @@ A complete event registration and check-in system built with **Streamlit** (free
 - **Database:** Supabase PostgreSQL (connected)
 - **Payment:** Zelle → `dallashudugaru@gmail.com`
 - **Ticket price:** $20.00 per ticket
-- **QR-code emails:** Code is ready, but SMTP credentials are **not configured yet** (see [Email Setup](#email-setup) below).
+- **QR-code emails:** Configured and verified — Gmail SMTP sends QR codes automatically after registration.
 
 ### What works now
 - Modern, mobile-first dark UI with the 2026 event details.
 - Home page shows public **Site Activity** stats (visits, unique visitors, registrations).
 - Registration page enforces field validations and shows red per-field errors.
 - Ticket total updates automatically as guests change the number of tickets.
-- Phone number auto-formats to `+1-XXX-XXX-XXXX` and only digits are accepted.
 - Names accept letters and spaces only; plus-one is optional.
+- Phone number accepts US digits and is normalized to `+1-XXX-XXX-XXXX` on submit.
 - Zelle confirmation reference accepts 8–30 letters/digits/hyphens (e.g., `ZELLE12345678`, `TXN-ABCD1234`, `1234567890`).
 - Terms & Conditions / Alcohol Disclaimer must be accepted before registering.
-- QR code is hidden from the UI and is meant to be emailed after registration.
+- QR code is hidden from the UI and is emailed automatically after registration.
 - Admin dashboard with guest list, CSV export, manual check-in, and band tracking.
-
-### What still needs configuration
-- **SMTP / email credentials** in Streamlit Cloud secrets so QR-code emails actually send.
 
 ---
 
@@ -225,7 +222,7 @@ Venue: Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 |-------|-------|
 | **Full Name** | Letters and spaces only; minimum 2 characters |
 | **Email** | Standard email format |
-| **Phone** | Optional; auto-formats to `+1-XXX-XXX-XXXX`; digits only |
+| **Phone** | Optional; placeholder shows `+1-XXX-XXX-XXXX`; digits are normalized on submit |
 | **Plus One Name** | Optional; letters and spaces only |
 | **Zelle Reference** | Required; 8–30 characters; letters, digits, hyphens |
 | **Terms** | Must accept "I/We Agree" |
