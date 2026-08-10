@@ -1,5 +1,5 @@
 """
-Party Check-In System — Streamlit App (Mobile-First, v2.1)
+Party Check-In System — Streamlit App (Mobile-First, v2.2)
 Entry point for Streamlit Community Cloud (free hosting).
 """
 
