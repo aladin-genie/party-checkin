@@ -22,7 +22,7 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
 
     email = "happy.path.guest@example.com"
     fill_registration_form(
-        page, name="Happy Path Guest", email=email,
+        page, name="Happy Path Guest", email=email, phone="(555) 246-8100",
         zelle_ref="ZELLE-HAPPY0001", tickets=2,
     )
     submit_registration(page)
@@ -34,6 +34,10 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
     assert guest is not None, "guest row was not created"
     assert guest["name"] == "Happy Path Guest"
     assert guest["email"] == email
+    # However the guest types it, the number is stored normalized so that the
+    # phone lookup finds them
+    assert guest["phone"] == "+1-555-246-8100"
+    assert reset_db.get_guest_by_phone("5552468100")["email"] == email
     assert guest["ticket_count"] == 2
     assert guest["qr_code"], "qr_code was not generated"
 
@@ -65,8 +69,14 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
         ("name", "John123", "Please enter a valid full name"),
         ("email", "not-an-email", "valid email address"),
         ("zelle_ref", "short", "transaction reference is required"),
+        # Phone is mandatory and US-only: blank, unparseable, and a valid
+        # foreign number all have to be rejected here
+        ("phone", "", "Phone number is required"),
+        ("phone", "123", "valid 10-digit US phone number"),
+        ("phone", "+44 20 7946 0958", "valid 10-digit US phone number"),
     ],
-    ids=["invalid-name", "invalid-email", "short-zelle-ref"],
+    ids=["invalid-name", "invalid-email", "short-zelle-ref",
+         "blank-phone", "short-phone", "non-us-phone"],
 )
 def test_registration_validation_shows_visible_error_and_saves_nothing(
     page, base_url, reset_db, field, bad_value, expected_error_substring
@@ -76,13 +86,15 @@ def test_registration_validation_shows_visible_error_and_saves_nothing(
     values = dict(
         name="Valid Name",
         email=f"valid.{field}.case@example.com",
+        phone="555-123-4567",
         zelle_ref="ZELLE12345678",
     )
     values[field] = bad_value
 
     fill_registration_form(
         page, name=values["name"], email=values["email"],
-        zelle_ref=values["zelle_ref"], tickets=1, agree=True,
+        phone=values["phone"], zelle_ref=values["zelle_ref"],
+        tickets=1, agree=True,
     )
     submit_registration(page)
 

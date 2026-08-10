@@ -57,6 +57,9 @@ def _ensure_state(key, default):
 
 _ensure_state("registered_guest_id", None)
 _ensure_state("scanner_result", None)
+# The guest a door search pulled up, awaiting staff confirmation. Holding a
+# guest here means "found, but nobody has been checked in yet".
+_ensure_state("scanner_lookup", None)
 _ensure_state("admin_authenticated", False)
 _ensure_state("admin_fail_count", 0)
 _ensure_state("admin_lockout_until", 0.0)
@@ -93,6 +96,21 @@ def _cached_registration_daily_counts():
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_event_day_hourly_checkins():
     return utils.get_event_day_hourly_checkins()
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=500)
+def _cached_qr_image(qr_code: str) -> bytes:
+    """Cached QR PNG rendering (27ms of pure CPU per call, uncached).
+
+    st.cache_data is process-global, so once any guest's QR has been
+    rendered once, every later viewer of the SAME code (a re-render, a
+    second device, the download button right after the image) costs
+    nothing — no re-encoding on a shared vCPU under a viewing burst.
+    utils.generate_qr_image() itself stays uncached and unchanged: the
+    email-sending path calls it directly from a background thread, where
+    Streamlit's cache isn't relevant and a per-guest one-time cost is fine.
+    """
+    return utils.generate_qr_image(qr_code)
 
 
 def _fmt_checkin_iso(iso_str, fmt="%I:%M %p"):
@@ -235,7 +253,7 @@ def page_home():
     # Navigation cards
     nav_items = [
         ("📝", "Register Guest", "Pay via Zelle, get your QR code by email", "nav_register", "Register"),
-        ("📱", "My QR Code", "Look up your ticket QR code by email", "nav_my_qr", "My QR"),
+        ("📱", "My QR Code", "Look up your ticket QR code by email or phone", "nav_my_qr", "My QR"),
         ("📷", "Self Check-In", "Scan your QR code at the entrance", "nav_scanner", "Scanner"),
         ("📊", "Admin Dashboard", "Manage guests and download reports", "nav_admin", "Admin"),
     ]
@@ -268,6 +286,12 @@ def page_register():
         st.session_state["reg_agree"] = False
         st.session_state["reg_errors"] = {}
         st.session_state["reset_register_form"] = False
+
+    # Seed the phone field with the country code the mask maintains, so the
+    # guest sees the shape they're expected to fill in. Must happen before the
+    # widget below is instantiated. validate_registration() treats a bare
+    # "+1-" as "not filled in" rather than as an invalid number.
+    st.session_state.setdefault("reg_phone", utils.US_PHONE_PREFIX)
 
     header_col1, header_col2 = st.columns([4, 1])
     with header_col1:
@@ -333,11 +357,12 @@ def page_register():
             st.markdown(theme.field_error(reg_errors["email"]), unsafe_allow_html=True)
 
         phone = st.text_input(
-            "Phone Number (optional)",
+            "Phone Number *",
             key="reg_phone",
             placeholder="+1-XXX-XXX-XXXX",
             max_chars=20,
-            help="US numbers only. Enter 10 digits; the format +1-XXX-XXX-XXXX will be applied when you submit.",
+            help="US numbers only. Just type the 10 digits — the +1-XXX-XXX-XXXX formatting is applied as you go. "
+                 "We use this to find your ticket at the door if there's any trouble with your email.",
         )
         if "phone" in reg_errors:
             st.markdown(theme.field_error(reg_errors["phone"]), unsafe_allow_html=True)
@@ -407,6 +432,11 @@ def page_register():
                 st.markdown(theme.field_error(reg_errors["terms"]), unsafe_allow_html=True)
 
         submitted = st.form_submit_button("🎟️ Get My QR Code", type="primary", use_container_width=True)
+
+    # Live +1-XXX-XXX-XXXX formatting for the phone field above. Cosmetic
+    # only — validate_registration/sanitize_phone still decide what is
+    # accepted, so nothing breaks if this never runs (see the docstring).
+    st.components.v1.html(utils.phone_input_mask_js("Phone Number *"), height=0)
 
     st.markdown(
         "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. "
@@ -480,6 +510,11 @@ def page_register():
             if reason == "duplicate_email":
                 st.session_state["reg_errors"] = {"email": result["message"]}
                 st.rerun()
+            elif reason == "db_unavailable":
+                # The guest database is unreachable and we refused to write
+                # into the throwaway fallback, so nothing was saved. Say so
+                # plainly — do not imply the registration went through.
+                st.error(result["message"])
             else:
                 st.error(
                     "⚠️ We couldn't save your registration due to a database problem. "
@@ -564,30 +599,29 @@ def page_my_qr():
         else:
             st.error("Guest not found.")
 
-    # Email lookup. This lives in a form so the typed value is committed
+    # Email/phone lookup. This lives in a form so the typed value is committed
     # atomically with the button press — outside a form, Streamlit treats the
     # text edit and the click as two separate reruns, and a user who types and
     # immediately clicks can submit an empty value. A form also lets them just
     # press Enter.
     with st.form("qr_lookup_form"):
-        lookup_email = st.text_input("Enter your email", placeholder="your@email.com")
+        lookup_contact = st.text_input(
+            "Enter your email or phone number",
+            placeholder="your@email.com or 555-123-4567",
+            help="Either the email address or the US phone number you registered with.",
+        )
         lookup_submitted = st.form_submit_button(
             "🔍 Find My QR", type="primary", use_container_width=True
         )
 
     found = False
-    if lookup_submitted:
-        if lookup_email:
-            email_clean = utils.sanitize_email(lookup_email)
-            if not email_clean:
-                st.error("Please enter a valid email.")
-                return
-            guest = utils.get_guest_by_email(email_clean)
-            if guest:
-                _display_guest_qr(guest)
-                found = True
-            else:
-                st.error("No guest found with that email. Please register first.")
+    if lookup_submitted and lookup_contact:
+        guest, lookup_error = utils.find_guest_by_contact(lookup_contact)
+        if guest:
+            _display_guest_qr(guest)
+            found = True
+        else:
+            st.error(lookup_error)
 
     if not found:
         with st.container(border=True):
@@ -595,9 +629,9 @@ def page_my_qr():
                 theme.nav_card(
                     "💡",
                     "What is this page?",
-                    "Enter the email address you registered with above to pull up your ticket "
-                    "QR code. Your QR code was also emailed to you when you registered — check "
-                    "your inbox (and spam folder) for it.",
+                    "Enter the email address or phone number you registered with above to pull "
+                    "up your ticket QR code. Your QR code was also emailed to you when you "
+                    "registered — check your inbox (and spam folder) for it.",
                 ),
                 unsafe_allow_html=True,
             )
@@ -616,7 +650,7 @@ def _display_guest_qr(guest: dict):
     tickets = guest["ticket_count"]
     st.caption(f"{tickets} Ticket{'s' if tickets != 1 else ''}")
 
-    qr_bytes = utils.generate_qr_image(guest["qr_code"])
+    qr_bytes = _cached_qr_image(guest["qr_code"])
 
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
@@ -714,8 +748,11 @@ def page_scanner():
 
             if data:
                 st.success(f"QR Code detected: `{data[:50]}`")
-                if st.button("✅ Confirm Check-In", type="primary", use_container_width=True):
-                    _process_checkin(data)
+                # Same rule as manual entry: pull the person up first and let
+                # staff confirm them, rather than checking in whoever the
+                # code happened to resolve to.
+                if st.button("🔍 Look Up This Ticket", type="primary", use_container_width=True):
+                    _lookup_guest(data)
             else:
                 st.warning("No QR code detected in the photo. Try again or use manual entry below.")
         except Exception as e:
@@ -724,9 +761,9 @@ def page_scanner():
 
     st.divider()
 
-    # ── Manual Entry ─────────────────────────────────────────────────────────
-    st.subheader("⌨️ Manual Entry")
-    st.write("Type your ticket ID or email if camera scan fails")
+    # ── Manual Lookup ────────────────────────────────────────────────────────
+    st.subheader("⌨️ Find a Guest")
+    st.write("Search by phone number, email, ticket ID, or QR code if the camera scan fails")
     # Wrapped in a form so the typed code is committed atomically with the
     # button press. Outside a form, Streamlit handles the text edit and the
     # click as two separate reruns, so someone who types a code and clicks
@@ -734,27 +771,127 @@ def page_scanner():
     # door queue. The form also lets staff just hit Enter after scanning.
     with st.form("manual_checkin_form"):
         manual_code = st.text_input(
-            "Ticket ID / Email / QR Code", placeholder="Enter here", max_chars=200
+            "Phone / Email / Ticket ID / QR Code",
+            placeholder="e.g. 555-123-4567",
+            max_chars=200,
+            help="Phone works in any format. Nobody is checked in until you confirm "
+                 "their details on the next screen.",
         )
         manual_submitted = st.form_submit_button(
-            "Check In Manually", type="primary", use_container_width=True
+            "🔍 Find Guest", type="primary", use_container_width=True
         )
 
     if manual_submitted:
         if manual_code.strip():
-            _process_checkin(manual_code.strip())
+            _lookup_guest(manual_code.strip())
         else:
-            st.error("Please enter a ticket ID or email.")
+            st.error("Please enter a phone number, email, ticket ID, or QR code.")
 
     # ── Display Result ─────────────────────────────────────────────────────
-    if st.session_state.get("scanner_result"):
+    # A pending lookup (nobody checked in yet) takes precedence over the
+    # result of the last completed check-in.
+    if st.session_state.get("scanner_lookup"):
+        _show_guest_confirmation(st.session_state["scanner_lookup"])
+    elif st.session_state.get("scanner_result"):
         result = st.session_state["scanner_result"]
         _show_scanner_result(result)
 
 
-def _process_checkin(code: str):
-    """Thin wrapper over utils.check_in_by_code that updates UI state."""
-    result = utils.check_in_by_code(code)
+def _lookup_guest(code: str):
+    """Find the guest behind a scanned/typed code — without checking anyone in.
+
+    Staff search by phone far more often than by anything else, because
+    guests don't remember which email address their QR code went to, and a
+    phone number is not proof of identity on its own: it can belong to more
+    than one booking, and it can be mistyped. So a match only ever puts the
+    guest's details on screen (see _show_guest_confirmation); the check-in
+    itself needs a second, deliberate press.
+    """
+    result = utils.find_guest_by_code(code)
+
+    if result["status"] == "found":
+        st.session_state["scanner_lookup"] = result["guest"]
+        st.session_state["scanner_result"] = None
+    else:
+        st.session_state["scanner_lookup"] = None
+        st.session_state["scanner_result"] = {
+            "type": "error",
+            "message": result["message"],
+        }
+    st.rerun()
+
+
+def _show_guest_confirmation(guest: dict):
+    """Show who was found and let staff confirm before checking them in."""
+    bands = utils.wristband_count(guest)
+    already = bool(guest.get("checked_in"))
+
+    if already:
+        checked_at = _fmt_checkin_iso(guest.get("checkin_time"))
+        status_label = f"⚠ Already checked in at {checked_at}"
+    else:
+        status_label = "Not checked in yet — confirm the details below"
+
+    st.markdown(
+        theme.guest_identity_card(
+            guest, bands, status_label, status="already" if already else "found"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    band_label = f"✓ Mark {bands} Wristband{'s' if bands != 1 else ''} Given"
+
+    if already:
+        st.warning(
+            f"{guest['name']} has already been checked in. Only hand over wristbands "
+            "if they haven't collected them yet."
+        )
+        # Bands are offered here only because this guest is already through
+        # the door — someone admitted from the admin grid, or back at the
+        # desk for the wristbands they didn't take the first time.
+        if guest.get("band_given"):
+            st.caption("✓ Wristbands already handed over.")
+        elif st.button(band_label, use_container_width=True):
+            _mark_band_given(guest["id"])
+    else:
+        st.info(
+            f"Confirm this is the right person, then check them in and hand over "
+            f"{bands} wristband{'s' if bands != 1 else ''}."
+        )
+        # Deliberately no band button until the check-in is recorded:
+        # otherwise wristbands can walk out of the door against a booking
+        # that was never marked as arrived.
+        if st.button("✅ Confirm & Check In", type="primary", use_container_width=True):
+            _process_checkin_confirmed(guest["id"])
+
+    if st.button("🔍 Search for Someone Else", use_container_width=True):
+        st.session_state["scanner_lookup"] = None
+        st.rerun()
+
+
+def _process_checkin_confirmed(guest_id: int):
+    """Check in the guest staff just confirmed on screen.
+
+    Keyed by id, not by the code that was searched: re-resolving a phone
+    number at confirm time could land on a different booking than the one
+    whose details staff just read back to the guest.
+    """
+    st.session_state["scanner_lookup"] = None
+    _apply_checkin_result(utils.check_in_guest(guest_id))
+
+
+def _apply_checkin_result(result: dict):
+    """Turn a check-in service result into scanner UI state, then rerun."""
+
+    if result["status"] == "db_unavailable":
+        # The guest database is unreachable. Nothing was recorded, so staff
+        # must not be shown a green "welcome" they'd act on.
+        st.session_state["scanner_result"] = {
+            "type": "error",
+            "message": result["message"],
+        }
+        st.rerun()
+        return
 
     if result["status"] == "not_open":
         # Defensive: the Scanner page already hides these inputs while
@@ -807,13 +944,16 @@ def _show_scanner_result(result):
 
     if result_type == "success":
         guest = result["guest"]
+        bands = utils.wristband_count(guest)
         st.balloons()
         st.markdown(
             theme.guest_result_card(guest["name"], guest["ticket_count"], "success", result["message"]),
             unsafe_allow_html=True,
         )
+        st.info(f"🎗️ Hand over **{bands}** wristband{'s' if bands != 1 else ''} — one per ticket.")
 
-        if st.button("✓ Mark Band Given", type="primary", use_container_width=True):
+        if st.button(f"✓ Mark {bands} Wristband{'s' if bands != 1 else ''} Given",
+                     type="primary", use_container_width=True):
             _mark_band_given(result["guest_id"])
 
         announcement = result.get("announcement", "")
@@ -859,7 +999,14 @@ def _mark_band_given(guest_id: int):
     if result["ok"]:
         _set_flash("success", result["message"])
         st.components.v1.html(utils.audio_announcement_js("Band marked as given"), height=0)
-        st.session_state["scanner_result"] = None
+        # If staff are still on this guest's confirmation card, keep them
+        # there with a refreshed copy — the stashed dict's band_given is now
+        # stale, and re-rendering it would invite handing out a second set.
+        lookup = st.session_state.get("scanner_lookup")
+        if lookup and lookup.get("id") == guest_id:
+            st.session_state["scanner_lookup"] = utils.get_guest(guest_id) or lookup
+        else:
+            st.session_state["scanner_result"] = None
         st.rerun()
     else:
         st.warning(result["message"])
@@ -952,12 +1099,13 @@ def _admin_danger_zone():
             '<div class="danger-zone-warning">'
             "🚨 <strong>This permanently deletes every guest, check-in log, page-visit "
             "record, and submission log — for everyone, with no undo.</strong> The check-in "
-            "window is also reset back to Auto. If you want to keep a copy of the guest "
-            "list first, download it from the <strong>Guests</strong> tab (⬇ Download CSV) "
-            "before you proceed."
+            "window is also reset back to Auto. Take a backup first — the section directly "
+            "below downloads every table as CSV, and it is the only way back."
             "</div>",
             unsafe_allow_html=True,
         )
+
+        _admin_backup_section()
 
         counts = utils.get_table_counts()
         st.markdown(
@@ -978,6 +1126,9 @@ def _admin_danger_zone():
 
         if sum(counts.values()) == 0:
             st.info("Nothing to reset — every table is already empty.")
+
+        if "admin_backup" not in st.session_state and sum(counts.values()) > 0:
+            st.warning("No backup prepared in this session. Take one above first — this cannot be undone.")
 
         st.markdown(f"Type **{RESET_CONFIRM_PHRASE}** below to enable the delete button.")
         confirm_text = st.text_input(
@@ -1012,6 +1163,92 @@ def _admin_danger_zone():
                 _set_flash("success", summary)
                 st.rerun()
 
+        _admin_data_catalog()
+
+
+def _admin_backup_section():
+    """Download every table as CSV before wiping it.
+
+    Two steps on purpose. Building the archive means reading all five tables,
+    and Streamlit re-runs this whole function on every widget interaction —
+    so it is built only when the operator asks for it, then held in
+    st.session_state so the download buttons can serve it without rebuilding.
+    The held copy also survives the reset itself: after the tables are empty
+    it is the only copy left, so it must stay downloadable.
+    """
+    st.markdown(
+        theme.section_header(
+            "Back up first",
+            "One CSV per table, bundled as a ZIP — raw columns, ready to reload or open in Excel.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    if st.button("📦 Prepare backup", use_container_width=True, key="admin_backup_prepare"):
+        with st.spinner("Reading every table…"):
+            st.session_state["admin_backup"] = utils.export_backup()
+
+    backup = st.session_state.get("admin_backup")
+    if backup is None:
+        st.caption("Nothing prepared yet — click **Prepare backup** to build a snapshot you can download.")
+        return
+
+    st.download_button(
+        label="⬇ Download full backup (ZIP)",
+        data=backup["zip"],
+        file_name=f"party_backup_{backup['stamp']}.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="admin_backup_zip",
+    )
+
+    # Individual CSVs too — a phone can't always open a ZIP.
+    tables = list(utils.BACKUP_TABLES)
+    for start in range(0, len(tables), 3):
+        for col, table in zip(st.columns(3), tables[start:start + 3]):
+            col.download_button(
+                label=f"⬇ {table}.csv ({backup['counts'][table]})",
+                data=backup["files"][f"{table}.csv"],
+                file_name=f"{table}_{backup['stamp']}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key=f"admin_backup_csv_{table}",
+            )
+
+    total_rows = sum(backup["counts"].values())
+    st.caption(
+        f"Snapshot taken {utils.format_dt(backup['generated_at'], '%Y-%m-%d %H:%M:%S')} UTC — "
+        f"{total_rows} row(s) across {len(tables)} tables. Prepare again if anything has changed since."
+    )
+
+
+def _admin_data_catalog():
+    """Reference list of what lives where — for querying the DB directly
+    (Supabase SQL editor, psql) rather than through this dashboard. The same
+    text ships inside every backup's README.txt.
+    """
+    st.markdown(
+        theme.section_header(
+            "Tables & views to query",
+            "For direct SQL access — the Supabase SQL editor, psql, or any client.",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    table_rows = "\n".join(f"| `{table}` | {description} |" for table, description in utils.DATA_TABLES)
+    st.markdown(
+        "**Tables** — everything the reset touches, and everything the backup contains. "
+        "The first four are emptied; `app_settings` only has `checkin_mode` put back to `auto`.\n\n"
+        "| Table | What it holds |\n|---|---|\n" + table_rows
+    )
+
+    view_rows = "\n".join(f"| `{view}` | {description} |" for view, description in utils.REPORTING_VIEWS)
+    st.markdown(
+        "**Views** — PostgreSQL/Supabase only, created automatically at startup. They read from the "
+        "tables above, so they empty out with a reset and refill on their own. Nothing to recreate.\n\n"
+        "| View | What it answers |\n|---|---|\n" + view_rows
+    )
+
 
 def _clear_all_caches_and_state_after_reset() -> None:
     """After utils.reset_all_data(): drop every cached stat and any session
@@ -1019,6 +1256,10 @@ def _clear_all_caches_and_state_after_reset() -> None:
     reads zero immediately instead of showing stale cached numbers or a
     "guest not found" error from a lingering id (see PART 7 / the flash
     message pattern notes at the top of this file).
+
+    "admin_backup" is deliberately NOT cleared: once the tables are empty that
+    prepared archive is the only copy of the data left, and the operator must
+    still be able to download it.
     """
     _cached_stats.clear()
     _cached_site_stats.clear()
@@ -1034,6 +1275,14 @@ def _clear_all_caches_and_state_after_reset() -> None:
 def _admin_overview_tab():
     stats = _cached_stats()
     st.markdown(theme.section_header("At a Glance"), unsafe_allow_html=True)
+
+    # Live load, for the organiser to watch during a burst (e.g. right after
+    # the registration link goes out). Not cached — it's an in-memory,
+    # DB-free read (utils.active_session_count()), so there's no cost to
+    # reading it fresh on every Admin render.
+    active_now = utils.active_session_count()
+    hard_limit = config.max_concurrent_users()
+    st.caption(f"🟢 {active_now} active session(s) in the last minute · capacity guard at {hard_limit}")
 
     if stats["total_guests"] == 0:
         st.markdown(
@@ -1131,18 +1380,24 @@ def _admin_guests_tab():
         return
 
     search_term = st.text_input(
-        "🔍 Search by name, email, or Zelle ref", placeholder="Type to filter...", key="admin_guest_search"
+        "🔍 Search by name, email, phone, or Zelle ref",
+        placeholder="Type to filter...",
+        key="admin_guest_search",
     )
 
     filtered = guests
     if search_term:
         term = search_term.lower()
+        # Phone matches on digits alone, so "5551234567", "555-123-4567" and
+        # "1234" all find a guest stored as "+1-555-123-4567".
+        term_digits = utils.phone_digits(term)
         filtered = [
             g
             for g in guests
             if term in g["name"].lower()
             or term in g["email"].lower()
             or term in (g["zelle_ref"] or "").lower()
+            or (term_digits and term_digits in utils.phone_digits(g["phone"]))
         ]
 
     if not filtered:
@@ -1160,6 +1415,7 @@ def _admin_guests_tab():
                 "id": g["id"],
                 "Name": g["name"],
                 "Email": g["email"],
+                "Phone": g["phone"] or "—",
                 "Tickets": g["ticket_count"],
                 "Additional Guests": (g["plus_one_name"] or "").replace("\n", ", ") or "—",
                 "Checked In": bool(g["checked_in"]),
@@ -1180,13 +1436,14 @@ def _admin_guests_tab():
             "id": None,  # keep for row identity, hide from display
             "Name": st.column_config.TextColumn("Name"),
             "Email": st.column_config.TextColumn("Email"),
+            "Phone": st.column_config.TextColumn("Phone", help="“—” means the guest registered before phone became mandatory."),
             "Tickets": st.column_config.NumberColumn("Tickets"),
             "Additional Guests": st.column_config.TextColumn("Additional Guests"),
             "Checked In": st.column_config.CheckboxColumn("Checked In", help="Tick to check this guest in."),
             "Band Given": st.column_config.CheckboxColumn("Band Given", help="Tick once their wristband is on."),
             "Delete": st.column_config.CheckboxColumn("Delete", help="Tick then Save changes — a confirmation step follows."),
         },
-        disabled=["id", "Name", "Email", "Tickets", "Additional Guests"],
+        disabled=["id", "Name", "Email", "Phone", "Tickets", "Additional Guests"],
     )
 
     if st.button("💾 Save changes", type="primary", use_container_width=True, key="admin_save_changes"):
@@ -1302,19 +1559,68 @@ def _admin_checkins_tab():
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN APP / NAVIGATION
 # ═══════════════════════════════════════════════════════════════════════════════
+def _render_capacity_page() -> None:
+    """The friendly full-page "we're at capacity" screen, plus a Retry button.
+
+    st.button triggers a rerun on click, which re-enters main() and
+    re-evaluates the gate from scratch — exactly what "Retry" should do,
+    with no special-case state to track.
+    """
+    st.markdown(theme.brand_bar(), unsafe_allow_html=True)
+    st.markdown(theme.capacity_full_page(), unsafe_allow_html=True)
+    if st.button("🔄 Try Again", type="primary", use_container_width=True, key="capacity_retry"):
+        st.rerun()
+
+
 def main():
+    # Session identity: created once per browser session and reused both by
+    # the capacity guard (below) and page-visit tracking (further down) —
+    # previously two separate tokens were minted in two different places.
+    if "visitor_token" not in st.session_state:
+        st.session_state["visitor_token"] = base64.urlsafe_b64encode(os.urandom(12)).decode()
+
+    # ── Capacity guard ───────────────────────────────────────────────────
+    # Registers this session as active and gets back the current
+    # process-wide active-session count — an in-memory, DB-free call (see
+    # utils.touch_session()), so it costs nothing even during a burst.
+    # Called exactly once per script run, as early as possible.
+    active_count = utils.touch_session(st.session_state["visitor_token"])
+
+    # Resolve which page this run is headed to *before* deciding whether to
+    # gate, so Admin/Scanner and an already-authenticated admin are never
+    # blocked — staff must never be locked out of their own door. This is
+    # the same resolution the sidebar below performs; hoisted up here so the
+    # gate can see it without rendering the sidebar first.
+    if "page" not in st.session_state:
+        try:
+            qp = st.query_params
+            requested = qp["page"] if "page" in qp else None
+            st.session_state["page"] = requested if requested in PAGES else "Home"
+        except Exception:
+            st.session_state["page"] = "Home"
+    target_page = st.session_state["page"]
+
+    gate_exempt = target_page in ("Admin", "Scanner") or bool(
+        st.session_state.get("admin_authenticated")
+    )
+
+    hard_limit = config.max_concurrent_users()
+    soft_limit = config.busy_warn_users()
+    over_capacity = (not gate_exempt) and active_count > hard_limit
+    is_busy = (not gate_exempt) and (not over_capacity) and active_count > soft_limit
+
+    if over_capacity:
+        # Degrade politely, never collapse: turned-away visitors see a warm,
+        # non-technical "give it a minute" screen with a Retry button, never
+        # a stack trace or a blank page. Nothing else in this run touches
+        # the database.
+        _render_capacity_page()
+        return
+
     # Mobile-friendly sidebar (collapsed by default, opens as overlay on mobile)
     with st.sidebar:
         st.title("🎉 Party Check-In")
         st.markdown("---")
-
-        if "page" not in st.session_state:
-            try:
-                qp = st.query_params
-                requested = qp["page"] if "page" in qp else None
-                st.session_state["page"] = requested if requested in PAGES else "Home"
-            except Exception:
-                st.session_state["page"] = "Home"
 
         page = st.radio(
             "Navigate",
@@ -1337,6 +1643,9 @@ def main():
     # Sticky brand bar on every page
     st.markdown(theme.brand_bar(), unsafe_allow_html=True)
 
+    if is_busy:
+        st.markdown(theme.busy_banner(), unsafe_allow_html=True)
+
     # Show (and clear) any flash message stashed by the previous run — see
     # the "Flash messages" section above / PART 6.
     _render_flash()
@@ -1345,10 +1654,6 @@ def main():
     try:
         current_page = st.session_state.get("page", "Home")
         if st.session_state.get("last_recorded_page") != current_page:
-            if "visitor_token" not in st.session_state:
-                st.session_state["visitor_token"] = base64.urlsafe_b64encode(
-                    os.urandom(12)
-                ).decode()
             utils.record_visit(st.session_state["visitor_token"], current_page)
             st.session_state["last_recorded_page"] = current_page
     except Exception:

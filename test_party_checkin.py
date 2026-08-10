@@ -9,6 +9,7 @@ import sys
 import io
 import csv
 import threading
+import zipfile
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,9 +46,19 @@ from utils import (
     get_table_counts,
     get_engine,
     reset_all_data,
+    export_backup,
+    BACKUP_TABLES,
+    DATA_TABLES,
+    REPORTING_VIEWS,
+    _reporting_view_sql,
     validate_registration,
     register_guest,
     check_in_by_code,
+    find_guest_by_code,
+    check_in_guest,
+    wristband_count,
+    phone_input_mask_js,
+    get_guest,
     mark_band_given,
     delete_guest,
     list_guests,
@@ -319,13 +330,16 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_name("Mary-Jane O'Connor"), "")
     
     def test_phone_sanitization(self):
-        # Default +1 prefix only is treated as empty (optional field)
+        # Prefix-only stub sanitizes to empty; validate_registration turns that
+        # into the "phone is required" error (phone is mandatory since Aug 2026)
         self.assertEqual(sanitize_phone("+1-"), "")
         # Formatted US number
         self.assertEqual(sanitize_phone("+1 (555) 123-4567"), "+1-555-123-4567")
         # Bare 10 digits
         self.assertEqual(sanitize_phone("5551234567"), "+1-555-123-4567")
-        # Empty is fine (optional)
+        # 11 digits with the country code, unpunctuated
+        self.assertEqual(sanitize_phone("15551234567"), "+1-555-123-4567")
+        # Empty stays empty
         self.assertEqual(sanitize_phone(""), "")
         # Too few digits rejected
         self.assertEqual(sanitize_phone("123"), "")
@@ -333,6 +347,17 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_phone("+1-555-123-abc"), "")
         # Non-US length rejected
         self.assertEqual(sanitize_phone("+44 20 7946 0958"), "")
+
+    def test_phone_sanitization_rejects_non_us(self):
+        # A non-+1 country code that happens to leave 10 digits must not be
+        # silently relabelled as a US number
+        self.assertEqual(sanitize_phone("+44 7946 0958"), "")
+        self.assertEqual(sanitize_phone("+91 9876543210"), "")
+        # Area codes never start with 0 or 1 in the US
+        self.assertEqual(sanitize_phone("0551234567"), "")
+        self.assertEqual(sanitize_phone("1112223333"), "")
+        # ...including once the +1 country code is stripped
+        self.assertEqual(sanitize_phone("+1 (055) 123-4567"), "")
     
     def test_zelle_ref_sanitization(self):
         # Valid 8-30 character refs (uppercased, cleaned)
@@ -493,6 +518,166 @@ class TestPartyCheckIn(unittest.TestCase):
                                  ticket_count="4", zelle_ref="ZELLE-STRTIX01")
         self.assertTrue(result["ok"])
         self.assertEqual(result["guest"]["ticket_count"], 4)
+
+    # ── Service Layer: find_guest_by_contact ────────────────────────────────
+    # Guests are looked up by phone as well as email because an attendee may
+    # have several email addresses and not remember which one they used.
+
+    def test_get_guest_by_phone_normalizes_the_query(self):
+        self._register(name="Phone Guest", email="phoneguest@test.com",
+                       phone="+1-555-321-7654", zelle_ref="ZELLE-PHONE001")
+        for typed in ("+1-555-321-7654", "5553217654", "(555) 321-7654", "1 555 321 7654"):
+            found = utils.get_guest_by_phone(typed)
+            self.assertIsNotNone(found, typed)
+            self.assertEqual(found["email"], "phoneguest@test.com", typed)
+
+    def test_get_guest_by_phone_blank_does_not_match_legacy_rows(self):
+        # Rows created before phone was mandatory have phone="" — an
+        # unparseable query must not match them (or each other)
+        self._register(name="Legacy Guest", email="legacy@test.com",
+                       phone="", zelle_ref="ZELLE-LEGACY01")
+        self.assertIsNone(utils.get_guest_by_phone(""))
+        self.assertIsNone(utils.get_guest_by_phone("not a number"))
+
+    def test_get_guest_by_phone_returns_most_recent_registration(self):
+        self._register(name="Shared One", email="shared1@test.com",
+                       phone="+1-555-777-8888", zelle_ref="ZELLE-SHARED01")
+        self._register(name="Shared Two", email="shared2@test.com",
+                       phone="+1-555-777-8888", zelle_ref="ZELLE-SHARED02")
+        found = utils.get_guest_by_phone("555-777-8888")
+        self.assertEqual(found["email"], "shared2@test.com")
+
+    def test_find_guest_by_contact_by_email_and_by_phone(self):
+        self._register(name="Contact Guest", email="contact@test.com",
+                       phone="+1-555-246-8100", zelle_ref="ZELLE-CONTACT1")
+        for query in ("contact@test.com", "  Contact@Test.com ", "555-246-8100", "5552468100"):
+            guest, error = utils.find_guest_by_contact(query)
+            self.assertIsNone(error, query)
+            self.assertEqual(guest["name"], "Contact Guest", query)
+
+    def test_find_guest_by_contact_errors(self):
+        # Blank
+        guest, error = utils.find_guest_by_contact("   ")
+        self.assertIsNone(guest)
+        self.assertIn("email address or phone number", error)
+        # Unparseable as either
+        guest, error = utils.find_guest_by_contact("12345")
+        self.assertIsNone(guest)
+        self.assertIn("valid", error)
+        # Well-formed but unknown — distinct from the "invalid input" message
+        guest, error = utils.find_guest_by_contact("555-999-0000")
+        self.assertIsNone(guest)
+        self.assertIn("No guest found", error)
+        guest, error = utils.find_guest_by_contact("nobody@test.com")
+        self.assertIsNone(guest)
+        self.assertIn("No guest found", error)
+
+    def test_phone_digits_strips_formatting_and_country_code(self):
+        self.assertEqual(utils.phone_digits("+1-555-123-4567"), "5551234567")
+        self.assertEqual(utils.phone_digits("(555) 123-4567"), "5551234567")
+        self.assertEqual(utils.phone_digits(""), "")
+        self.assertEqual(utils.phone_digits(None), "")
+
+    # ── Service Layer: find_guest_by_code / check_in_guest ──────────────────
+    # The door flow is deliberately two steps: find the person, confirm the
+    # details, then check them in.
+
+    def test_find_guest_by_code_resolves_qr_email_phone_and_id(self):
+        created = self._register(
+            name="Door Guest", email="door@test.com", phone="+1-555-404-3030",
+            ticket_count=3, zelle_ref="ZELLE-DOOR0001",
+        )["guest"]
+
+        for query in (created["qr_code"], "door@test.com", "DOOR@test.com",
+                      "+1-555-404-3030", "5554043030", "(555) 404-3030",
+                      str(created["id"])):
+            found = find_guest_by_code(query)
+            self.assertEqual(found["status"], "found", query)
+            self.assertEqual(found["guest"]["id"], created["id"], query)
+
+    def test_find_guest_by_code_does_not_check_anyone_in(self):
+        created = self._register(name="Untouched Guest", email="untouched@test.com",
+                                 phone="+1-555-404-4040", zelle_ref="ZELLE-UNTOUCH1")["guest"]
+
+        find_guest_by_code("555-404-4040")
+
+        still = get_guest(created["id"])
+        self.assertFalse(still["checked_in"])
+        self.assertIsNone(still["checkin_time"])
+
+    def test_find_guest_by_code_not_found_and_blank_phone_rows(self):
+        # A legacy row with phone="" must not be matched by an unparseable
+        # query that sanitizes down to nothing
+        self._register(name="Legacy Door", email="legacydoor@test.com",
+                       phone="", zelle_ref="ZELLE-LEGDOOR1")
+        for query in ("nobody@test.com", "555-000", "", "   "):
+            result = find_guest_by_code(query)
+            self.assertEqual(result["status"], "not_found", query)
+            self.assertIsNone(result["guest"], query)
+
+    def test_check_in_guest_by_id_then_already(self):
+        created = self._register(name="Confirm Guest", email="confirm@test.com",
+                                 phone="+1-555-404-5050", zelle_ref="ZELLE-CONFIRM1")["guest"]
+
+        first = check_in_guest(created["id"])
+        self.assertEqual(first["status"], "success")
+        self.assertTrue(get_guest(created["id"])["checked_in"])
+
+        second = check_in_guest(created["id"])
+        self.assertEqual(second["status"], "already")
+        self.assertIn("already checked in", second["message"])
+
+    def test_check_in_guest_unknown_id(self):
+        result = check_in_guest(999999)
+        self.assertEqual(result["status"], "not_found")
+        self.assertIsNone(result["guest"])
+
+    def test_check_in_guest_respects_and_bypasses_the_window(self):
+        created = self._register(name="Window Confirm", email="windowconfirm@test.com",
+                                 phone="+1-555-404-6060", zelle_ref="ZELLE-WINCONF1")["guest"]
+        set_checkin_mode(CHECKIN_MODE_CLOSED)
+
+        blocked = check_in_guest(created["id"])
+        self.assertEqual(blocked["status"], "not_open")
+        self.assertFalse(get_guest(created["id"])["checked_in"])
+
+        # ...but an organiser acting by hand always gets through
+        allowed = check_in_guest(created["id"], bypass_window=True)
+        self.assertEqual(allowed["status"], "success")
+        self.assertTrue(get_guest(created["id"])["checked_in"])
+
+    def test_shared_phone_resolves_to_the_most_recent_booking(self):
+        """Two bookings on one number: the search must be deterministic, and
+        the confirm step keys off the id staff actually saw."""
+        older = self._register(name="Shared Older", email="sharedolder@test.com",
+                               phone="+1-555-404-7070", zelle_ref="ZELLE-SHOLD001")["guest"]
+        newer = self._register(name="Shared Newer", email="sharednewer@test.com",
+                               phone="+1-555-404-7070", zelle_ref="ZELLE-SHNEW001")["guest"]
+
+        found = find_guest_by_code("5554047070")
+        self.assertEqual(found["guest"]["id"], newer["id"])
+
+        # Staff who spot the wrong person can still check in the right one,
+        # because confirmation goes by id rather than re-running the search.
+        self.assertEqual(check_in_guest(older["id"])["status"], "success")
+        self.assertTrue(get_guest(older["id"])["checked_in"])
+        self.assertFalse(get_guest(newer["id"])["checked_in"])
+
+    def test_check_in_by_code_also_accepts_a_phone_number(self):
+        created = self._register(name="Code Phone", email="codephone@test.com",
+                                 phone="+1-555-404-8080", zelle_ref="ZELLE-CODEPH01")["guest"]
+        result = check_in_by_code("(555) 404-8080")
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["guest"]["id"], created["id"])
+
+    def test_wristband_count_is_one_per_ticket(self):
+        self.assertEqual(wristband_count({"ticket_count": 4}), 4)
+        self.assertEqual(wristband_count({"ticket_count": 1}), 1)
+        # Never promise zero bands to someone standing at the door
+        self.assertEqual(wristband_count({"ticket_count": 0}), 1)
+        self.assertEqual(wristband_count({"ticket_count": None}), 1)
+        self.assertEqual(wristband_count({}), 1)
+        self.assertEqual(wristband_count({"ticket_count": "oops"}), 1)
 
     # ── Service Layer: check_in_by_code ─────────────────────────────────────
 
@@ -710,18 +895,36 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertIn("email", errors)
         self.assertEqual(cleaned["email"], "")
 
-    def test_validate_registration_blank_phone_optional_no_error(self):
+    def test_validate_registration_blank_phone_is_required_error(self):
         cleaned, errors = validate_registration(
             "Jane Doe", "jane2@example.com", "", "", "ZELLE12345678", True
         )
-        self.assertNotIn("phone", errors)
+        self.assertIn("required", errors["phone"])
         self.assertEqual(cleaned["phone"], "")
+
+    def test_validate_registration_phone_stub_is_required_error(self):
+        # The placeholder the field used to be pre-filled with is not an answer
+        for stub in ("+", "+1", "+1-", "   "):
+            cleaned, errors = validate_registration(
+                "Jane Doe", "jane2b@example.com", stub, "", "ZELLE12345678", True
+            )
+            self.assertIn("required", errors["phone"], stub)
 
     def test_validate_registration_invalid_phone_non_blank(self):
         cleaned, errors = validate_registration(
             "Jane Doe", "jane3@example.com", "123", "", "ZELLE12345678", True
         )
         self.assertIn("phone", errors)
+        # A typed-but-wrong number gets the "what's valid" message, not the
+        # "you left it blank" one
+        self.assertNotIn("required", errors["phone"])
+
+    def test_validate_registration_non_us_phone_rejected(self):
+        cleaned, errors = validate_registration(
+            "Jane Doe", "jane3b@example.com", "+44 20 7946 0958", "", "ZELLE12345678", True
+        )
+        self.assertIn("phone", errors)
+        self.assertEqual(cleaned["phone"], "")
 
     def test_validate_registration_blank_plus_one_optional_no_error(self):
         cleaned, errors = validate_registration(
@@ -888,6 +1091,21 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(sanitize_phone("５５５１２３４５６７"), "")
         # Leading/trailing whitespace tolerated around a valid number
         self.assertEqual(sanitize_phone("   555-123-4567   "), "+1-555-123-4567")
+
+    def test_phone_input_mask_js_targets_the_field_and_escapes_the_label(self):
+        js = phone_input_mask_js("Phone Number *")
+        # It has to find the widget by the aria-label Streamlit renders...
+        self.assertIn('"Phone Number *"', js)
+        self.assertIn("aria-label", js)
+        # ...and the prefix it maintains must match what the server treats
+        # as "not filled in" (see validate_registration)
+        self.assertIn('"+1-"', js)
+        self.assertEqual(sanitize_phone(utils.US_PHONE_PREFIX), "")
+
+        # A label carrying markup cannot break out of the <script> block
+        hostile = phone_input_mask_js('</script><img src=x onerror=alert(1)>')
+        self.assertNotIn("</script><img", hostile)
+        self.assertIn("<\\/script>", hostile)
 
     def test_sanitize_zelle_ref_edge_cases(self):
         # Very long ref exceeds 30 chars after cleaning -> rejected
@@ -1255,6 +1473,96 @@ class TestPartyCheckIn(unittest.TestCase):
         result = reset_all_data()
         self.assertEqual(result["guests"], 0)
         self.assertEqual(get_table_counts()["guests"], 0)
+
+    # ── Backup Export Tests ─────────────────────────────────────────────────
+
+    def test_export_backup_covers_every_table_the_reset_wipes(self):
+        """A backup that misses a table isn't a backup."""
+        self._seed_for_reset()
+        backup = export_backup()
+
+        self.assertEqual(set(BACKUP_TABLES), set(backup["counts"]))
+        for table in get_table_counts():
+            self.assertIn(table, backup["counts"], f"{table} is wiped by reset but absent from the backup")
+        self.assertEqual(backup["counts"]["guests"], 1)
+        self.assertEqual(backup["counts"]["checkin_logs"], 1)
+        self.assertGreaterEqual(backup["counts"]["page_visits"], 1)
+        self.assertGreaterEqual(backup["counts"]["submission_logs"], 1)
+
+    def test_export_backup_zip_holds_one_csv_per_table_plus_readme(self):
+        self._seed_for_reset()
+        backup = export_backup()
+
+        with zipfile.ZipFile(io.BytesIO(backup["zip"])) as archive:
+            self.assertIsNone(archive.testzip())
+            names = set(archive.namelist())
+            for table in BACKUP_TABLES:
+                self.assertIn(f"{table}.csv", names)
+            self.assertIn("README.txt", names)
+            # ZIP content and the in-memory copy the UI serves must agree.
+            self.assertEqual(
+                archive.read("guests.csv").decode("utf-8"),
+                backup["files"]["guests.csv"],
+            )
+
+    def test_export_backup_guest_csv_keeps_raw_column_names_and_values(self):
+        """Headers are the real DB column names so the file can be reloaded."""
+        gid = self._seed_for_reset()
+        backup = export_backup()
+
+        rows = list(csv.reader(io.StringIO(backup["files"]["guests.csv"])))
+        self.assertEqual(rows[0][:4], ["id", "name", "email", "phone"])
+        self.assertEqual(len(rows), 2)
+        record = dict(zip(rows[0], rows[1]))
+        self.assertEqual(record["id"], str(gid))
+        self.assertEqual(record["name"], "Reset Me")
+        self.assertEqual(record["email"], "reset.me@test.com")
+        self.assertEqual(record["ticket_count"], "2")
+        self.assertEqual(record["checked_in"], "false")
+        self.assertTrue(record["created_at"])  # ISO timestamp, not empty
+
+    def test_export_backup_escapes_formula_fields(self):
+        """Backups get opened in Excel — a name must never run as a formula."""
+        session = get_db()
+        try:
+            session.add(Guest(name="=cmd|'/c calc'!A1", email="formula@test.com",
+                              ticket_count=1, qr_code=generate_qr_code()))
+            session.commit()
+        finally:
+            session.close()
+
+        backup = export_backup()
+        rows = list(csv.reader(io.StringIO(backup["files"]["guests.csv"])))
+        record = dict(zip(rows[0], rows[1]))
+        self.assertTrue(record["name"].startswith("'="))
+
+    def test_export_backup_on_empty_db_still_writes_headers(self):
+        reset_all_data(keep_settings=False)  # keep_settings=True leaves a checkin_mode row
+        backup = export_backup()
+
+        self.assertEqual(sum(backup["counts"].values()), 0)
+        for table in BACKUP_TABLES:
+            rows = list(csv.reader(io.StringIO(backup["files"][f"{table}.csv"])))
+            self.assertEqual(len(rows), 1, f"{table}.csv should be header-only")
+            self.assertTrue(rows[0])
+
+    def test_export_backup_readme_documents_tables_and_views(self):
+        self._seed_for_reset()
+        readme = export_backup()["files"]["README.txt"]
+
+        for table in BACKUP_TABLES:
+            self.assertIn(f"{table}.csv", readme)
+        for view, _description in REPORTING_VIEWS:
+            self.assertIn(view, readme)
+
+    def test_documented_tables_and_views_match_the_real_ones(self):
+        """The admin UI's reference list must not drift from the schema."""
+        self.assertEqual([table for table, _desc in DATA_TABLES], list(BACKUP_TABLES))
+        self.assertEqual(set(dict(REPORTING_VIEWS)), set(_reporting_view_sql()))
+        from sqlalchemy import inspect as sa_inspect
+        real_tables = set(sa_inspect(get_engine()).get_table_names())
+        for table in BACKUP_TABLES:
+            self.assertIn(table, real_tables)
 
 
 def run_tests():

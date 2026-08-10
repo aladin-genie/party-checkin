@@ -177,8 +177,8 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
     no-op Save (no cells ever touched) round-trips without mutating
     anything. Toggling the grid's own checkboxes is NOT covered here -- see
     the module docstring and the service-level tests below."""
-    reset_db.register_guest("Grid Alpha", "grid.alpha@example.com", "", 2, "Kid One\nKid Two", "ZELLE-GRIDALPHA1")
-    reset_db.register_guest("Grid Beta", "grid.beta@example.com", "", 1, "", "ZELLE-GRIDBETA01")
+    reset_db.register_guest("Grid Alpha", "grid.alpha@example.com", "+1-555-311-0001", 2, "Kid One\nKid Two", "ZELLE-GRIDALPHA1")
+    reset_db.register_guest("Grid Beta", "grid.beta@example.com", "+1-555-311-0002", 1, "", "ZELLE-GRIDBETA01")
 
     goto(page, base_url, "Admin")
     login_admin(page, ADMIN_PASSWORD)
@@ -187,7 +187,7 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
 
     expect(page.locator("div[data-testid='stDataFrame']").first).to_be_visible(timeout=10000)
 
-    for header in ["Name", "Email", "Tickets", "Additional Guests", "Checked In", "Band Given", "Delete"]:
+    for header in ["Name", "Email", "Phone", "Tickets", "Additional Guests", "Checked In", "Band Given", "Delete"]:
         assert page.get_by_text(header, exact=True).count() >= 1, f"missing column header {header!r}"
 
     # st.data_editor paints its cells on a <canvas>; unlike st.dataframe it
@@ -200,10 +200,20 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
     expect(save_button).to_be_visible(timeout=8000)
 
     # ── search filters the editor's row count ───────────────────────────
-    fill_and_blur(page, "🔍 Search by name, email, or Zelle ref", "Grid Alpha")
+    search_label = "🔍 Search by name, email, phone, or Zelle ref"
+    fill_and_blur(page, search_label, "Grid Alpha")
     expect(page.get_by_text("1 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
 
-    fill_and_blur(page, "🔍 Search by name, email, or Zelle ref", "")
+    # Phone search matches on digits, so an organiser can type the number the
+    # way the guest reads it out. Each step below changes the expected count,
+    # so the assertion can't pass on the previous step's stale caption.
+    fill_and_blur(page, search_label, "555-311")
+    expect(page.get_by_text("2 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+
+    fill_and_blur(page, search_label, "5553110002")
+    expect(page.get_by_text("1 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+
+    fill_and_blur(page, search_label, "")
     page.wait_for_timeout(700)
 
     # ── Save with no edits is a harmless no-op ──────────────────────────
@@ -211,6 +221,53 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
     expect(page.get_by_text("No changes to apply.", exact=True)).to_be_visible(timeout=10000)
     assert reset_db.get_guest_by_email("grid.alpha@example.com")["checked_in"] is False
     assert reset_db.get_guest_by_email("grid.beta@example.com")["checked_in"] is False
+
+
+# ── Flow 10c: Danger Zone backup-before-reset ───────────────────────────
+
+def test_admin_danger_zone_backup_downloads_zip_and_per_table_csvs(page, base_url, reset_db):
+    """The backup has to actually produce files — it is the only undo the
+    reset has. Also covers the reference list of tables/views rendered
+    alongside it."""
+    import io
+    import zipfile
+
+    reset_db.register_guest("Backup Bob", "backup.bob@example.com", "+1-555-300-0000",
+                            2, "", "ZELLE-BACKUP001")
+
+    goto(page, base_url, "Admin")
+    login_admin(page, ADMIN_PASSWORD)
+    expect(page.get_by_role("tab", name="Overview")).to_be_visible(timeout=10000)
+
+    page.get_by_text("Danger Zone", exact=False).first.click()
+    page.wait_for_timeout(700)
+
+    # Before preparing anything, the operator is told a backup is missing.
+    expect(page.get_by_text("No backup prepared in this session", exact=False)).to_be_visible(timeout=10000)
+
+    page.get_by_role("button", name="📦 Prepare backup").click()
+    expect(page.get_by_role("button", name="⬇ Download full backup (ZIP)")).to_be_visible(timeout=15000)
+
+    with page.expect_download(timeout=15000) as dl_info:
+        page.get_by_role("button", name="⬇ Download full backup (ZIP)").click()
+    with zipfile.ZipFile(io.BytesIO(open(dl_info.value.path(), "rb").read())) as archive:
+        names = set(archive.namelist())
+        assert names == {f"{t}.csv" for t in reset_db.BACKUP_TABLES} | {"README.txt"}
+        guests_csv = archive.read("guests.csv").decode("utf-8")
+        assert "Backup Bob" in guests_csv
+        assert "backup.bob@example.com" in guests_csv
+        assert "vw_registrations_summary" in archive.read("README.txt").decode("utf-8")
+
+    # Per-table CSVs are offered individually too (a phone can't open a ZIP).
+    with page.expect_download(timeout=15000) as dl_info:
+        page.get_by_role("button", name="⬇ guests.csv", exact=False).click()
+    assert "Backup Bob" in open(dl_info.value.path(), "r", encoding="utf-8").read()
+
+    # The "what can I query" reference renders every table and view name.
+    for table, _desc in reset_db.DATA_TABLES:
+        assert page.get_by_text(table, exact=False).count() >= 1
+    for view, _desc in reset_db.REPORTING_VIEWS:
+        assert page.get_by_text(view, exact=False).count() >= 1
 
 
 # ── Service-level coverage of the real Guests-tab mutation logic ────────

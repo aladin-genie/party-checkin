@@ -793,6 +793,58 @@ div[data-testid="stContainer"] {
 }
 .closed-notice-message { color: var(--text-dim); font-size: 0.95rem; }
 
+/* ── Capacity guard: full-page notice + busy banner ───────────────────── */
+/* Shown instead of the whole app when active_session_count() is over the
+   hard limit — warm and party-themed, never "server error"-flavored. See
+   streamlit_app._render_capacity_page(). */
+.capacity-page {
+    text-align: center;
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14) 0%, rgba(var(--violet-rgb), 0.1) 100%);
+    border: 1px solid rgba(var(--gold-rgb), 0.35);
+    border-radius: var(--radius-xl);
+    padding: var(--space-8) var(--space-5);
+    margin: var(--space-5) 0;
+    box-shadow: var(--shadow-gold-lg);
+}
+.capacity-page-icon { font-size: 2.6rem; margin-bottom: var(--space-3); }
+.capacity-page-title {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--gold-soft);
+    margin-bottom: var(--space-3);
+}
+.capacity-page-message {
+    color: var(--text-dim);
+    font-size: 1rem;
+    line-height: 1.6;
+    max-width: 46ch;
+    margin: 0 auto var(--space-4) auto;
+}
+.capacity-page-message strong { color: var(--text); }
+.capacity-page-count {
+    display: inline-block;
+    margin-top: var(--space-2);
+    color: var(--text-dimmer);
+    font-size: 0.82rem;
+}
+
+/* Soft-limit banner: visitors are let through, just told it may be slow. */
+.busy-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: var(--radius-md);
+    padding: 10px var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 /* ── Check-in window status banner (admin) ────────────────────────────── */
 .checkin-window-banner {
     display: flex;
@@ -833,6 +885,29 @@ div[data-testid="stContainer"] {
 .status-warn .guest-result-status { color: var(--warn); }
 .status-err .guest-result-status { color: var(--err); }
 .guest-result-message { margin-top: 8px; color: var(--text-dim); font-size: 0.9rem; }
+
+/* ── Guest identity card (scanner: confirm before checking in) ─────────── */
+.guest-identity-rows {
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-3);
+}
+.guest-identity-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 5px 0;
+    font-size: 0.95rem;
+}
+.guest-identity-label { color: var(--text-dim); flex: 0 0 auto; }
+/* Long emails must wrap rather than push the value off a phone screen. */
+.guest-identity-value {
+    color: var(--text);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-word;
+}
+.guest-identity-value.is-strong { font-size: 1.05rem; color: var(--gold); }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
 .app-footer {
@@ -1231,6 +1306,44 @@ def checkin_window_banner(is_open: bool, detail: str = "") -> str:
     )
 
 
+def capacity_full_page() -> str:
+    """The friendly full-page "we're at capacity" screen (capacity guard).
+
+    Shown instead of the whole app when too many sessions are active at
+    once. Deliberately warm and party-themed, never server/error-flavored —
+    the owner's ask was that anyone turned away should feel like the party
+    is popular, not that something broke, and should always be told their
+    spot is safe. Pair with an st.button("Retry") below this in the caller;
+    HTML markup alone can't submit a rerun.
+    """
+    return f"""
+    <div class="capacity-page">
+        <div class="capacity-page-icon">🎉</div>
+        <div class="capacity-page-title">Whoa — lots of people checking this out right now!</div>
+        <div class="capacity-page-message">
+            So many guests are on the site at once that we're asking new visitors to hang back
+            for just a minute so it stays fast for everyone.
+            <br><br>
+            <strong>Your spot is completely safe</strong> — nothing here is first-come,
+            first-served, registration stays open for weeks, and nothing you've already
+            done is at risk.
+            <br><br>
+            Give it a minute and try again — it'll be quick.
+        </div>
+    </div>
+    """
+
+
+def busy_banner() -> str:
+    """A small, non-blocking banner shown when load is elevated but not yet
+    at the hard capacity limit — the visitor gets through, just forewarned."""
+    return (
+        '<div class="busy-banner">'
+        '🚦 Busier than usual right now — pages may take a little longer to load. Thanks for your patience!'
+        '</div>'
+    )
+
+
 def footer() -> str:
     """The small centered app footer line."""
     return (
@@ -1269,4 +1382,52 @@ def guest_result_card(name: str, tickets, status: str, message: str = "") -> str
     if message:
         parts.append(f'<div class="guest-result-message">{html.escape(message)}</div>')
     parts.append("</div>")
+    return "".join(parts)
+
+
+def guest_identity_card(guest: dict, bands: int, status_label: str, status: str = "found") -> str:
+    """The "is this you?" card the Scanner shows before anyone is checked in.
+
+    Door staff search by phone (guests often can't remember which email
+    address their QR code went to), so the match has to be confirmed against
+    a person, not just a number: every identifying field is listed —  name,
+    email, phone — alongside what the booking is owed, tickets and the
+    wristbands that go with them.
+
+    `status` styles the card ("found" / "already" / "done") and
+    `status_label` is the line staff read, e.g. "Not checked in yet".
+    """
+    status_map = {
+        "found": "status-ok",
+        "already": "status-warn",
+        "done": "status-ok",
+    }
+    css_class = status_map.get(status, "status-ok")
+
+    rows = [
+        ("Email", guest.get("email") or "—", False),
+        ("Phone", guest.get("phone") or "— (registered before phone was required)", False),
+        ("Tickets", str(guest.get("ticket_count") or 1), True),
+        ("Wristbands", str(bands), True),
+    ]
+
+    extra_names = [n for n in (guest.get("plus_one_name") or "").split("\n") if n.strip()]
+    if extra_names:
+        rows.append((f"Additional guests ({len(extra_names)})", ", ".join(extra_names), False))
+
+    # Concatenated for the same reason as guest_result_card() above: a blank
+    # line inside the HTML block would end it and dump the rest as text.
+    parts = [f'<div class="guest-result-card {css_class}">']
+    parts.append(f'<div class="guest-result-name">{html.escape(str(guest.get("name") or "Unknown"))}</div>')
+    parts.append(f'<div class="guest-result-status">{html.escape(status_label)}</div>')
+    parts.append('<div class="guest-identity-rows">')
+    for label, value, strong in rows:
+        strong_class = " is-strong" if strong else ""
+        parts.append(
+            '<div class="guest-identity-row">'
+            f'<span class="guest-identity-label">{html.escape(label)}</span>'
+            f'<span class="guest-identity-value{strong_class}">{html.escape(str(value))}</span>'
+            "</div>"
+        )
+    parts.append("</div></div>")
     return "".join(parts)

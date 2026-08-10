@@ -50,8 +50,8 @@ The code is layered so that business logic is testable without a browser:
 | **Zelle Payments** | Guests pay via Zelle, then submit their transaction reference |
 | **Auto QR Email** | QR code is emailed after registration, on a background thread so the guest isn't held up by the SMTP round-trip |
 | **Bulk registration** | One person can buy up to 20 tickets and list every guest's name |
-| **My QR lookup** | Guests re-find their QR code by email, or via the link in their email |
-| **Self Check-In** | Camera scan or manual entry at the door |
+| **My QR lookup** | Guests re-find their QR code by email **or phone number**, or via the link in their email |
+| **Self Check-In** | Camera scan, or search by phone / email / ticket ID — always confirmed against the guest's details before anyone is checked in |
 | **Check-in window** | Check-in stays locked until 2 hours before the party, with an admin override |
 | **Audio Announcement** | Speaks name + ticket count for staff via browser TTS |
 | **Wristband Tracking** | Prevents double distribution |
@@ -77,6 +77,28 @@ Admin → Overview → **Check-in Window** overrides this:
 The setting lives in the database, so it applies to everyone and survives restarts. The rule is
 enforced in the service layer, not just hidden in the UI. Admin check-ins made from the Guests
 spreadsheet always bypass the window, so an organiser can admit someone by hand at any time.
+
+### Door flow: find first, then confirm
+
+A search on the Scanner page **never checks anyone in**. It resolves a QR code,
+phone number, email, or ticket ID to one guest and puts that guest on screen —
+name, email, phone, ticket count, and how many wristbands they are owed (one per
+ticket) — with their current check-in status. Only the explicit **Confirm & Check
+In** press records anything.
+
+That split exists because phone is the search staff actually reach for: guests
+routinely can't remember which of their email addresses the QR code went to, but
+they always know their own number. A phone number identifies a *booking*, though,
+not a person — it can be mistyped, and a couple may register separately from one
+number — so it is a way to locate someone, never proof of who they are. The
+confirm step is keyed by guest id, not by the code that was searched, so
+re-running the search can't admit a different booking than the one staff just
+read back.
+
+> The confirmation card shows a guest's email and phone to anyone using the
+> Scanner page, which is unauthenticated. That is deliberate — staff need it to
+> confirm identity — but if the page is ever reachable beyond the door, put it
+> behind the admin password or mask those two fields.
 
 ### Admin Guests spreadsheet
 
@@ -105,17 +127,22 @@ confirmation step. Identity columns are read-only so they can't be edited by acc
           |
   Guest sends $20 per ticket via Zelle
           |
-  Guest registers (name, email, tickets, Zelle reference, accepts T&Cs)
+  Guest registers (name, email, phone, tickets, Zelle reference, accepts T&Cs)
           |
   QR code is emailed to the guest
           |
    ── Night of the party ──
           |
-  Guest shows QR  →  staff scans at Scanner
+  Guest shows QR  →  staff scan at Scanner
+     ...or can't find the email → staff search by phone number
+          |
+  Scanner shows WHO was found (name, email, phone, tickets, wristbands)
+          |
+  Staff confirm it's them → "Confirm & Check In"
           |
   Audio: "Welcome Sarah! 2 tickets."
           |
-  Staff hands wristband → clicks "Mark Band Given"
+  Staff hand over the wristbands → "Mark N Wristbands Given"
 ```
 
 ---
@@ -206,7 +233,7 @@ sanitization, CSV-injection and XSS escaping, and Postgres URL normalization.
 |-------|-------|
 | **Full Name** | Letters and spaces only; 2–100 characters |
 | **Email** | Standard email format; must be unique |
-| **Phone** | Optional; US only; normalized to `+1-XXX-XXX-XXXX` on submit |
+| **Phone** | Required; US numbers only (a `+` country code other than `+1` is rejected, as is an area code starting with 0 or 1). The field starts at `+1-` and formats itself to `+1-XXX-XXX-XXXX` as the guest types; `sanitize_phone()` re-normalizes server-side, so the mask is cosmetic and validation is identical without it |
 | **Additional Guest Names** | Optional; up to 20 names, one per line or comma-separated; letters and spaces only |
 | **Zelle Reference** | Required; 8–30 characters; letters, digits, hyphens |
 | **Terms** | Must accept "I/We Agree" |
@@ -244,7 +271,7 @@ Editor** (query).
 | `id` | integer | Primary key |
 | `name` | varchar(100) | Letters and spaces only; validated on entry |
 | `email` | varchar(120) | **Unique** — one registration per address |
-| `phone` | varchar(30) | Optional; stored normalized as `+1-XXX-XXX-XXXX` |
+| `phone` | varchar(30) | Required at registration; stored normalized as `+1-XXX-XXX-XXXX`, and a second lookup key alongside email. Rows created before it became mandatory keep `""` |
 | `ticket_count` | integer | 1–20 |
 | `plus_one_name` | varchar(1000) | Additional guest names, **newline-separated** (up to 20) |
 | `zelle_ref` | varchar(100) | Payment reference, uppercased; cross-check against your bank |
@@ -331,18 +358,38 @@ SELECT COUNT(*) FROM guests WHERE checked_in AND checkin_time IS NULL;
 
 ---
 
-## Resetting after testing
+## Backing up & resetting after testing
 
 When you're done testing and want a clean slate for the real event:
 
-**Admin → scroll to the bottom → ⚠️ Danger Zone → type `RESET` → Permanently delete all data.**
+**Admin → scroll to the bottom → ⚠️ Danger Zone → 📦 Prepare backup → ⬇ Download full backup
+(ZIP) → type `RESET` → Permanently delete all data.**
+
+### Back up first
+
+**Prepare backup** snapshots every table and offers it two ways:
+
+- **⬇ Download full backup (ZIP)** — `guests.csv`, `checkin_logs.csv`, `page_visits.csv`,
+  `submission_logs.csv`, `app_settings.csv`, plus a `README.txt` describing each file.
+- **⬇ `<table>.csv`** — the same files individually, for when you're on a phone that can't
+  open a ZIP.
+
+Headers are the real database column names (raw `id`s, ISO-8601 UTC timestamps,
+`true`/`false`), so a backup can be loaded straight back into the same schema — unlike the
+Guests tab's ⬇ Download CSV, which is the prettified human export. Text fields starting with
+`=`, `+`, `-`, or `@` are escaped, so opening a backup in Excel can't execute anything.
+
+The prepared archive stays downloadable after the reset runs — once the tables are empty it's
+the only copy left.
+
+### Then reset
 
 This empties `guests`, `checkin_logs`, `page_visits`, and `submission_logs`, and puts the
 check-in mode back to `auto`. It does **not** drop any table, so the app keeps working
 immediately afterwards.
 
-> **This cannot be undone.** Download the CSV from the Guests tab first if you want a copy.
-> The button stays disabled until you type `RESET` exactly, in capitals.
+> **This cannot be undone.** The button stays disabled until you type `RESET` exactly, in
+> capitals, and the page warns you if you haven't prepared a backup in this session.
 
 ---
 
@@ -361,6 +408,10 @@ These reporting views are created automatically on Postgres at startup:
 | `vw_site_activity_summary` | Total/today visits and unique visitors |
 | `vw_submissions_summary` | Submission counts grouped by status |
 | `vw_submissions_recent` | Last 100 submission attempts |
+
+The same list — tables and views, with a one-line description each — is shown in the app under
+**Admin → Danger Zone → Tables & views to query**, and in the `README.txt` inside every backup
+ZIP, so you don't need this file open to know what to query.
 
 ---
 

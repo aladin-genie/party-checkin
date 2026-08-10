@@ -79,6 +79,27 @@ _DEFAULT_ZELLE = "dallashudugaru@gmail.com"
 _PLACEHOLDER_ZELLE = "your-zelle-phone@email.com or +1-234-567-8900"
 
 
+def max_concurrent_users() -> int:
+    """Hard concurrency limit for the capacity guard.
+
+    Above this many active sessions (see utils.active_session_count()), a
+    new visitor sees the friendly "we're at capacity" screen instead of the
+    app. Tunable via the MAX_CONCURRENT_USERS secret so it can be adjusted
+    without a redeploy.
+    """
+    return get_secret_int("MAX_CONCURRENT_USERS", 60)
+
+
+def busy_warn_users() -> int:
+    """Soft concurrency limit for the capacity guard.
+
+    Above this many active sessions (but at/below max_concurrent_users()), a
+    visitor is still let through but sees a small "busier than usual"
+    banner. Tunable via the BUSY_WARN_USERS secret.
+    """
+    return get_secret_int("BUSY_WARN_USERS", 40)
+
+
 def zelle_info() -> str:
     """Return the Zelle payment info to display, with placeholder fallback.
 

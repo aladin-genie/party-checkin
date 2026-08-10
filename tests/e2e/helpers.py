@@ -81,7 +81,7 @@ def fill_registration_form(
     *,
     name: str = "",
     email: str = "",
-    phone: str = "",
+    phone: str = "555-123-4567",
     guest_names: str = "",
     zelle_ref: str = "",
     tickets: int | None = None,
@@ -94,6 +94,10 @@ def fill_registration_form(
     `guest_names` fills the "Additional Guest Names (optional)" multi-line
     `st.text_area` (up to 20 names, one per line or comma-separated —
     formerly a single-line "Plus One Name" field).
+
+    `phone` defaults to a valid US number because the field is mandatory —
+    tests exercising one deliberately-invalid field would otherwise trip the
+    phone error too. Pass phone="" to leave it blank on purpose.
     """
     if tickets is not None:
         fill_and_blur(page, "Number of Tickets *", str(tickets))
@@ -101,7 +105,7 @@ def fill_registration_form(
     page.get_by_label("Full Name *").fill(name)
     page.get_by_label("Email Address *").fill(email)
     if phone:
-        page.get_by_label("Phone Number (optional)").fill(phone)
+        page.get_by_label("Phone Number *").fill(phone)
     if guest_names:
         page.get_by_label("Additional Guest Names (optional)").fill(guest_names)
     page.get_by_label("Zelle Transaction Reference *").fill(zelle_ref)
@@ -131,10 +135,36 @@ def select_checkin_mode(page: Page, label: str) -> None:
     page.get_by_text(label, exact=True).click()
 
 
+SCANNER_LOOKUP_FIELD = "Phone / Email / Ticket ID / QR Code"
+
+
+def scanner_find(page: Page, code: str) -> None:
+    """Search the Scanner for a guest. Checks nobody in — the door flow puts
+    the guest's details on screen first and waits for staff to confirm."""
+    fill_and_blur(page, SCANNER_LOOKUP_FIELD, code)
+    page.get_by_role("button", name="🔍 Find Guest").click()
+
+
+def scanner_confirm_checkin(page: Page) -> None:
+    """Press confirm on the guest card a search just produced, and wait for
+    the check-in to actually land.
+
+    The write happens server-side on that click, so a caller that asserts on
+    the DB straight afterwards can beat the rerun that records it. The
+    guest's name is on screen either side of the confirmation and the
+    confirm button can unmount mid-rerun (i.e. before the write commits), so
+    neither is a usable marker — the success card's status label only
+    renders after the check-in is recorded, so wait on that."""
+    confirm = page.get_by_role("button", name="✅ Confirm & Check In")
+    confirm.wait_for(timeout=10000)
+    confirm.click()
+    page.get_by_text("✅ Checked In", exact=False).first.wait_for(timeout=15000)
+
+
 def scanner_checkin(page: Page, code: str) -> None:
-    """Type a code into the Scanner's manual-entry field and submit it."""
-    fill_and_blur(page, "Ticket ID / Email / QR Code", code)
-    page.get_by_role("button", name="Check In Manually").click()
+    """Both halves of the door flow: find the guest, then confirm them in."""
+    scanner_find(page, code)
+    scanner_confirm_checkin(page)
 
 
 def login_admin(page: Page, password: str) -> None:

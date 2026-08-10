@@ -13,6 +13,8 @@ import csv
 import re
 import smtplib
 import threading
+import time
+import zipfile
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -21,7 +23,10 @@ from hmac import compare_digest
 
 import qrcode
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, func, inspect, or_
+from sqlalchemy import (
+    create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey,
+    func, inspect, or_, case, select, insert,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
@@ -241,6 +246,35 @@ def _using_fallback_db() -> bool:
     return get_engine().url.drivername.startswith("sqlite")
 
 
+def db_degraded() -> bool:
+    """True when a real DATABASE_URL was configured but we fell back to SQLite.
+
+    This is the dangerous case, and it is NOT the same as simply running on
+    SQLite. Locally (and in the test suite) DATABASE_URL is deliberately a
+    sqlite:// URL, which is fine. But in production DATABASE_URL points at
+    Supabase, and if that is unreachable when the app boots — a paused
+    project, a network blip, or Postgres connection limits exhausted during a
+    registration rush — _get_engine_cached() silently falls back to an
+    ephemeral SQLite file inside the Streamlit container.
+
+    Without this check the app would keep cheerfully accepting registrations
+    and emailing QR codes into a database that disappears on the next
+    restart. Callers use this to refuse writes instead, so a guest is told to
+    come back rather than being quietly lost.
+    """
+    configured = _get_secret("DATABASE_URL", "")
+    if not configured or configured.strip().startswith("sqlite"):
+        return False  # intentionally local — dev machine or test suite
+    return _using_fallback_db()
+
+
+DB_DEGRADED_MESSAGE = (
+    "We can't reach the guest database right now, so we've paused sign-ups for a moment "
+    "to make sure nothing gets lost. Nothing you've done is affected. "
+    "Please try again in a few minutes — and if it keeps happening, message the organiser."
+)
+
+
 @st.cache_resource(show_spinner=False)
 def get_session_factory():
     """Create a cached session factory."""
@@ -432,22 +466,70 @@ _VALID_CHECKIN_MODES = (CHECKIN_MODE_AUTO, CHECKIN_MODE_OPEN, CHECKIN_MODE_CLOSE
 
 
 def get_checkin_mode() -> str:
-    """Return the persisted check-in mode, defaulting to 'auto' when unset or invalid."""
+    """Return the persisted check-in mode, defaulting to 'auto' when unset or invalid.
+
+    Always a fresh DB read (not cached) — the admin dashboard's Check-in
+    Window control and several tests write app_settings directly and expect
+    this to reflect it immediately. See _cached_checkin_mode() for the
+    short-TTL cached read used by the hot scan path.
+    """
     mode = get_setting(_CHECKIN_MODE_SETTING_KEY, CHECKIN_MODE_AUTO)
     return mode if mode in _VALID_CHECKIN_MODES else CHECKIN_MODE_AUTO
+
+
+_CHECKIN_MODE_CACHE_TTL_SECONDS = 5
+
+
+@st.cache_resource(show_spinner=False)
+def _checkin_mode_cache_state() -> dict:
+    """Process-global cache for the check-in mode, shared across sessions.
+
+    {"value": str|None, "expires_at": float (time.monotonic()), "lock":
+    threading.Lock()}. `value` is None whenever the cache is cold/invalidated.
+    """
+    return {"value": None, "expires_at": 0.0, "lock": threading.Lock()}
+
+
+def _cached_checkin_mode() -> str:
+    """Return get_checkin_mode(), cached for a few seconds (process-global).
+
+    check_in_by_code() re-checks the check-in mode before every single
+    lookup — under a door queue that's an app_settings SELECT per scan for
+    no reason, since the mode only ever changes when an admin flips it.
+    Cached here with a short TTL so repeated scans don't pay for it, while
+    set_checkin_mode() invalidates this immediately so an admin's change
+    still takes effect within, at most, _CHECKIN_MODE_CACHE_TTL_SECONDS.
+    """
+    state = _checkin_mode_cache_state()
+    now = time.monotonic()
+    with state["lock"]:
+        if state["value"] is not None and now < state["expires_at"]:
+            return state["value"]
+    value = get_checkin_mode()
+    with state["lock"]:
+        state["value"] = value
+        state["expires_at"] = time.monotonic() + _CHECKIN_MODE_CACHE_TTL_SECONDS
+    return value
 
 
 def set_checkin_mode(mode: str) -> None:
     """Persist the check-in mode.
 
     Raises ValueError if `mode` isn't one of CHECKIN_MODE_AUTO/OPEN/CLOSED.
+    Invalidates _cached_checkin_mode()'s cache immediately so the change is
+    visible to the next scan/status read, not up to
+    _CHECKIN_MODE_CACHE_TTL_SECONDS later.
     """
     if mode not in _VALID_CHECKIN_MODES:
         raise ValueError(f"Invalid checkin mode: {mode!r} (expected one of {_VALID_CHECKIN_MODES})")
     set_setting(_CHECKIN_MODE_SETTING_KEY, mode)
+    state = _checkin_mode_cache_state()
+    with state["lock"]:
+        state["value"] = None
+        state["expires_at"] = 0.0
 
 
-def checkin_status() -> dict:
+def checkin_status(use_cache: bool = False) -> dict:
     """Return the current check-in gate status.
 
     {"open": bool, "mode": str, "opens_at_utc": datetime, "opens_at_text": str,
@@ -459,8 +541,26 @@ def checkin_status() -> dict:
 
     `message` is a user-facing explanation for the Scanner page, populated
     whenever check-in is currently closed; empty string when open.
+
+    use_cache=False (the default) reads the mode fresh via get_checkin_mode()
+    every time — this is what page renders (the Scanner gate, the Admin
+    banner) must use, so a mode change is reflected the instant it happens,
+    not up to _CHECKIN_MODE_CACHE_TTL_SECONDS later. It is also what keeps
+    this function safe to call from a different OS process than the one that
+    wrote the change (e.g. the e2e test harness's DB-seeding process vs. the
+    Streamlit server subprocess it drives) — _cached_checkin_mode()'s cache
+    is process-global, not cross-process, so a stale cache in the
+    *rendering* process would otherwise linger for up to the TTL after an
+    out-of-band write.
+
+    use_cache=True reads the (briefly cached) mode via _cached_checkin_mode()
+    instead — check_in_by_code() opts into this because it is the function
+    that runs on every single scan attempt in a door queue, so it is the one
+    that actually benefits from not hitting app_settings every time. Either
+    way, the "auto" mode's open/closed transition is computed fresh against
+    _utc_now() on every call, so the event-time window itself is never stale.
     """
-    mode = get_checkin_mode()
+    mode = _cached_checkin_mode() if use_cache else get_checkin_mode()
     opens_at_utc = config.checkin_opens_at_utc()
     opens_at_text = config.checkin_opens_at_text()
 
@@ -483,21 +583,129 @@ def checkin_status() -> dict:
     }
 
 
+# ── Capacity Guard ────────────────────────────────────────────────────────────
+# Streamlit Community Cloud's free tier is a single Python process with
+# ~1GB RAM and a shared vCPU. If a registration link goes out to ~700
+# people and ~200 open it at once, the honest options are: let it fall
+# over, or degrade politely. The owner's ask was explicit: never leave
+# someone who already loaded the app stranded — slow it down for new
+# arrivals instead. touch_session()/active_session_count() track how many
+# browser sessions have been active in the last ACTIVE_WINDOW_SECONDS,
+# process-global (shared across every session, like the visit buffer
+# above) so the whole app agrees on one number.
+
+ACTIVE_WINDOW_SECONDS = 60
+
+
+@st.cache_resource(show_spinner=False)
+def _active_sessions_state() -> dict:
+    """Process-global registry of session heartbeats, shared across sessions.
+
+    {"sessions": {session_id: float (time.monotonic() of last touch)},
+     "lock": threading.Lock()}.
+    """
+    return {"sessions": {}, "lock": threading.Lock()}
+
+
+def _prune_active_sessions_locked(state: dict, now: float) -> None:
+    """Drop heartbeats older than ACTIVE_WINDOW_SECONDS. Caller must hold the lock."""
+    cutoff = now - ACTIVE_WINDOW_SECONDS
+    stale = [sid for sid, ts in state["sessions"].items() if ts < cutoff]
+    for sid in stale:
+        del state["sessions"][sid]
+
+
+def _runtime_session_count():
+    """True number of browser sessions connected to this server, or None.
+
+    Streamlit's own runtime knows exactly which WebSocket sessions are live,
+    which is far more accurate than counting recently-seen tokens: our
+    visitor_token lives in st.session_state, and Streamlit creates a NEW
+    session on every page load/refresh. So one guest who refreshes once, or
+    opens the emailed "?page=My QR" link after browsing, would otherwise be
+    counted as two or three concurrent visitors for the whole prune window —
+    and the capacity guard would start turning real people away long before
+    the app was actually busy.
+
+    This is a private API, so it is fully guarded and pinned-version-only;
+    callers fall back to the token heuristic when it isn't available.
+    """
+    try:
+        from streamlit.runtime import get_instance
+
+        return len(get_instance()._session_mgr.list_active_sessions())
+    except Exception:
+        return None
+
+
+def touch_session(session_id: str) -> int:
+    """Register `session_id` as active right now; return the active-session count.
+
+    Called once per Streamlit script run (see streamlit_app.main()). Cheap
+    and DB-free — this is an in-memory dict update, not a query, so it costs
+    nothing extra during a burst. Prunes stale entries on every call so the
+    registry can never grow unbounded across a long-running process.
+
+    Prefers Streamlit's real connected-session count and falls back to the
+    token registry (e.g. when running outside a Streamlit server, as the
+    tests do).
+    """
+    state = _active_sessions_state()
+    now = time.monotonic()
+    with state["lock"]:
+        state["sessions"][session_id] = now
+        _prune_active_sessions_locked(state, now)
+        fallback = len(state["sessions"])
+    real = _runtime_session_count()
+    return real if real is not None else fallback
+
+
+def active_session_count() -> int:
+    """Return the current active-session count without registering a touch.
+
+    Used by the admin Overview so the organiser can watch live load without
+    that read itself counting as a visitor session.
+    """
+    state = _active_sessions_state()
+    now = time.monotonic()
+    with state["lock"]:
+        _prune_active_sessions_locked(state, now)
+        fallback = len(state["sessions"])
+    real = _runtime_session_count()
+    return real if real is not None else fallback
+
+
 def get_stats() -> dict:
-    """Return current event statistics."""
+    """Return current event statistics.
+
+    Computed via a SINGLE aggregate SELECT (COUNT/SUM/CASE) instead of six
+    separate round trips to the database — on a remote Postgres connection
+    each round trip costs real latency, and this is read on nearly every
+    page render. COALESCE guards every SUM so an empty `guests` table
+    yields 0 (never NULL/None), and the derived percentages below use the
+    same "if total else 0.0" guard as before so a fresh install never
+    divides by zero. Works on both SQLite and PostgreSQL — case()/func.sum
+    are portable SQLAlchemy constructs, no raw SQL.
+    """
     session = get_db()
     try:
-        total = session.query(Guest).count()
-        checked_in = session.query(Guest).filter_by(checked_in=True).count()
-        bands = session.query(Guest).filter_by(band_given=True).count()
-        tickets = session.query(func.sum(Guest.ticket_count)).scalar() or 0
-        admitted_tickets = (
-            session.query(func.sum(Guest.ticket_count))
-            .filter(Guest.checked_in == True)
-            .scalar()
-            or 0
-        )
-        plus_one_count = session.query(Guest).filter(Guest.plus_one_name != "").count()
+        row = session.query(
+            func.count(Guest.id),
+            func.coalesce(func.sum(case((Guest.checked_in == True, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Guest.band_given == True, 1), else_=0)), 0),
+            func.coalesce(func.sum(Guest.ticket_count), 0),
+            func.coalesce(
+                func.sum(case((Guest.checked_in == True, Guest.ticket_count), else_=0)), 0
+            ),
+            func.coalesce(func.sum(case((Guest.plus_one_name != "", 1), else_=0)), 0),
+        ).one()
+
+        total = int(row[0])
+        checked_in = int(row[1])
+        bands = int(row[2])
+        tickets = int(row[3])
+        admitted_tickets = int(row[4])
+        plus_one_count = int(row[5])
 
         # Average tickets per guest
         avg_tickets = round(tickets / total, 2) if total else 0.0
@@ -532,64 +740,187 @@ def get_stats() -> dict:
 
 # ── Page Visit Tracking ─────────────────────────────────────────────────────────
 
+_VISIT_BUFFER_FLUSH_THRESHOLD = 25   # flush once this many rows are buffered
+_VISIT_BUFFER_FLUSH_INTERVAL_SECONDS = 30  # ...or this long since the last flush
+
+
+@st.cache_resource(show_spinner=False)
+def _visit_buffer_state() -> dict:
+    """Process-global buffer for record_visit(), shared across every session
+    in this worker process (that's the whole point of @st.cache_resource —
+    unlike st.session_state, it is NOT per-browser-session).
+
+    {"rows": [dict, ...], "lock": threading.Lock(), "last_flush": float
+    (time.monotonic() of the last successful/attempted flush)}.
+    """
+    return {"rows": [], "lock": threading.Lock(), "last_flush": time.monotonic()}
+
+
 def record_visit(visitor_token: str, page: str = "Home") -> None:
-    """Record a page visit for traffic stats. Safe to call frequently."""
+    """Record a page visit for traffic stats. Safe to call frequently.
+
+    Does NOT hit the database on the render path. Under a burst (e.g. ~200
+    people opening the registration link at once), that would be one
+    blocking INSERT per page navigation per visitor. Instead this appends
+    to a small in-memory buffer (process-global, shared across sessions —
+    see _visit_buffer_state()) and returns immediately. The buffer is
+    flushed as a single bulk insert, performed on a background daemon
+    thread so a flush never blocks a render either, once it grows past
+    _VISIT_BUFFER_FLUSH_THRESHOLD rows or _VISIT_BUFFER_FLUSH_INTERVAL_SECONDS
+    have elapsed since the last flush — whichever comes first.
+
+    Call flush_page_visits() to force a synchronous flush; the stats readers
+    below do this first so callers (including tests) always see up-to-date
+    numbers, never a stale pre-flush count.
+    """
+    state = _visit_buffer_state()
+    should_flush = False
+    with state["lock"]:
+        state["rows"].append(
+            {"visitor_token": visitor_token, "page": page, "visited_at": _utc_now()}
+        )
+        elapsed = time.monotonic() - state["last_flush"]
+        if (
+            len(state["rows"]) >= _VISIT_BUFFER_FLUSH_THRESHOLD
+            or elapsed >= _VISIT_BUFFER_FLUSH_INTERVAL_SECONDS
+        ):
+            should_flush = True
+
+    if should_flush:
+        threading.Thread(target=_flush_page_visits_worker, daemon=True).start()
+
+
+def _flush_page_visits_worker() -> None:
+    """Background-thread entry point for a threshold-triggered flush.
+
+    Wraps flush_page_visits() so an unexpected error inside the thread is
+    logged instead of vanishing silently (an uncaught exception in a daemon
+    thread doesn't crash the process, but Python does print an unhandled
+    traceback to stderr by default — this keeps the failure message
+    consistent with the rest of the app's "log, never raise into the UI"
+    convention instead).
+    """
+    try:
+        flush_page_visits()
+    except Exception as e:
+        print(f"record_visit: background flush failed: {e}")
+
+
+def flush_page_visits() -> int:
+    """Force a synchronous flush of buffered page visits to the database.
+
+    Safe to call frequently and from any thread (the render path, a
+    background flush thread, or a stats reader). Swaps the buffer out under
+    lock first — so record_visit() calls that land *during* the flush go
+    into a fresh buffer instead of being lost — then performs the insert as
+    a single bulk statement outside the lock, so a slow DB never blocks
+    concurrent record_visit() callers. Returns the number of rows flushed
+    (0 if the buffer was empty, which is the common case and costs no DB
+    round trip at all).
+
+    Never raises into the caller: if the bulk insert fails, the rows are
+    logged and put back at the front of the buffer (not silently dropped)
+    so the next flush attempt retries them.
+    """
+    state = _visit_buffer_state()
+    with state["lock"]:
+        rows = state["rows"]
+        state["rows"] = []
+        state["last_flush"] = time.monotonic()
+
+    if not rows:
+        return 0
+
     session = get_db()
     try:
-        visit = PageVisit(visitor_token=visitor_token, page=page, visited_at=_utc_now())
-        session.add(visit)
+        session.execute(insert(PageVisit), rows)
         session.commit()
-    except Exception:
+        return len(rows)
+    except Exception as e:
         session.rollback()
+        print(f"flush_page_visits: bulk insert of {len(rows)} row(s) failed, re-buffering: {e}")
+        with state["lock"]:
+            state["rows"] = rows + state["rows"]
+        return 0
     finally:
         session.close()
 
 
 def get_visit_stats() -> dict:
-    """Return traffic stats: total visits and unique visitors."""
+    """Return traffic stats: total visits and unique visitors.
+
+    Flushes the page-visit buffer first (see record_visit()) so this always
+    reflects every visit recorded so far, not a stale pre-flush count.
+    Computed via a single SELECT with two aggregate columns.
+    """
+    flush_page_visits()
     session = get_db()
     try:
-        total_visits = session.query(PageVisit).count()
-        unique_visitors = (
-            session.query(func.count(func.distinct(PageVisit.visitor_token))).scalar() or 0
-        )
+        row = session.query(
+            func.count(PageVisit.id),
+            func.count(func.distinct(PageVisit.visitor_token)),
+        ).one()
         return {
-            "total_visits": int(total_visits),
-            "unique_visitors": int(unique_visitors),
+            "total_visits": int(row[0]),
+            "unique_visitors": int(row[1] or 0),
         }
     finally:
         session.close()
 
 
 def get_site_stats() -> dict:
-    """Return public site-usage stats for the home page (v2)."""
+    """Return public site-usage stats for the home page (v2).
+
+    Flushes the page-visit buffer first (see record_visit()) for the same
+    reason as get_visit_stats(). Computed via a SINGLE SELECT built from six
+    scalar subqueries (the same pattern as vw_site_activity_summary below)
+    rather than six separate round trips — one statement dispatched to the
+    database, regardless of how many subqueries it contains internally.
+    """
+    flush_page_visits()
     session = get_db()
     try:
         today = _utc_now().date()
-        total_visits = session.query(PageVisit).count()
-        unique_visitors = (
-            session.query(func.count(func.distinct(PageVisit.visitor_token))).scalar() or 0
+
+        total_visits_sq = select(func.count(PageVisit.id)).scalar_subquery()
+        unique_visitors_sq = select(
+            func.count(func.distinct(PageVisit.visitor_token))
+        ).scalar_subquery()
+        today_visits_sq = (
+            select(func.count(PageVisit.id))
+            .where(func.date(PageVisit.visited_at) == today)
+            .scalar_subquery()
         )
-        today_visits = (
-            session.query(PageVisit).filter(func.date(PageVisit.visited_at) == today).count()
+        today_unique_sq = (
+            select(func.count(func.distinct(PageVisit.visitor_token)))
+            .where(func.date(PageVisit.visited_at) == today)
+            .scalar_subquery()
         )
-        today_unique = (
-            session.query(func.count(func.distinct(PageVisit.visitor_token)))
-            .filter(func.date(PageVisit.visited_at) == today)
-            .scalar()
-            or 0
+        total_regs_sq = select(func.count(Guest.id)).scalar_subquery()
+        today_regs_sq = (
+            select(func.count(Guest.id))
+            .where(func.date(Guest.created_at) == today)
+            .scalar_subquery()
         )
-        total_regs = session.query(Guest).count()
-        today_regs = (
-            session.query(Guest).filter(func.date(Guest.created_at) == today).count()
-        )
+
+        row = session.execute(
+            select(
+                total_visits_sq.label("total_visits"),
+                unique_visitors_sq.label("unique_visitors"),
+                today_visits_sq.label("today_visits"),
+                today_unique_sq.label("today_unique"),
+                total_regs_sq.label("total_regs"),
+                today_regs_sq.label("today_regs"),
+            )
+        ).one()
+
         return {
-            "total_visits": int(total_visits),
-            "unique_visitors": int(unique_visitors),
-            "today_visits": int(today_visits),
-            "today_unique": int(today_unique),
-            "total_regs": int(total_regs),
-            "today_regs": int(today_regs),
+            "total_visits": int(row.total_visits or 0),
+            "unique_visitors": int(row.unique_visitors or 0),
+            "today_visits": int(row.today_visits or 0),
+            "today_unique": int(row.today_unique or 0),
+            "total_regs": int(row.total_regs or 0),
+            "today_regs": int(row.today_regs or 0),
         }
     finally:
         session.close()
@@ -633,16 +964,15 @@ def record_submission(
         session.close()
 
 
-def _create_postgres_views(engine) -> None:
-    """Create/replace helpful reporting views on PostgreSQL (Supabase).
+def _reporting_view_sql() -> dict:
+    """The SELECT body of every reporting view, keyed by view name.
 
-    These views are skipped on SQLite because they use PostgreSQL-specific
-    date/time syntax. They give organisers ready-made dashboards in Supabase.
+    Split out from _create_postgres_views() so the view names live in one
+    place: REPORTING_VIEWS documents the same keys for the admin UI and the
+    backup manifest, and a test can assert the two never drift apart.
     """
-    from sqlalchemy import text
-
     event_date = config.EVENT_DATE.strftime("%Y-%m-%d")
-    views = {
+    return {
         "vw_registrations_summary": f"""
             SELECT
                 COUNT(*) AS total_guests,
@@ -695,8 +1025,31 @@ def _create_postgres_views(engine) -> None:
             LIMIT 100
         """,
     }
+
+
+# What each reporting view answers, in plain English — shown in the admin
+# Danger Zone and written into every backup's README so an organiser knows
+# what to query without opening this file. Keys must match _reporting_view_sql().
+REPORTING_VIEWS = (
+    ("vw_registrations_summary", "One row of totals: guests, tickets, checked in, bands given, still pending."),
+    ("vw_registrations_by_day", "Registrations and tickets per calendar day, newest first."),
+    ("vw_checkins_by_hour", "Check-in counts by hour of the event day."),
+    ("vw_site_activity_summary", "Page visits and unique visitors, all-time and today."),
+    ("vw_submissions_summary", "Registration attempts grouped by outcome (registered, duplicate_email, …)."),
+    ("vw_submissions_recent", "The 100 most recent submission attempts with their error text."),
+)
+
+
+def _create_postgres_views(engine) -> None:
+    """Create/replace helpful reporting views on PostgreSQL (Supabase).
+
+    These views are skipped on SQLite because they use PostgreSQL-specific
+    date/time syntax. They give organisers ready-made dashboards in Supabase.
+    """
+    from sqlalchemy import text
+
     with engine.connect() as conn:
-        for view_name, sql in views.items():
+        for view_name, sql in _reporting_view_sql().items():
             try:
                 conn.execute(text(f"CREATE OR REPLACE VIEW {view_name} AS {sql}"))
             except Exception as e:
@@ -1096,6 +1449,159 @@ def audio_announcement_js(text: str) -> str:
     """
 
 
+# ── Phone Input Mask (JavaScript) ───────────────────────────────────────────────
+
+US_PHONE_PREFIX = "+1-"
+
+
+def phone_input_mask_js(label: str, prefix: str = US_PHONE_PREFIX) -> str:
+    """Return an HTML/JS snippet that live-formats a US phone st.text_input.
+
+    Streamlit has no client-side input mask, so this reaches out of the
+    component iframe into the parent document and formats the field whose
+    aria-label is `label` (Streamlit renders a text_input's label as its
+    aria-label) on every keystroke: digits are grouped as +1-XXX-XXX-XXXX,
+    the +1 prefix is restored if deleted, and anything past 10 digits is
+    dropped. The caret is kept next to the digit the guest just typed rather
+    than being thrown to the end.
+
+    A value the guest deliberately opened with a non-+1 country code (say
+    "+44 20 7946 0958") is left exactly as typed — silently reshaping it
+    into a plausible-looking US number would be far worse than letting
+    validate_registration reject it as non-US.
+
+    This is cosmetic only. sanitize_phone() on the server stays the
+    authority, so a browser where this never runs validates identically —
+    which is also why every DOM step is defensive: a Streamlit upgrade that
+    renames something must degrade to "no live formatting", never to a
+    broken page.
+    """
+    import json as _json
+
+    js_label = _json.dumps(label).replace("</", "<\\/")
+    js_prefix = _json.dumps(prefix).replace("</", "<\\/")
+
+    return f"""
+    <script>
+        (function () {{
+            var LABEL = {js_label};
+            var PREFIX = {js_prefix};
+
+            var doc, win;
+            try {{
+                win = window.parent;
+                doc = win.document;
+            }} catch (e) {{ return; }}
+            if (!doc) {{ return; }}
+
+            function isTarget(el) {{
+                return el && el.tagName === "INPUT"
+                    && el.getAttribute("aria-label") === LABEL;
+            }}
+
+            function digitsOf(s) {{ return (s || "").replace(/\\D/g, ""); }}
+
+            // The value with a leading +1 country code (however it was typed
+            // or pasted) removed.
+            function bodyOf(s) {{
+                s = s || "";
+                var cc = s.match(/^\\+\\s*1[\\s\\-\\.\\(]*/);
+                return cc ? s.slice(cc[0].length) : s;
+            }}
+
+            function nationalDigits(s) {{
+                var d = digitsOf(bodyOf(s));
+                if (d.length > 10 && d.charAt(0) === "1") {{ d = d.slice(1); }}
+                return d.slice(0, 10);
+            }}
+
+            function format(d) {{
+                var out = PREFIX;
+                if (d.length) {{ out += d.slice(0, 3); }}
+                if (d.length > 3) {{ out += "-" + d.slice(3, 6); }}
+                if (d.length > 6) {{ out += "-" + d.slice(6, 10); }}
+                return out;
+            }}
+
+            // React tracks its own copy of the input value, so assigning
+            // el.value directly would be silently reverted on the next
+            // render. Going through the prototype's native setter is what
+            // makes React (and therefore Streamlit's widget state) see it.
+            function setValue(el, value) {{
+                var desc = Object.getOwnPropertyDescriptor(
+                    win.HTMLInputElement.prototype, "value");
+                if (desc && desc.set) {{ desc.set.call(el, value); }}
+                else {{ el.value = value; }}
+            }}
+
+            function onInput(e) {{
+                var el = e.target;
+                if (!isTarget(el) || el.dataset.usPhoneMaskBusy === "1") {{ return; }}
+
+                var raw = el.value || "";
+                // A country code of the guest's own — "+44…", or "+44…"
+                // typed after the restored prefix — means hands off, so the
+                // server can reject it as non-US (see the docstring).
+                if (bodyOf(raw).charAt(0) === "+") {{ return; }}
+
+                var formatted = format(nationalDigits(raw));
+                if (formatted === raw) {{ return; }}
+
+                var caret = (el.selectionStart == null) ? raw.length : el.selectionStart;
+                var typedBefore = nationalDigits(raw.slice(0, caret)).length;
+                var idx = PREFIX.length, seen = 0;
+                while (idx < formatted.length && seen < typedBefore) {{
+                    if (/\\d/.test(formatted.charAt(idx))) {{ seen++; }}
+                    idx++;
+                }}
+
+                el.dataset.usPhoneMaskBusy = "1";
+                try {{
+                    setValue(el, formatted);
+                    var Ev = win.Event || Event;
+                    el.dispatchEvent(new Ev("input", {{ bubbles: true }}));
+                    if (el.setSelectionRange) {{ el.setSelectionRange(idx, idx); }}
+                }} catch (err) {{
+                }} finally {{
+                    el.dataset.usPhoneMaskBusy = "";
+                }}
+            }}
+
+            // Clicking into the "+1-" prefix and typing there would push the
+            // country code into the number, so a collapsed caret is nudged
+            // back behind it. A real selection (e.g. select-all before
+            // pasting) is left alone.
+            function onFocusOrClick(e) {{
+                var el = e.target;
+                if (!isTarget(el) || !el.setSelectionRange) {{ return; }}
+                if (el.selectionStart !== el.selectionEnd) {{ return; }}
+                if (el.selectionStart < PREFIX.length
+                    && (el.value || "").indexOf(PREFIX) === 0) {{
+                    try {{ el.setSelectionRange(PREFIX.length, PREFIX.length); }} catch (err) {{}}
+                }}
+            }}
+
+            // Streamlit reruns re-create this iframe, so installation has to
+            // be idempotent: drop the handlers a previous run left behind
+            // (their JS context is gone) before registering these.
+            try {{
+                if (win.__usPhoneMaskInput) {{
+                    doc.removeEventListener("input", win.__usPhoneMaskInput, true);
+                    doc.removeEventListener("focusin", win.__usPhoneMaskCaret, true);
+                    doc.removeEventListener("click", win.__usPhoneMaskCaret, true);
+                }}
+            }} catch (e) {{}}
+
+            win.__usPhoneMaskInput = onInput;
+            win.__usPhoneMaskCaret = onFocusOrClick;
+            doc.addEventListener("input", onInput, true);
+            doc.addEventListener("focusin", onFocusOrClick, true);
+            doc.addEventListener("click", onFocusOrClick, true);
+        }})();
+    </script>
+    """
+
+
 # ── Input Validation ───────────────────────────────────────────────────────────
 
 def sanitize_email(email: str) -> str:
@@ -1133,6 +1639,11 @@ def sanitize_phone(phone: str) -> str:
     Accepts only digits and the formatting characters +, -, (, ), ., and space.
     A leading +1 country code is optional. The result is formatted as +1-XXX-XXX-XXXX.
     Returns an empty string if the input is blank/only-prefix or invalid.
+
+    US-only, enforced two ways: an explicit "+" prefix must be the +1 country
+    code (otherwise "+44 7946 0958" would strip down to 10 digits and be
+    mis-stored as the US number +1-447-946-0958), and the area code must start
+    with 2-9 as every real NANP area code does.
     """
     phone = phone.strip()
     if not phone or phone in ("+", "+1", "+1-"):
@@ -1144,16 +1655,30 @@ def sanitize_phone(phone: str) -> str:
 
     digits = re.sub(r"\D", "", phone)
 
-    # 10 digits -> assume US number
-    if len(digits) == 10:
-        return f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    # An explicit country code has to be +1 — see the docstring.
+    if phone.startswith("+") and not (len(digits) == 11 and digits.startswith("1")):
+        return ""
 
-    # 11 digits starting with 1 -> +1 US number
+    # 11 digits starting with 1 -> drop the +1 country code
     if len(digits) == 11 and digits.startswith("1"):
-        d = digits[1:]
-        return f"+1-{d[:3]}-{d[3:6]}-{d[6:]}"
+        digits = digits[1:]
 
-    return ""
+    if len(digits) != 10 or digits[0] in "01":
+        return ""
+
+    return f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+
+def phone_digits(value: str) -> str:
+    """Return just the digits of a phone number, minus any US country code.
+
+    Used for substring search (admin guest list) so that typing "5551234567"
+    or "555-1234" finds a guest stored as "+1-555-123-4567".
+    """
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
 
 
 def sanitize_guest_names(text: str, max_names: int = 20) -> str:
@@ -1239,10 +1764,17 @@ def validate_registration(
     if not email_clean:
         errors["email"] = "Please enter a valid email address."
 
+    # Phone is required (US numbers only). Email alone is too fragile as the
+    # single way to find someone at the door: people register with one of
+    # several addresses, mistype it, or can't get into that inbox on the night.
+    # A phone number gives the organiser a second lookup key — see
+    # find_guest_by_contact.
     phone_raw = (phone or "").strip()
     phone_touched = bool(phone_raw) and phone_raw not in ("+", "+1", "+1-")
     phone_clean = sanitize_phone(phone_raw) if phone_touched else ""
-    if phone_touched and not phone_clean:
+    if not phone_touched:
+        errors["phone"] = "Phone number is required — enter a 10-digit US number."
+    elif not phone_clean:
         errors["phone"] = "Please enter a valid 10-digit US phone number (only numbers after +1-)."
 
     plus_one_raw = (plus_one_name or "").strip()
@@ -1283,8 +1815,15 @@ def register_guest(
     caller is responsible for both.
 
     Returns {"ok": True, "guest": {...}} on success, or
-    {"ok": False, "reason": "duplicate_email"|"db_error", "message": str}.
+    {"ok": False, "reason": "duplicate_email"|"db_error"|"db_unavailable",
+    "message": str}.
     """
+    # Refuse to write into the throwaway SQLite fallback: a registration
+    # accepted there looks successful, emails a QR code, and then vanishes
+    # when the container restarts. Far better to ask the guest to retry.
+    if db_degraded():
+        return {"ok": False, "reason": "db_unavailable", "message": DB_DEGRADED_MESSAGE}
+
     session = get_db()
     try:
         existing = session.query(Guest).filter_by(email=email).first()
@@ -1323,15 +1862,101 @@ def register_guest(
         session.close()
 
 
+GUEST_NOT_FOUND_MESSAGE = (
+    "No guest found. Check the spelling, or try their phone number or email instead."
+)
+
+
+def _resolve_guest(session, code: str):
+    """Resolve a scanned/typed code to a Guest row, or None.
+
+    Resolution order: qr_code, then email, then US phone number, then numeric
+    id. Resolved via a single query (sqlalchemy.or_ over every condition)
+    rather than sequential SELECTs; when more than one candidate row comes
+    back the priority above is applied in Python, since the DB makes no
+    ordering guarantee across an OR of different columns.
+
+    Phone is matched on the normalized +1-XXX-XXX-XXXX form, so staff can
+    type it however the guest reads it out. A code that isn't a valid US
+    number simply contributes no phone condition — it must never fall
+    through to matching the phone="" rows that predate phone being
+    mandatory. Phone is not unique (a couple may share a number), so the
+    most recent registration wins, consistent with get_guest_by_phone().
+    """
+    code = (code or "").strip()
+    email_candidate = code.lower()
+    phone_candidate = sanitize_phone(code)
+
+    guest_id_candidate = None
+    try:
+        guest_id_candidate = int(code)
+    except (ValueError, TypeError):
+        guest_id_candidate = None
+
+    conditions = [Guest.qr_code == code, Guest.email == email_candidate]
+    if phone_candidate:
+        conditions.append(Guest.phone == phone_candidate)
+    if guest_id_candidate is not None:
+        conditions.append(Guest.id == guest_id_candidate)
+
+    candidates = session.query(Guest).filter(or_(*conditions)).all()
+
+    guest = next((g for g in candidates if g.qr_code == code), None)
+    if not guest:
+        guest = next((g for g in candidates if g.email == email_candidate), None)
+    if not guest and phone_candidate:
+        phone_matches = [g for g in candidates if g.phone == phone_candidate]
+        guest = max(phone_matches, key=lambda g: g.id) if phone_matches else None
+    if not guest and guest_id_candidate is not None:
+        guest = next((g for g in candidates if g.id == guest_id_candidate), None)
+    return guest
+
+
+def find_guest_by_code(code: str) -> dict:
+    """Look up a guest by QR code, email, phone, or id WITHOUT checking them in.
+
+    This is the first half of the door flow: staff search for whoever is in
+    front of them — most often by phone, because guests routinely don't
+    remember which of their email addresses the QR code went to — confirm
+    the person from the details returned here, and only then call
+    check_in_guest(). Nothing is written and the check-in window is not
+    consulted, because looking someone up decides nothing on its own.
+
+    Returns {"status": "found"|"not_found"|"db_unavailable", "guest": dict|
+    None, "message": str}.
+    """
+    if db_degraded():
+        return {"status": "db_unavailable", "guest": None, "message": DB_DEGRADED_MESSAGE}
+
+    session = get_db()
+    try:
+        guest = _resolve_guest(session, code)
+        if not guest:
+            return {"status": "not_found", "guest": None, "message": GUEST_NOT_FOUND_MESSAGE}
+        return {"status": "found", "guest": guest.to_dict(), "message": ""}
+    finally:
+        session.close()
+
+
+def wristband_count(guest: dict) -> int:
+    """How many wristbands this booking is owed — one per ticket.
+
+    Named rather than inlined because "bands" and "tickets" are the same
+    number for a reason (a booking of 4 tickets walks in as 4 people) and
+    the door staff card states it explicitly; if that ever stops being
+    one-to-one, this is the single place it changes.
+    """
+    try:
+        return max(int(guest.get("ticket_count") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
     """Resolve a scanned/typed code to a guest and check them in.
 
-    Resolution order: qr_code, then email, then numeric id — mirrors the
-    logic that used to live in streamlit_app._process_checkin. Resolved via
-    a single query (sqlalchemy.or_ over all three conditions) rather than up
-    to three sequential SELECTs; when more than one candidate row comes back
-    the qr_code/email/id priority above is applied in Python since the DB
-    makes no ordering guarantee across an OR of three different columns.
+    See _resolve_guest() for how a code is matched (QR code, email, phone,
+    or id).
 
     Enforces the check-in window (see checkin_status()) server-side: this is
     the real control, not just a UI convenience gate. If check-in is not
@@ -1350,32 +1975,25 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
     "guest": dict|None, "message": str}. The "already" message is null-safe
     about checkin_time.
     """
+    # A check-in recorded into the throwaway SQLite fallback would be lost on
+    # the next restart — at the door that means re-admitting people who were
+    # already scanned. Refuse rather than pretend.
+    if db_degraded():
+        return {"status": "db_unavailable", "guest": None, "message": DB_DEGRADED_MESSAGE}
+
     if not bypass_window:
-        status = checkin_status()
+        # use_cache=True: this runs on every single scan attempt in a door
+        # queue, so it's the one call site that should benefit from
+        # _cached_checkin_mode() rather than hitting app_settings every time
+        # (see checkin_status()'s docstring for why every other caller reads
+        # fresh instead).
+        status = checkin_status(use_cache=True)
         if not status["open"]:
             return {"status": "not_open", "guest": None, "message": status["message"]}
 
     session = get_db()
     try:
-        email_candidate = code.strip().lower()
-
-        guest_id_candidate = None
-        try:
-            guest_id_candidate = int(code)
-        except (ValueError, TypeError):
-            guest_id_candidate = None
-
-        conditions = [Guest.qr_code == code, Guest.email == email_candidate]
-        if guest_id_candidate is not None:
-            conditions.append(Guest.id == guest_id_candidate)
-
-        candidates = session.query(Guest).filter(or_(*conditions)).all()
-
-        guest = next((g for g in candidates if g.qr_code == code), None)
-        if not guest:
-            guest = next((g for g in candidates if g.email == email_candidate), None)
-        if not guest and guest_id_candidate is not None:
-            guest = next((g for g in candidates if g.id == guest_id_candidate), None)
+        guest = _resolve_guest(session, code)
 
         if not guest:
             return {
@@ -1383,6 +2001,57 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
                 "guest": None,
                 "message": "Invalid ticket. Please try again or check your email.",
             }
+
+        if guest.checked_in:
+            time_str = format_dt(guest.checkin_time, "%H:%M")
+            return {
+                "status": "already",
+                "guest": guest.to_dict(),
+                "message": f"{guest.name} already checked in at {time_str}",
+            }
+
+        guest.checked_in = True
+        guest.checkin_time = _utc_now()
+        log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner")
+        session.add(log)
+        session.commit()
+
+        return {
+            "status": "success",
+            "guest": guest.to_dict(),
+            "message": f"Welcome {guest.name}!",
+        }
+    finally:
+        session.close()
+
+
+def check_in_guest(guest_id: int, bypass_window: bool = False) -> dict:
+    """Check in one specific, already-identified guest.
+
+    The second half of the door flow (see find_guest_by_code): staff have
+    confirmed the person on screen is the person in front of them, so this
+    takes the guest id rather than re-resolving a code. That matters — a
+    phone number can belong to more than one booking, and re-running the
+    search at confirm time could admit a different person than the one whose
+    details staff just read back.
+
+    Same contract as check_in_by_code(): {"status": "success"|"already"|
+    "not_found"|"not_open"|"db_unavailable", "guest": dict|None,
+    "message": str}.
+    """
+    if db_degraded():
+        return {"status": "db_unavailable", "guest": None, "message": DB_DEGRADED_MESSAGE}
+
+    if not bypass_window:
+        status = checkin_status(use_cache=True)
+        if not status["open"]:
+            return {"status": "not_open", "guest": None, "message": status["message"]}
+
+    session = get_db()
+    try:
+        guest = session.query(Guest).filter_by(id=guest_id).first()
+        if not guest:
+            return {"status": "not_found", "guest": None, "message": GUEST_NOT_FOUND_MESSAGE}
 
         if guest.checked_in:
             time_str = format_dt(guest.checkin_time, "%H:%M")
@@ -1470,6 +2139,63 @@ def get_guest_by_email(email: str) -> dict:
         return guest.to_dict() if guest else None
     finally:
         session.close()
+
+
+def get_guest_by_phone(phone: str) -> dict:
+    """Return a single guest by US phone number as a plain dict, or None.
+
+    The lookup key is the normalized +1-XXX-XXX-XXXX form, so a guest is found
+    whether they type 5551234567, (555) 123-4567 or +1-555-123-4567. An
+    unparseable number returns None instead of falling through to a blank
+    lookup — rows registered before phone became mandatory have phone="" and
+    must not all match each other.
+
+    Phone is not unique (a couple may register separately from one number), so
+    the most recent registration wins.
+    """
+    phone_clean = sanitize_phone(phone or "")
+    if not phone_clean:
+        return None
+
+    session = get_db()
+    try:
+        guest = (
+            session.query(Guest)
+            .filter_by(phone=phone_clean)
+            .order_by(Guest.id.desc())
+            .first()
+        )
+        return guest.to_dict() if guest else None
+    finally:
+        session.close()
+
+
+def find_guest_by_contact(query: str) -> tuple:
+    """Look up one guest by either email address or US phone number.
+
+    Returns (guest, error): the guest dict and None on a hit, or None and a
+    user-facing message when the query is unusable or matched nothing. The
+    field searched is decided by the shape of the input — an "@" means email,
+    anything else is treated as a phone number.
+    """
+    q = (query or "").strip()
+    if not q:
+        return None, "Please enter your email address or phone number."
+
+    if "@" in q:
+        email_clean = sanitize_email(q)
+        if not email_clean:
+            return None, "Please enter a valid email address."
+        guest = get_guest_by_email(email_clean)
+    else:
+        phone_clean = sanitize_phone(q)
+        if not phone_clean:
+            return None, "Please enter a valid email address or 10-digit US phone number."
+        guest = get_guest_by_phone(phone_clean)
+
+    if not guest:
+        return None, "No guest found with that email or phone number. Please register first."
+    return guest, None
 
 
 def list_guests() -> list:
@@ -1601,14 +2327,185 @@ def get_event_day_hourly_checkins() -> list:
         session.close()
 
 
+# ── Full Backup Export (Admin "Danger Zone") ─────────────────────────────────
+#
+# generate_csv() above is the *human* export: the guest list, prettified
+# ("Yes"/"No", no ids). What follows is the *archival* export — every table
+# reset_all_data() can wipe, every column, raw values — so a reset is
+# recoverable and the data is still queryable after the database is empty.
+
+# (table, model, columns to export, column to sort by, what the table holds).
+# Order matches reset_all_data()'s blast radius; descriptions are surfaced in
+# the admin UI and in each backup's README.
+_BACKUP_SPECS = (
+    (
+        "guests",
+        Guest,
+        ("id", "name", "email", "phone", "ticket_count", "plus_one_name",
+         "zelle_ref", "qr_code", "checked_in", "band_given", "checkin_time", "created_at"),
+        "id",
+        "One row per registration — contact details, tickets, QR code, check-in state.",
+    ),
+    (
+        "checkin_logs",
+        CheckInLog,
+        ("id", "guest_id", "action", "timestamp", "device_info"),
+        "id",
+        "Audit trail of every check-in and band hand-out. guest_id → guests.id.",
+    ),
+    (
+        "page_visits",
+        PageVisit,
+        ("id", "visitor_token", "page", "visited_at"),
+        "id",
+        "One row per page view, keyed by an anonymous per-browser visitor token.",
+    ),
+    (
+        "submission_logs",
+        SubmissionLog,
+        ("id", "name", "email", "phone", "ticket_count", "plus_one_name",
+         "zelle_ref", "status", "errors", "guest_id", "created_at"),
+        "id",
+        "Every registration attempt — successful or not — with its failure reason.",
+    ),
+    (
+        "app_settings",
+        AppSetting,
+        ("key", "value", "updated_at"),
+        "key",
+        "Organiser-wide settings that outlive a restart (currently: checkin_mode).",
+    ),
+)
+
+BACKUP_TABLES = tuple(spec[0] for spec in _BACKUP_SPECS)
+
+# (table name, what it holds) — the public half of _BACKUP_SPECS, for the
+# admin UI's "tables you can query" reference.
+DATA_TABLES = tuple((spec[0], spec[4]) for spec in _BACKUP_SPECS)
+
+
+def _csv_cell(value):
+    """Render one column value for the archival CSV.
+
+    Datetimes go out as ISO-8601 (they are stored naive UTC — see _utc_now),
+    booleans as true/false, NULL as empty. Strings run through the same
+    formula-injection guard as generate_csv(): a name like "=cmd()" must not
+    execute when the organiser opens the backup in Excel.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="seconds")
+    if isinstance(value, str):
+        return _sanitize_csv_field(value)
+    return value
+
+
+def _rows_to_csv(columns, rows) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_csv_cell(getattr(row, col)) for col in columns])
+    return output.getvalue()
+
+
+def _backup_readme(generated_at: datetime, counts: dict) -> str:
+    """The README bundled in the ZIP: what's inside, and how to query it later."""
+    lines = [
+        "Party Check-In — full data backup",
+        f"Exported: {generated_at.isoformat(sep=' ', timespec='seconds')} UTC",
+        "",
+        "One CSV per table. The header row is the exact column name in the",
+        "database, so these files can be loaded straight back into the same",
+        "schema (or into any spreadsheet) after a Danger Zone reset.",
+        "",
+        "TABLES",
+    ]
+    for table, _model, columns, _order, description in _BACKUP_SPECS:
+        lines.append(f"  {table}.csv — {counts.get(table, 0)} row(s)")
+        lines.append(f"      {description}")
+        lines.append(f"      columns: {', '.join(columns)}")
+    lines += [
+        "",
+        "REPORTING VIEWS (PostgreSQL/Supabase only — created automatically at startup)",
+    ]
+    for view, description in REPORTING_VIEWS:
+        lines.append(f"  {view} — {description}")
+    lines += [
+        "",
+        "These views read from the tables above, so they are empty after a reset",
+        "and refill on their own as new data arrives — nothing to recreate.",
+        "",
+        "Sample queries:",
+        "  SELECT * FROM vw_registrations_summary;",
+        "  SELECT * FROM guests WHERE checked_in = true ORDER BY checkin_time;",
+        "  SELECT * FROM vw_submissions_summary;",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def export_backup() -> dict:
+    """Export every resettable table to CSV and bundle it into a ZIP.
+
+    All tables are read from ONE session so the CSVs are a coherent snapshot
+    rather than five reads taken at five different moments. Buffered page
+    visits (see record_visit()) are flushed to the database first — a backup
+    taken just before a reset must not silently drop the rows that were still
+    sitting in memory.
+
+    Returns:
+        {
+          "generated_at": datetime (naive UTC),
+          "stamp": "20260810_143000"        # for filenames
+          "counts": {"guests": 5, ...},
+          "files": {"guests.csv": "<csv text>", ..., "README.txt": "..."},
+          "zip": bytes                       # every file above, deflated
+        }
+    """
+    flush_page_visits()
+    generated_at = _utc_now()
+    session = get_db()
+    try:
+        files = {}
+        counts = {}
+        for table, model, columns, order_by, _description in _BACKUP_SPECS:
+            rows = session.query(model).order_by(getattr(model, order_by)).all()
+            counts[table] = len(rows)
+            files[f"{table}.csv"] = _rows_to_csv(columns, rows)
+    finally:
+        session.close()
+
+    files["README.txt"] = _backup_readme(generated_at, counts)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for filename, content in files.items():
+            archive.writestr(filename, content)
+
+    return {
+        "generated_at": generated_at,
+        "stamp": generated_at.strftime("%Y%m%d_%H%M%S"),
+        "counts": counts,
+        "files": files,
+        "zip": buffer.getvalue(),
+    }
+
+
 # ── Data Reset (Admin "Danger Zone") ─────────────────────────────────────────
 
 def get_table_counts() -> dict:
     """Return current row counts for every table reset_all_data() can wipe.
 
     Used by the admin Danger Zone UI so the operator can see exactly what a
-    reset is about to destroy before they confirm it.
+    reset is about to destroy before they confirm it. Flushes the buffered
+    page-visit rows first (see record_visit()) so the page_visits count
+    isn't missing whatever hasn't hit the DB yet.
     """
+    flush_page_visits()
     session = get_db()
     try:
         return {
@@ -1645,6 +2542,11 @@ def reset_all_data(keep_settings: bool = True) -> dict:
     Raises on failure (after rolling back) — callers must not report success
     without catching it.
     """
+    # Flush any buffered page visits (see record_visit()) to the DB BEFORE
+    # deleting, so they're included in the deleted count and, just as
+    # importantly, so a stray background flush can't write them back into
+    # page_visits moments after this "empties everything" reset ran.
+    flush_page_visits()
     session = get_db()
     try:
         # Children before parents: checkin_logs.guest_id references guests.id.

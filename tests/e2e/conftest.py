@@ -252,8 +252,12 @@ def seed_guest(reset_db):
     widget selectors)."""
 
     def _make(**kwargs):
+        # Phone is mandatory at registration, so seeded guests carry one too.
+        # Pass a distinct `phone=` in any test that looks a guest up by number
+        # — the default is shared, and get_guest_by_phone returns the most
+        # recent registration on a collision.
         defaults = dict(
-            name="Seed Guest", email="seed.guest@example.com", phone="",
+            name="Seed Guest", email="seed.guest@example.com", phone="+1-555-200-0000",
             ticket_count=1, plus_one_name="", zelle_ref="ZELLE-SEED0001",
         )
         defaults.update(kwargs)
