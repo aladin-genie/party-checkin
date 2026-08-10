@@ -306,7 +306,7 @@ def get_visit_stats() -> dict:
 
 
 def get_site_stats() -> dict:
-    """Return public site-usage stats for the home page."""
+    """Return public site-usage stats for the home page (v2)."""
     session = get_db()
     try:
         today = _utc_now().date()
