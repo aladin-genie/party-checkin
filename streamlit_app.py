@@ -452,22 +452,6 @@ def _field_error(message: str):
     )
 
 
-def _format_phone_input():
-    """Format the phone input as +1-XXX-XXX-XXXX once 10 digits are entered.
-
-    Streamlit calls this callback on every change, before the main script runs,
-    so we can safely mutate the widget's session-state value before it is drawn.
-    """
-    raw = st.session_state.get("reg_phone", "")
-    digits = re.sub(r"\D", "", raw)
-    # Accept either a bare 10-digit US number or an 11-digit number starting with 1
-    if len(digits) == 10:
-        st.session_state["reg_phone"] = f"+1-{digits[:3]}-{digits[3:6]}-{digits[6:]}"
-    elif len(digits) == 11 and digits.startswith("1"):
-        d = digits[1:]
-        st.session_state["reg_phone"] = f"+1-{d[:3]}-{d[3:6]}-{d[6:]}"
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -660,44 +644,6 @@ def page_register():
     st.markdown(
         "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions. Your QR code will be emailed to you.</small>",
         unsafe_allow_html=True,
-    )
-
-    # ── Client-side formatting & restrictions for a smoother mobile UX ───────
-    st.components.v1.html(
-        """
-        <script>
-        (function() {
-            if (window.parent._partyInputHooked) return;
-            window.parent._partyInputHooked = true;
-            var parentDoc = window.parent.document;
-
-            function formatPhone(input) {
-                var digits = input.value.replace(/\\D/g, "").replace(/^1/, "");
-                if (digits.length > 10) digits = digits.slice(0, 10);
-                var out = "+1";
-                if (digits.length > 0) out += "-" + digits.slice(0, 3);
-                if (digits.length > 3) out += "-" + digits.slice(3, 6);
-                if (digits.length > 6) out += "-" + digits.slice(6, 10);
-                input.value = out;
-            }
-
-            parentDoc.addEventListener("input", function(e) {
-                var input = e.target;
-                var label = input.getAttribute("aria-label") || "";
-                if (label === "Phone Number (optional)") {
-                    formatPhone(input);
-                }
-                if (label === "Full Name *" || label === "Plus One Name (optional)") {
-                    input.value = input.value.replace(/[^A-Za-z\\s]/g, "");
-                }
-                if (label === "Zelle Transaction Reference *") {
-                    input.value = input.value.toUpperCase().replace(/[^A-Z0-9\\-]/g, "");
-                }
-            }, true);
-        })();
-        </script>
-        """,
-        height=0,
     )
 
     if submitted:
