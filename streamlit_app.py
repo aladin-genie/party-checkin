@@ -494,26 +494,41 @@ def page_register():
             max_chars=30,
         )
 
-        # ── Terms & Conditions (placeholder; organizer will update text later) ───
-        with st.expander("📜 Terms & Conditions"):
+        # ── Terms & Conditions ───────────────────────────────────────────────────
+        with st.expander("📜 Terms & Conditions — Alcohol Disclaimer & Waiver"):
             st.markdown(
                 """
-                <div style='color: rgba(245,245,245,0.8); font-size: 0.9rem;'>
-                    <p>Event terms and conditions will be updated here shortly by the organizer.</p>
-                    <p>By registering, you agree to:</p>
-                    <ul>
-                        <li>Show your QR code at the entrance for check-in.</li>
-                        <li>Follow all event guidelines and venue rules.</li>
-                        <li>Understand that tickets are non-refundable.</li>
-                    </ul>
+                <div style='color: rgba(245,245,245,0.85); font-size: 0.88rem; line-height: 1.5;'>
+                    <h4 style='color: #F4E4BC; margin-top: 0;'>Alcohol Disclaimer</h4>
+                    <p>
+                        I (Individual) or We (for all the listed attendees in this form and/or a person who is making group Zelle payment representing the group) the undersigned, hereby voluntarily assume all risks associated with participating in the activities related to the <strong>Dallas Boys Party on Oct 9, 2026</strong>.
+                    </p>
+                    <p>
+                        I/We understand that the Dallas Boys Party organizers will not provide alcohol on-site, and that all alcohol at the event is BYOB (Bring Your Own Beverage). I/We acknowledge that consuming alcohol may impair judgment, motor skills, vision, and other abilities, and can lead to various health risks such as intoxication, nausea, vomiting, drowsiness, and other symptoms. I/We also understand that alcohol consumption can increase aggression and impair decision-making.
+                    </p>
+                    <p>
+                        I/We acknowledge that it is my responsibility to ensure that no underage or prohibited individuals in my group consume alcohol, and I/We will comply with all local laws regarding alcohol consumption during the event.
+                    </p>
+                    <p>
+                        I/We understand that the Dallas Boys Party organizers are not responsible for any property damage, injuries, or fatalities that may result from alcohol consumption or any activities during the event. By participating, I/We hereby release and discharge the Dallas Boys Party organizers, their owners, employees, volunteers, representatives, and agents from any and all liability for incidents occurring before, during, or after the event, including travel to and from the venue. This waiver includes, but is not limited to, liability arising from negligence.
+                    </p>
+                    <p>
+                        In consideration of being allowed to participate, I/We further agree to indemnify and hold harmless the Dallas Boys Party organizers and their representatives from any claims or liabilities resulting from my participation in the event, including any consequences arising from alcohol consumption.
+                    </p>
+                    <p>
+                        I/We consent to receiving medical treatment deemed necessary in case of injury, accident, or illness during the event. I/We also acknowledge that I/We may be photographed or filmed during the event, and I/We grant permission for my likeness to be used by the event organizers and sponsors for legitimate purposes without compensation.
+                    </p>
+                    <p>
+                        By selecting <strong>"I/We Agree"</strong> below, I/We certify that I/We have read and understood this disclaimer and release of liability. I/We voluntarily agree to its terms and confirm that my participation is entirely voluntary.
+                    </p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            agree_terms = st.checkbox("I agree to the terms and conditions", value=True)
+            agree_terms = st.checkbox("I/We Agree", value=False)
 
         st.markdown(
-            "<small style='opacity:0.6'>* Required fields. By registering, you agree to show your QR code at the entrance and follow event guidelines.</small>",
+            "<small style='opacity:0.6'>* Required fields. By registering, you agree to the Terms & Conditions, show your QR code at the entrance, and follow event guidelines.</small>",
             unsafe_allow_html=True,
         )
 
@@ -541,7 +556,7 @@ def page_register():
             st.error("Plus one name must contain letters and spaces only.")
             return
         if not agree_terms:
-            st.error("Please agree to the terms and conditions to continue.")
+            st.error("Please check I/We Agree in the Terms & Conditions to continue.")
             return
         if not zelle_clean:
             st.error("Zelle transaction reference is required (8-30 characters: letters, digits, hyphens). Example: ZELLE12345678, TXN-ABCD1234, 1234567890")
