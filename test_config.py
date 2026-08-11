@@ -27,7 +27,9 @@ class _RaisingSecrets:
 class TestConfig(unittest.TestCase):
     def setUp(self):
         # Keep tests deterministic regardless of the host machine's env vars.
-        self._env_keys = ("CFG_TEST_KEY", "TICKET_PRICE_CENTS", "ZELLE_INFO", "APP_URL")
+        self._env_keys = (
+            "CFG_TEST_KEY", "TICKET_PRICE_CENTS", "MAX_TOTAL_TICKETS", "ZELLE_INFO", "APP_URL",
+        )
         self._env_backup = {k: os.environ.pop(k, None) for k in self._env_keys}
 
     def tearDown(self):
@@ -100,7 +102,33 @@ class TestConfig(unittest.TestCase):
         mock_st = MagicMock()
         mock_st.secrets = {}
         with patch.object(config, "st", mock_st):
-            self.assertEqual(config.ticket_price_dollars(), 20.0)
+            self.assertEqual(config.ticket_price_dollars(), 30.0)
+
+    # ── max_total_tickets ────────────────────────────────────────────────
+
+    def test_max_total_tickets_default(self):
+        mock_st = MagicMock()
+        mock_st.secrets = {}
+        with patch.object(config, "st", mock_st):
+            self.assertEqual(config.max_total_tickets(), 225)
+
+    def test_max_total_tickets_from_secret(self):
+        mock_st = MagicMock()
+        mock_st.secrets = {"MAX_TOTAL_TICKETS": "300"}
+        with patch.object(config, "st", mock_st):
+            self.assertEqual(config.max_total_tickets(), 300)
+
+    def test_max_total_tickets_zero_disables_cap(self):
+        mock_st = MagicMock()
+        mock_st.secrets = {"MAX_TOTAL_TICKETS": "0"}
+        with patch.object(config, "st", mock_st):
+            self.assertEqual(config.max_total_tickets(), 0)
+
+    def test_max_total_tickets_garbage_falls_back_to_default(self):
+        mock_st = MagicMock()
+        mock_st.secrets = {"MAX_TOTAL_TICKETS": "not-a-number"}
+        with patch.object(config, "st", mock_st):
+            self.assertEqual(config.max_total_tickets(), 225)
 
     # ── zelle_info ───────────────────────────────────────────────────────
 

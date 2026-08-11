@@ -88,7 +88,7 @@ mock_secrets = {
     "SECRET_KEY": "test-secret",
     "DATABASE_URL": "sqlite:///test_party.db",
     "ADMIN_PASSWORD": "testadmin123",
-    "TICKET_PRICE_CENTS": "2000",
+    "TICKET_PRICE_CENTS": "3000",
     "ZELLE_INFO": "test@zelle.com",
     "MAIL_USERNAME": "",
     "MAIL_PASSWORD": "",
@@ -283,9 +283,14 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(stats["total_tickets"], 6)
         self.assertEqual(stats["checked_in"], 2)
         self.assertEqual(stats["plus_one_count"], 2)
+        # Bookings that name somebody: 2. People actually named: also 2
+        # (one each). Dave holds 3 tickets but names only 1 guest, so one
+        # ticket on that booking has no name against it.
+        self.assertEqual(stats["named_guests"], 2)
+        self.assertEqual(stats["unnamed_tickets"], 1)
         self.assertEqual(stats["avg_tickets_per_guest"], 2.0)
         self.assertAlmostEqual(stats["checkin_percentage"], 66.7, places=1)
-        self.assertEqual(stats["revenue"], 120.0)  # 6 tickets * $20
+        self.assertEqual(stats["revenue"], 180.0)  # 6 tickets * $30
         session.close()
     
     def test_visit_stats(self):
@@ -415,6 +420,30 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertIn("csv@test.com", csv_data)
         self.assertIn("ZELLE-CSV123", csv_data)
         self.assertIn("Yes", csv_data)
+
+    def test_generate_csv_carries_the_additional_guest_count(self):
+        session = get_db()
+        session.add(Guest(
+            name="Counted Booking",
+            email="csvcount@test.com",
+            ticket_count=3,
+            plus_one_name="Ann Lee\nBob Ray",
+            zelle_ref="ZELLE-CSVCOUNT",
+            qr_code=generate_qr_code(),
+        ))
+        session.commit()
+        session.close()
+
+        rows = list(csv.DictReader(io.StringIO(generate_csv())))
+        row = next(r for r in rows if r["Email"] == "csvcount@test.com")
+        # 3 tickets, 2 named guests — the count is its own column so the
+        # organiser can sort/sum on it without parsing the name blob.
+        self.assertEqual(row["Tickets"], "3")
+        self.assertEqual(row["Additional Guests"], "2")
+        # One spreadsheet line per guest: the stored newlines must not leak
+        # into the cell and split the row.
+        self.assertEqual(row["Additional Guest Names"], "Ann Lee, Bob Ray")
+        self.assertEqual(len(rows), 1)
     
     # ── Email Tests ─────────────────────────────────────────────────────────
     
@@ -518,6 +547,114 @@ class TestPartyCheckIn(unittest.TestCase):
                                  ticket_count="4", zelle_ref="ZELLE-STRTIX01")
         self.assertTrue(result["ok"])
         self.assertEqual(result["guest"]["ticket_count"], 4)
+
+    # ── Ticket Capacity (config.max_total_tickets) ──────────────────────────
+    # The venue's hard cap. Every test here pins the cap explicitly rather
+    # than relying on the 225 default, so raising the real cap later doesn't
+    # silently turn these into no-ops.
+
+    def test_tickets_sold_sums_ticket_counts_not_guest_rows(self):
+        self._register(name="Sum A", email="sum.a@test.com", ticket_count=3,
+                       zelle_ref="ZELLE-SUMA1111")
+        self._register(name="Sum B", email="sum.b@test.com", ticket_count=4,
+                       zelle_ref="ZELLE-SUMB1111")
+        self.assertEqual(utils.tickets_sold(), 7)
+
+    def test_tickets_sold_is_zero_on_an_empty_table(self):
+        self.assertEqual(utils.tickets_sold(), 0)
+
+    def test_ticket_availability_reports_remaining(self):
+        self._register(name="Avail", email="avail@test.com", ticket_count=8,
+                       zelle_ref="ZELLE-AVAIL111")
+        with patch.object(config, "max_total_tickets", return_value=10):
+            availability = utils.ticket_availability()
+        self.assertEqual(availability["cap"], 10)
+        self.assertEqual(availability["sold"], 8)
+        self.assertEqual(availability["remaining"], 2)
+        self.assertFalse(availability["sold_out"])
+        self.assertFalse(availability["unlimited"])
+
+    def test_ticket_availability_sold_out_at_exactly_the_cap(self):
+        self._register(name="Exact", email="exact@test.com", ticket_count=5,
+                       zelle_ref="ZELLE-EXACT111")
+        with patch.object(config, "max_total_tickets", return_value=5):
+            availability = utils.ticket_availability()
+        self.assertTrue(availability["sold_out"])
+        self.assertEqual(availability["remaining"], 0)
+
+    def test_ticket_availability_never_reports_negative_remaining(self):
+        # The organiser can lower the cap below what's already sold.
+        self._register(name="Over", email="over@test.com", ticket_count=9,
+                       zelle_ref="ZELLE-OVER1111")
+        with patch.object(config, "max_total_tickets", return_value=4):
+            availability = utils.ticket_availability()
+        self.assertEqual(availability["remaining"], 0)
+        self.assertTrue(availability["sold_out"])
+
+    def test_ticket_availability_cap_of_zero_means_unlimited(self):
+        with patch.object(config, "max_total_tickets", return_value=0):
+            availability = utils.ticket_availability()
+        self.assertTrue(availability["unlimited"])
+        self.assertFalse(availability["sold_out"])
+
+    def test_ticket_availability_fails_open_when_the_count_raises(self):
+        # A DB blip must not tell guests the party is sold out — see the
+        # docstring on utils.ticket_availability.
+        with patch.object(config, "max_total_tickets", return_value=50), \
+             patch.object(utils, "tickets_sold", side_effect=RuntimeError("db down")):
+            availability = utils.ticket_availability()
+        self.assertTrue(availability["unlimited"])
+        self.assertFalse(availability["sold_out"])
+
+    def test_register_guest_refused_when_sold_out(self):
+        self._register(name="Filler", email="filler@test.com", ticket_count=6,
+                       zelle_ref="ZELLE-FILLER11")
+        with patch.object(config, "max_total_tickets", return_value=6):
+            result = self._register(name="Too Late", email="toolate@test.com",
+                                    ticket_count=1, zelle_ref="ZELLE-TOOLATE1")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "sold_out")
+        self.assertEqual(result["remaining"], 0)
+        self.assertIsNone(utils.get_guest_by_email("toolate@test.com"))
+
+    def test_register_guest_refused_when_asking_for_more_than_remain(self):
+        self._register(name="Filler2", email="filler2@test.com", ticket_count=8,
+                       zelle_ref="ZELLE-FILLER22")
+        with patch.object(config, "max_total_tickets", return_value=10):
+            result = self._register(name="Greedy", email="greedy@test.com",
+                                    ticket_count=5, zelle_ref="ZELLE-GREEDY11")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "not_enough_tickets")
+        self.assertEqual(result["remaining"], 2)
+        self.assertIn("2 tickets left", result["message"])
+        self.assertIsNone(utils.get_guest_by_email("greedy@test.com"))
+
+    def test_register_guest_allowed_up_to_exactly_the_cap(self):
+        self._register(name="Filler3", email="filler3@test.com", ticket_count=7,
+                       zelle_ref="ZELLE-FILLER33")
+        with patch.object(config, "max_total_tickets", return_value=10):
+            result = self._register(name="Last Three", email="lastthree@test.com",
+                                    ticket_count=3, zelle_ref="ZELLE-LASTTHR1")
+        self.assertTrue(result["ok"])
+        self.assertEqual(utils.tickets_sold(), 10)
+
+    def test_register_guest_uncapped_when_max_total_tickets_is_zero(self):
+        with patch.object(config, "max_total_tickets", return_value=0):
+            result = self._register(name="Uncapped", email="uncapped@test.com",
+                                    ticket_count=500, zelle_ref="ZELLE-UNCAP111")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["guest"]["ticket_count"], 500)
+
+    def test_register_guest_capacity_check_runs_after_duplicate_check(self):
+        # A duplicate email is the more useful message of the two, and it
+        # must still be reported even when the party is already full.
+        self._register(name="Dupe Cap", email="dupecap@test.com", ticket_count=4,
+                       zelle_ref="ZELLE-DUPECAP1")
+        with patch.object(config, "max_total_tickets", return_value=4):
+            result = self._register(name="Dupe Cap Again", email="dupecap@test.com",
+                                    ticket_count=1, zelle_ref="ZELLE-DUPECAP2")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "duplicate_email")
 
     # ── Service Layer: find_guest_by_contact ────────────────────────────────
     # Guests are looked up by phone as well as email because an attendee may
@@ -865,6 +1002,7 @@ class TestPartyCheckIn(unittest.TestCase):
     # ── Service Layer: validate_registration ────────────────────────────────
 
     def test_validate_registration_all_valid(self):
+        # 2 tickets = the booker plus exactly 1 named guest.
         cleaned, errors = validate_registration(
             name="Jane Doe",
             email="janevalid@example.com",
@@ -872,12 +1010,15 @@ class TestPartyCheckIn(unittest.TestCase):
             plus_one_name="John Doe",
             zelle_ref="ZELLE12345678",
             agree_terms=True,
+            ticket_count=2,
         )
         self.assertEqual(errors, {})
         self.assertEqual(cleaned["name"], "Jane Doe")
         self.assertEqual(cleaned["email"], "janevalid@example.com")
         self.assertEqual(cleaned["phone"], "+1-555-123-4567")
         self.assertEqual(cleaned["plus_one_name"], "John Doe")
+        self.assertEqual(cleaned["ticket_count"], 2)
+        self.assertEqual(cleaned["additional_guest_count"], 1)
         self.assertEqual(cleaned["zelle_ref"], "ZELLE12345678")
         self.assertTrue(cleaned["terms"])
 
@@ -926,12 +1067,13 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertIn("phone", errors)
         self.assertEqual(cleaned["phone"], "")
 
-    def test_validate_registration_blank_plus_one_optional_no_error(self):
+    def test_validate_registration_single_ticket_needs_no_names(self):
         cleaned, errors = validate_registration(
             "Jane Doe", "jane4@example.com", "", "", "ZELLE12345678", True
         )
         self.assertNotIn("plus_one_name", errors)
         self.assertEqual(cleaned["plus_one_name"], "")
+        self.assertEqual(cleaned["additional_guest_count"], 0)
 
     def test_validate_registration_invalid_plus_one_non_blank(self):
         cleaned, errors = validate_registration(
@@ -1045,6 +1187,54 @@ class TestPartyCheckIn(unittest.TestCase):
         html_content = html_part.get_payload(decode=True).decode("utf-8")
         self.assertNotIn("<script>alert", html_content)
         self.assertIn("&lt;script&gt;", html_content)
+
+    def test_qr_email_lists_every_additional_guest_with_a_count(self):
+        guest = Guest(
+            id=99998,
+            name="Group Booker",
+            email="group@test.com",
+            ticket_count=4,
+            plus_one_name="Ann Lee\nBob Ray\nCal <b>Vue</b>",
+            qr_code="GROUP-QR-CODE",
+        )
+        with patch.dict(mock_secrets, {"MAIL_USERNAME": "sender@test.com", "MAIL_PASSWORD": "testpass"}):
+            with patch("smtplib.SMTP") as mock_smtp_cls:
+                mock_server = MagicMock()
+                mock_smtp_cls.return_value.__enter__.return_value = mock_server
+                self.assertTrue(send_qr_email(guest))
+
+        sent_msg = mock_server.send_message.call_args[0][0]
+        parts = {p.get_content_type(): p.get_payload(decode=True).decode("utf-8")
+                 for p in sent_msg.walk() if p.get_content_type().startswith("text/")}
+
+        html_content = parts["text/html"]
+        self.assertIn("Additional guests (3)", html_content)
+        # Newline-joined names must come out as separate list items, not one
+        # run-together blob — and still be escaped.
+        self.assertIn("<li>Ann Lee</li>", html_content)
+        self.assertIn("<li>Bob Ray</li>", html_content)
+        self.assertNotIn("<b>Vue</b>", html_content)
+        self.assertIn("&lt;b&gt;", html_content)
+
+        plain_content = parts["text/plain"]
+        self.assertIn("Additional guests (3)", plain_content)
+        self.assertIn("  - Ann Lee", plain_content)
+        self.assertIn("  - Bob Ray", plain_content)
+
+    def test_qr_email_omits_the_guest_list_for_a_solo_booking(self):
+        guest = Guest(
+            id=99997, name="Solo", email="solo@test.com", ticket_count=1,
+            plus_one_name="", qr_code="SOLO-QR-CODE",
+        )
+        with patch.dict(mock_secrets, {"MAIL_USERNAME": "sender@test.com", "MAIL_PASSWORD": "testpass"}):
+            with patch("smtplib.SMTP") as mock_smtp_cls:
+                mock_server = MagicMock()
+                mock_smtp_cls.return_value.__enter__.return_value = mock_server
+                self.assertTrue(send_qr_email(guest))
+
+        sent_msg = mock_server.send_message.call_args[0][0]
+        html_part = next(p for p in sent_msg.walk() if p.get_content_type() == "text/html")
+        self.assertNotIn("Additional guests", html_part.get_payload(decode=True).decode("utf-8"))
 
     # ── Pure helpers: _normalize_postgres_url ───────────────────────────────
 
@@ -1259,13 +1449,19 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(result, "")
 
     def test_sanitize_guest_names_over_max_returns_empty(self):
-        names_21 = [f"Guest {chr(65 + i)}" for i in range(21)]  # 21 valid names
-        self.assertEqual(sanitize_guest_names("\n".join(names_21)), "")
+        too_many = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1)]
+        self.assertEqual(sanitize_guest_names("\n".join(too_many)), "")
 
     def test_sanitize_guest_names_exactly_max_accepted(self):
-        names_20 = [f"Guest {chr(65 + i)}" for i in range(20)]  # exactly 20
-        expected = "\n".join(names_20)
-        self.assertEqual(sanitize_guest_names("\n".join(names_20)), expected)
+        at_max = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES)]
+        expected = "\n".join(at_max)
+        self.assertEqual(sanitize_guest_names("\n".join(at_max)), expected)
+
+    def test_max_guest_names_is_one_below_the_ticket_cap(self):
+        # The booker holds the first ticket, so the biggest possible booking
+        # names one fewer person than it has tickets. If these two ever
+        # disagree, a guest could pick a ticket count they can never satisfy.
+        self.assertEqual(utils.MAX_GUEST_NAMES, config.MAX_TICKETS_PER_REGISTRATION - 1)
 
     def test_sanitize_guest_names_collapses_blank_lines_and_whitespace(self):
         result = sanitize_guest_names("Alice Smith\n\n\n   Bob Jones   \n\n,,,")
@@ -1273,23 +1469,149 @@ class TestPartyCheckIn(unittest.TestCase):
 
     # ── Bulk guest names: validate_registration integration ─────────────────
 
-    def test_validate_registration_plus_one_bulk_names_valid_20_no_error(self):
-        names_20 = [f"Guest {chr(65 + i)}" for i in range(20)]
-        text = "\n".join(names_20)
+    def test_validate_registration_plus_one_bulk_names_at_max_no_error(self):
+        # The largest bookable party: every ticket the selector allows, with
+        # a name for everyone but the booker.
+        names = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES)]
+        text = "\n".join(names)
         cleaned, errors = validate_registration(
-            "Jane Doe", "janebulk20@example.com", "", text, "ZELLE12345678", True
+            "Jane Doe", "janebulkmax@example.com", "", text, "ZELLE12345678", True,
+            ticket_count=config.MAX_TICKETS_PER_REGISTRATION,
         )
         self.assertNotIn("plus_one_name", errors)
         self.assertEqual(cleaned["plus_one_name"], text)
+        self.assertEqual(cleaned["additional_guest_count"], utils.MAX_GUEST_NAMES)
 
     def test_validate_registration_plus_one_over_max_names_error(self):
-        names_21 = [f"Guest {chr(65 + i)}" for i in range(21)]
-        text = "\n".join(names_21)
+        too_many = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1)]
+        text = "\n".join(too_many)
         cleaned, errors = validate_registration(
-            "Jane Doe", "janebulk21@example.com", "", text, "ZELLE12345678", True
+            "Jane Doe", "janebulkover@example.com", "", text, "ZELLE12345678", True,
+            ticket_count=config.MAX_TICKETS_PER_REGISTRATION,
         )
         self.assertIn("plus_one_name", errors)
         self.assertEqual(cleaned["plus_one_name"], "")
+
+    # ── Guest names must match the ticket count ─────────────────────────────
+    # One ticket per person: N tickets is the booker plus N-1 named guests.
+
+    def _names_check(self, ticket_count, plus_one_name, email):
+        """validate_registration with everything but the names/tickets valid."""
+        return validate_registration(
+            "Jane Doe", email, "555-123-4567", plus_one_name, "ZELLE12345678", True,
+            ticket_count=ticket_count,
+        )
+
+    def test_validate_registration_exact_name_count_accepted(self):
+        cleaned, errors = self._names_check(
+            4, "Ann Lee\nBob Ray\nCal Vue", "exactnames@example.com"
+        )
+        self.assertEqual(errors, {})
+        self.assertEqual(cleaned["additional_guest_count"], 3)
+        self.assertEqual(cleaned["plus_one_name"], "Ann Lee\nBob Ray\nCal Vue")
+
+    def test_validate_registration_multi_ticket_with_no_names_rejected(self):
+        cleaned, errors = self._names_check(3, "", "nonames@example.com")
+        self.assertIn("plus_one_name", errors)
+        self.assertIn("2 other guests", errors["plus_one_name"])
+        self.assertEqual(cleaned["additional_guest_count"], 0)
+
+    def test_validate_registration_too_few_names_rejected_and_counted(self):
+        cleaned, errors = self._names_check(5, "Ann Lee\nBob Ray", "toofew@example.com")
+        self.assertIn("plus_one_name", errors)
+        # The message has to name both numbers, or the guest can't tell which
+        # of the two to change.
+        self.assertIn("4 additional guest names", errors["plus_one_name"])
+        self.assertIn("you listed 2", errors["plus_one_name"])
+        self.assertIn("add the 2 missing names", errors["plus_one_name"].lower())
+
+    def test_validate_registration_too_many_names_rejected(self):
+        # The case a capacity-clamped ticket count produces: more names in
+        # the box than tickets left to cover them.
+        cleaned, errors = self._names_check(
+            2, "Ann Lee\nBob Ray\nCal Vue", "toomany@example.com"
+        )
+        self.assertIn("plus_one_name", errors)
+        self.assertIn("listed 3", errors["plus_one_name"])
+        self.assertIn("remove 2 names", errors["plus_one_name"])
+        # Must not tell someone with a surplus to "add the missing names"
+        self.assertNotIn("missing", errors["plus_one_name"])
+
+    def test_validate_registration_names_on_single_ticket_rejected(self):
+        cleaned, errors = self._names_check(1, "Ann Lee", "soloplusname@example.com")
+        self.assertIn("plus_one_name", errors)
+        self.assertIn("only booked 1 ticket", errors["plus_one_name"])
+
+    def test_validate_registration_singular_wording_for_one_missing_name(self):
+        _cleaned, errors = self._names_check(2, "", "onemissing@example.com")
+        msg = errors["plus_one_name"]
+        self.assertIn("1 other guest", msg)
+        self.assertIn("their name", msg)
+        self.assertNotIn("guests", msg)
+
+    def test_validate_registration_invalid_name_beats_count_check(self):
+        # A typo'd name must report the typo, not a confusing count mismatch.
+        _cleaned, errors = self._names_check(3, "Ann Lee\nBob123", "typoname@example.com")
+        self.assertIn("letters and spaces", errors["plus_one_name"])
+
+    def test_validate_registration_rejects_out_of_range_ticket_count(self):
+        for bad in (0, -3, config.MAX_TICKETS_PER_REGISTRATION + 1, "abc", None):
+            with self.subTest(ticket_count=bad):
+                cleaned, errors = self._names_check(bad, "", f"tickets{bad}@example.com")
+                self.assertIn("ticket_count", errors)
+                # Always clamped back into range, so nothing downstream sees
+                # a nonsense ticket count even on the error path.
+                self.assertGreaterEqual(cleaned["ticket_count"], 1)
+                self.assertLessEqual(cleaned["ticket_count"], config.MAX_TICKETS_PER_REGISTRATION)
+
+    def test_validate_registration_comma_separated_names_count_correctly(self):
+        cleaned, errors = self._names_check(
+            3, "Ann Lee, Bob Ray", "commanames@example.com"
+        )
+        self.assertEqual(errors, {})
+        self.assertEqual(cleaned["plus_one_name"], "Ann Lee\nBob Ray")
+        self.assertEqual(cleaned["additional_guest_count"], 2)
+
+    # ── Head-count helpers ──────────────────────────────────────────────────
+
+    def test_additional_guests_expected(self):
+        self.assertEqual(utils.additional_guests_expected(1), 0)
+        self.assertEqual(utils.additional_guests_expected(4), 3)
+        # Never negative, and never raises on junk
+        self.assertEqual(utils.additional_guests_expected(0), 0)
+        self.assertEqual(utils.additional_guests_expected(None), 0)
+        self.assertEqual(utils.additional_guests_expected("nope"), 0)
+
+    def test_guest_names_list_and_count(self):
+        self.assertEqual(utils.guest_names_list("Ann Lee\nBob Ray"), ["Ann Lee", "Bob Ray"])
+        self.assertEqual(utils.guest_name_count("Ann Lee\nBob Ray"), 2)
+        # The column's blank default and NULL both mean "nobody"
+        self.assertEqual(utils.guest_names_list(""), [])
+        self.assertEqual(utils.guest_names_list(None), [])
+        self.assertEqual(utils.guest_name_count(None), 0)
+        # Stray blank lines from a hand-edited row don't inflate the count
+        self.assertEqual(utils.guest_name_count("Ann Lee\n\n  \nBob Ray\n"), 2)
+
+    def test_count_guest_name_entries_counts_invalid_entries_too(self):
+        # Progress display: what's in the box, not what would pass validation
+        self.assertEqual(utils.count_guest_name_entries("Ann Lee\nBob123, Cal"), 3)
+        self.assertEqual(utils.count_guest_name_entries(""), 0)
+
+    def test_party_size_counts_the_booker(self):
+        self.assertEqual(utils.party_size({"ticket_count": 3, "plus_one_name": "A Lee\nB Ray"}), 3)
+        self.assertEqual(utils.party_size({"ticket_count": 1, "plus_one_name": ""}), 1)
+        # A legacy row with fewer names than tickets still reports the tickets
+        self.assertEqual(utils.party_size({"ticket_count": 5, "plus_one_name": "A Lee"}), 5)
+        # ...and a row naming more people than it has tickets reports the people
+        self.assertEqual(utils.party_size({"ticket_count": 1, "plus_one_name": "A Lee\nB Ray"}), 3)
+        self.assertEqual(utils.party_size({}), 1)
+
+    def test_parse_guest_names_reports_why_it_failed(self):
+        self.assertEqual(utils.parse_guest_names("Ann Lee\nBob Ray"), (["Ann Lee", "Bob Ray"], ""))
+        self.assertEqual(utils.parse_guest_names(""), ([], ""))
+        self.assertEqual(utils.parse_guest_names("Ann Lee\nBob123"), ([], "invalid"))
+        too_many = "\n".join(f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1))
+        self.assertEqual(utils.parse_guest_names(too_many), ([], "too_many"))
 
     # ── Async email: send_qr_email_async ────────────────────────────────────
 

@@ -23,6 +23,8 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
     email = "happy.path.guest@example.com"
     fill_registration_form(
         page, name="Happy Path Guest", email=email, phone="(555) 246-8100",
+        # 2 tickets is the booker plus exactly one named guest
+        guest_names="Plus One Guest",
         zelle_ref="ZELLE-HAPPY0001", tickets=2,
     )
     submit_registration(page)
@@ -39,6 +41,7 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
     assert guest["phone"] == "+1-555-246-8100"
     assert reset_db.get_guest_by_phone("5552468100")["email"] == email
     assert guest["ticket_count"] == 2
+    assert guest["plus_one_name"] == "Plus One Guest"
     assert guest["qr_code"], "qr_code was not generated"
 
     session = reset_db.get_db()
@@ -219,12 +222,14 @@ def test_registration_guest_names_with_digits_shows_field_error(page, base_url, 
     assert reset_db.get_guest_by_email(email) is None
 
 
-def test_registration_more_than_20_guest_names_rejected(page, base_url, reset_db):
+def test_registration_over_the_guest_name_cap_rejected(page, base_url, reset_db):
     goto(page, base_url, "Register")
 
     email = "too.many.guest.names@example.com"
-    # 21 individually-valid (letters-only) names -- rejected purely on count.
-    names = "\n".join(f"Guest {chr(65 + i)}" for i in range(21))
+    # Individually-valid (letters-only) names, one past the cap -- rejected
+    # purely on count.
+    cap = reset_db.MAX_GUEST_NAMES
+    names = "\n".join(f"Guest {chr(65 + i)}" for i in range(cap + 1))
     fill_registration_form(
         page, name="Valid Name", email=email,
         guest_names=names,
@@ -234,6 +239,88 @@ def test_registration_more_than_20_guest_names_rejected(page, base_url, reset_db
 
     expect(page.get_by_text(validation_banner_text(1), exact=False)).to_be_visible(timeout=10000)
     expect(
-        page.get_by_text("Guest names must use letters and spaces only", exact=False)
+        page.get_by_text(f"That's more than {cap} names", exact=False)
     ).to_be_visible(timeout=10000)
     assert reset_db.get_guest_by_email(email) is None
+
+
+# ── Guest names must match the ticket count ─────────────────────────────
+# N tickets is the booker plus N-1 named guests, enforced by
+# utils.validate_registration. These cover the rule end-to-end.
+
+def test_registration_multi_ticket_without_names_is_rejected(page, base_url, reset_db):
+    goto(page, base_url, "Register")
+
+    email = "missing.guest.names@example.com"
+    fill_registration_form(
+        page, name="No Names Guest", email=email,
+        zelle_ref="ZELLE-NONAMES01", tickets=3,
+    )
+    submit_registration(page)
+
+    expect(page.get_by_text(validation_banner_text(1), exact=False)).to_be_visible(timeout=10000)
+    expect(
+        page.get_by_text("2 other guests", exact=False).first
+    ).to_be_visible(timeout=10000)
+    assert reset_db.get_guest_by_email(email) is None, "a booking with no names must not be saved"
+
+
+def test_registration_name_count_mismatch_states_both_numbers(page, base_url, reset_db):
+    goto(page, base_url, "Register")
+
+    email = "short.guest.names@example.com"
+    fill_registration_form(
+        page, name="Short List Guest", email=email,
+        guest_names="Jane Doe\nJohn Doe",
+        zelle_ref="ZELLE-SHORT0001", tickets=5,
+    )
+    submit_registration(page)
+
+    expect(page.get_by_text(validation_banner_text(1), exact=False)).to_be_visible(timeout=10000)
+    expect(
+        page.get_by_text("but you listed 2", exact=False).first
+    ).to_be_visible(timeout=10000)
+    assert reset_db.get_guest_by_email(email) is None
+
+
+def test_registration_names_on_a_single_ticket_is_rejected(page, base_url, reset_db):
+    goto(page, base_url, "Register")
+
+    email = "solo.with.names@example.com"
+    fill_registration_form(
+        page, name="Solo Guest", email=email,
+        guest_names="Uninvited Person",
+        zelle_ref="ZELLE-SOLO00001", tickets=1,
+    )
+    submit_registration(page)
+
+    expect(page.get_by_text(validation_banner_text(1), exact=False)).to_be_visible(timeout=10000)
+    expect(
+        page.get_by_text("only booked 1 ticket", exact=False).first
+    ).to_be_visible(timeout=10000)
+    assert reset_db.get_guest_by_email(email) is None
+
+
+def test_required_name_count_updates_live_with_the_ticket_selector(page, base_url, reset_db):
+    """The required count is stated before the field and tracks the ticket
+    selector, so a guest isn't told how many names to enter only after a
+    rejected submit."""
+    goto(page, base_url, "Register")
+
+    fill_and_blur(page, "Number of Tickets *", "4")
+    expect(page.get_by_text("you plus 3 other guests", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_label("Additional Guest Names")).to_be_visible(timeout=10000)
+
+    fill_and_blur(page, "Number of Tickets *", "2")
+    expect(page.get_by_text("you plus 1 other guest", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("you plus 3 other guests", exact=False)).to_have_count(0)
+
+    # Back to a solo booking: no names wanted at all
+    fill_and_blur(page, "Number of Tickets *", "1")
+    expect(page.get_by_text("no other names needed", exact=False)).to_be_visible(timeout=10000)
+
+    session = reset_db.get_db()
+    try:
+        assert session.query(reset_db.Guest).count() == 0, "changing the ticket count must not submit anything"
+    finally:
+        session.close()

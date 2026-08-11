@@ -67,12 +67,35 @@ APP_URL = get_secret("APP_URL", _DEFAULT_APP_URL).rstrip("/")
 
 def ticket_price_cents() -> int:
     """Return the configured ticket price in cents."""
-    return get_secret_int("TICKET_PRICE_CENTS", 2000)
+    return get_secret_int("TICKET_PRICE_CENTS", 3000)
 
 
 def ticket_price_dollars() -> float:
     """Return the configured ticket price in dollars."""
     return ticket_price_cents() / 100
+
+
+# ── Ticket capacity ──────────────────────────────────────────────────────────
+# The venue holds a fixed number of people, so unlike the concurrency guard
+# below (which only throttles simultaneous *browsing*), this is a real, hard
+# cap on how many tickets can ever be sold.
+
+def max_total_tickets() -> int:
+    """Hard cap on tickets sold across ALL guests.
+
+    Once this many tickets are registered the Register page shows a sold-out
+    screen instead of the form, and utils.register_guest() refuses to write
+    past it. Tunable via the MAX_TOTAL_TICKETS secret so the organiser can
+    raise or lower the cap without a redeploy; 0 (or negative) disables the
+    cap entirely and restores unlimited registration.
+    """
+    return get_secret_int("MAX_TOTAL_TICKETS", 225)
+
+
+# Most tickets one guest may claim in a single registration. The Register page
+# also clamps its selector to whatever is actually left, so the effective
+# maximum is min(this, tickets remaining).
+MAX_TICKETS_PER_REGISTRATION = 20
 
 
 _DEFAULT_ZELLE = "dallashudugaru@gmail.com"

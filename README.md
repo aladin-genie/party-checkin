@@ -8,7 +8,7 @@ Event registration and check-in for **Dallas Boys Party 2026**, built with **Str
 - **Live app:** https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/
 - **Repo:** `aladin-genie/party-checkin` (branch `main`)
 - **Database:** Supabase PostgreSQL
-- **Payment:** Zelle → `dallashudugaru@gmail.com` · $20.00 per ticket
+- **Payment:** Zelle → `dallashudugaru@gmail.com` · $30.00 per ticket · 225 tickets total
 
 ---
 
@@ -164,7 +164,8 @@ MAIL_PASSWORD = "your-gmail-app-password"   # NOT your normal Gmail password
 MAIL_DEFAULT_SENDER = "your-sender@gmail.com"
 
 ADMIN_PASSWORD = "choose-a-strong-password"
-TICKET_PRICE_CENTS = "2000"                  # 2000 = $20.00
+TICKET_PRICE_CENTS = "3000"                  # 3000 = $30.00
+MAX_TOTAL_TICKETS = "225"                    # hard ticket cap; "0" disables it
 ZELLE_INFO = "dallashudugaru@gmail.com"
 APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"
 ```
@@ -234,7 +235,7 @@ sanitization, CSV-injection and XSS escaping, and Postgres URL normalization.
 | **Full Name** | Letters and spaces only; 2–100 characters |
 | **Email** | Standard email format; must be unique |
 | **Phone** | Required; US numbers only (a `+` country code other than `+1` is rejected, as is an area code starting with 0 or 1). The field starts at `+1-` and formats itself to `+1-XXX-XXX-XXXX` as the guest types; `sanitize_phone()` re-normalizes server-side, so the mask is cosmetic and validation is identical without it |
-| **Additional Guest Names** | Optional; up to 20 names, one per line or comma-separated; letters and spaces only |
+| **Additional Guest Names** | Required whenever more than one ticket is booked, and the count must match: **exactly `tickets - 1` names**, since the person registering holds the first ticket. One per line or comma-separated; letters and spaces only. A 1-ticket booking must leave it empty — everyone attending needs their own ticket |
 | **Zelle Reference** | Required; 8–30 characters; letters, digits, hyphens |
 | **Terms** | Must accept "I/We Agree" |
 
@@ -273,7 +274,7 @@ Editor** (query).
 | `email` | varchar(120) | **Unique** — one registration per address |
 | `phone` | varchar(30) | Required at registration; stored normalized as `+1-XXX-XXX-XXXX`, and a second lookup key alongside email. Rows created before it became mandatory keep `""` |
 | `ticket_count` | integer | 1–20 |
-| `plus_one_name` | varchar(1000) | Additional guest names, **newline-separated** (up to 20) |
+| `plus_one_name` | varchar(1000) | Additional guest names, **newline-separated**. Registration requires exactly `ticket_count - 1` of them — one ticket per person, and the booker holds the first. Rows created before that rule may hold fewer |
 | `zelle_ref` | varchar(100) | Payment reference, uppercased; cross-check against your bank |
 | `qr_code` | varchar(200) | **Unique**; format `PARTY2026-YYYYMMDD-<random>` |
 | `checked_in` | boolean | Set at the door |

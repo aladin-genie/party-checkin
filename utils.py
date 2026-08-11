@@ -25,7 +25,7 @@ import qrcode
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey,
-    func, inspect, or_, case, select, insert,
+    func, inspect, or_, case, select, insert, text,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
@@ -675,10 +675,29 @@ def active_session_count() -> int:
     return real if real is not None else fallback
 
 
+def _named_guests_expr():
+    """SQL expression: how many additional guests one row names.
+
+    plus_one_name holds the names newline-joined (see guest_names_list), so
+    the count is "newlines + 1", and "newlines" is the classic portable
+    length-minus-length-without-the-separator trick. Both halves —
+    length() and replace() — mean the same thing on SQLite and PostgreSQL,
+    which keeps get_stats() a single aggregate SELECT instead of pulling
+    every guest's names back into Python just to len() them.
+
+    A blank/NULL column counts as 0, not 1.
+    """
+    names = func.coalesce(Guest.plus_one_name, "")
+    return case(
+        (names == "", 0),
+        else_=func.length(names) - func.length(func.replace(names, "\n", "")) + 1,
+    )
+
+
 def get_stats() -> dict:
     """Return current event statistics.
 
-    Computed via a SINGLE aggregate SELECT (COUNT/SUM/CASE) instead of six
+    Computed via a SINGLE aggregate SELECT (COUNT/SUM/CASE) instead of seven
     separate round trips to the database — on a remote Postgres connection
     each round trip costs real latency, and this is read on nearly every
     page render. COALESCE guards every SUM so an empty `guests` table
@@ -686,6 +705,13 @@ def get_stats() -> dict:
     same "if total else 0.0" guard as before so a fresh install never
     divides by zero. Works on both SQLite and PostgreSQL — case()/func.sum
     are portable SQLAlchemy constructs, no raw SQL.
+
+    Head counts, all of which differ and all of which an organiser asks for:
+    total_guests is bookings (rows), total_tickets is people paid for,
+    named_guests is the additional people actually named on those bookings,
+    and unnamed_tickets is the gap between the two — non-zero only for
+    bookings made before guest names were required, since
+    validate_registration() now refuses a mismatch.
     """
     session = get_db()
     try:
@@ -698,6 +724,7 @@ def get_stats() -> dict:
                 func.sum(case((Guest.checked_in == True, Guest.ticket_count), else_=0)), 0
             ),
             func.coalesce(func.sum(case((Guest.plus_one_name != "", 1), else_=0)), 0),
+            func.coalesce(func.sum(_named_guests_expr()), 0),
         ).one()
 
         total = int(row[0])
@@ -706,6 +733,10 @@ def get_stats() -> dict:
         tickets = int(row[3])
         admitted_tickets = int(row[4])
         plus_one_count = int(row[5])
+        named_guests = int(row[6])
+        # Clamped: a row hand-edited to name more people than it has tickets
+        # would otherwise report a negative gap.
+        unnamed_tickets = max(tickets - total - named_guests, 0)
 
         # Average tickets per guest
         avg_tickets = round(tickets / total, 2) if total else 0.0
@@ -716,10 +747,10 @@ def get_stats() -> dict:
         # Estimated revenue from ticket price
         try:
             ticket_price_cents = int(
-                _get_secret("TICKET_PRICE_CENTS", "2000")
+                _get_secret("TICKET_PRICE_CENTS", "3000")
             )
         except Exception:
-            ticket_price_cents = 2000
+            ticket_price_cents = 3000
         revenue = round(tickets * (ticket_price_cents / 100), 2)
 
         return {
@@ -730,12 +761,111 @@ def get_stats() -> dict:
             "total_tickets": tickets,
             "admitted_tickets": admitted_tickets,
             "plus_one_count": plus_one_count,
+            "named_guests": named_guests,
+            "unnamed_tickets": unnamed_tickets,
             "avg_tickets_per_guest": avg_tickets,
             "checkin_percentage": checkin_pct,
             "revenue": revenue,
         }
     finally:
         session.close()
+
+
+# ── Ticket Capacity ───────────────────────────────────────────────────────────
+# A hard cap on tickets sold across all guests (config.max_total_tickets()).
+# Distinct from the Capacity Guard above: that one throttles how many people
+# browse at once, this one is the venue's real limit on how many can come.
+
+_TICKET_CAP_LOCK_KEY = 0x50415254  # "PART" — app-specific advisory-lock id
+
+
+def tickets_sold(session=None) -> int:
+    """Return the total number of tickets registered so far.
+
+    Pass an open `session` to count inside a caller's transaction (that's
+    what makes the check in register_guest() authoritative); omit it for a
+    standalone read. Guests are never partially counted — a registration is
+    one row carrying its whole ticket_count.
+    """
+    own_session = session is None
+    session = session or get_db()
+    try:
+        return int(session.query(func.coalesce(func.sum(Guest.ticket_count), 0)).scalar() or 0)
+    finally:
+        if own_session:
+            session.close()
+
+
+def ticket_availability() -> dict:
+    """Return the current ticket-capacity picture for the UI.
+
+    {"cap": int, "sold": int, "remaining": int, "sold_out": bool,
+    "unlimited": bool}. `remaining` is clamped at 0 so an over-sold table
+    (cap lowered after the fact) never renders a negative count.
+
+    Must never raise: this is read on the Home and Register render paths, so
+    a DB blip falls back to "unlimited" (cap unknown → nothing shown, form
+    stays open) rather than wrongly telling guests the party is sold out.
+    register_guest() re-checks the real number inside its transaction, so
+    failing open here cannot oversell anything.
+    """
+    cap = 0
+    try:
+        cap = int(config.max_total_tickets())
+        if cap <= 0:
+            return {"cap": 0, "sold": 0, "remaining": 0, "sold_out": False, "unlimited": True}
+        sold = tickets_sold()
+        return {
+            "cap": cap,
+            "sold": sold,
+            "remaining": max(0, cap - sold),
+            "sold_out": sold >= cap,
+            "unlimited": False,
+        }
+    except Exception as e:
+        print(f"utils.ticket_availability unavailable, treating as uncapped: {e}")
+        return {"cap": cap, "sold": 0, "remaining": 0, "sold_out": False, "unlimited": True}
+
+
+def _lock_ticket_capacity(session) -> None:
+    """Serialize the capacity check + insert in register_guest().
+
+    Two guests submitting at the same instant can both read "3 left" and
+    both insert 3, overselling the venue — under READ COMMITTED neither
+    transaction can see the other's uncommitted row. There is no row to lock
+    instead (the check is an aggregate over the whole table, and
+    SELECT ... FOR UPDATE is rejected with aggregate functions), so take a
+    transaction-scoped Postgres advisory lock: it is released automatically
+    on COMMIT or ROLLBACK, and only ever contends with other registrations.
+
+    A no-op on SQLite, which serializes writers at the file level anyway.
+    Best-effort by design — never raises, because failing to take the lock
+    only widens the race window, and refusing a paid guest's registration
+    over it would be the worse outcome.
+    """
+    try:
+        if session.bind is None or session.bind.dialect.name != "postgresql":
+            return
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _TICKET_CAP_LOCK_KEY})
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"utils._lock_ticket_capacity: advisory lock unavailable, continuing: {e}")
+
+
+SOLD_OUT_MESSAGE = (
+    "We're sold out — every ticket for the party has been claimed. "
+    "Nothing was charged by this form, so if you've already sent a Zelle payment, "
+    "message the organiser and they'll refund you or sort out a spot."
+)
+
+
+def _not_enough_tickets_message(requested: int, remaining: int) -> str:
+    """Message for a registration asking for more tickets than are left."""
+    plural = "s" if remaining != 1 else ""
+    return (
+        f"Only {remaining} ticket{plural} left — you asked for {requested}. "
+        f"Lower your ticket count to {remaining} or fewer to finish registering, "
+        "and message the organiser about any payment you've already sent."
+    )
 
 
 # ── Page Visit Tracking ─────────────────────────────────────────────────────────
@@ -1145,7 +1275,12 @@ def _build_qr_email_message(
     # Escape every interpolated value before it goes into the HTML body.
     safe_name = html.escape(guest_name or "")
     safe_qr_code = html.escape(qr_code or "")
-    safe_plus_one = html.escape(plus_one_name) if plus_one_name else ""
+
+    # plus_one_name holds every additional guest, newline-joined — rendering
+    # it as one escaped blob would run all the names together on a single
+    # line. Listed individually, with the count, so the booker can check the
+    # party we have on file matches the party they're bringing.
+    extra_names = guest_names_list(plus_one_name)
 
     event_year = config.EVENT_DATE.year
     event_title = f"{config.EVENT_NAME} {event_year}"
@@ -1155,7 +1290,20 @@ def _build_qr_email_message(
     msg["From"] = mail_sender
     msg["To"] = guest_email
 
-    plus_one_line = f"<p>👤 Plus One: {safe_plus_one}</p>" if safe_plus_one else ""
+    if extra_names:
+        items = "".join(f"<li>{html.escape(n)}</li>" for n in extra_names)
+        plus_one_line = (
+            f"<p>👥 Additional guests ({len(extra_names)}):</p>"
+            f"<ul style=\"margin-top: 0;\">{items}</ul>"
+        )
+        plus_one_text = (
+            f"👥 Additional guests ({len(extra_names)}):\n"
+            + "\n".join(f"  - {n}" for n in extra_names)
+        )
+    else:
+        plus_one_line = ""
+        plus_one_text = ""
+
     my_qr_url = f"{config.APP_URL}/?page=My%20QR&guest_id={guest_id}"
     safe_my_qr_url = html.escape(my_qr_url)
 
@@ -1187,7 +1335,7 @@ def _build_qr_email_message(
 You're registered for {event_title} — {config.EVENT_TAGLINE}!
 
 🎫 Tickets: {ticket_count}
-{('👤 Plus One: ' + plus_one_name) if plus_one_name else ''}
+{plus_one_text}
 📅 Date: {config.EVENT_DATE_TEXT}
 🕕 Time: {config.EVENT_TIME_TEXT}
 📍 Venue: {config.VENUE_NAME}, {config.VENUE_ADDRESS}
@@ -1374,7 +1522,8 @@ def generate_csv() -> str:
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            "Name", "Email", "Phone", "Tickets", "Plus One", "Zelle Ref",
+            "Name", "Email", "Phone", "Tickets", "Additional Guests",
+            "Additional Guest Names", "Zelle Ref",
             "Checked In", "Band Given", "Check-in Time", "QR Code"
         ])
         for g in guests:
@@ -1383,7 +1532,12 @@ def generate_csv() -> str:
                 _sanitize_csv_field(g.email),
                 _sanitize_csv_field(g.phone),
                 g.ticket_count,
-                _sanitize_csv_field(g.plus_one_name),
+                guest_name_count(g.plus_one_name),
+                # Comma-joined, not raw: the names are stored newline-joined,
+                # and a cell with embedded newlines makes one guest's row
+                # span several lines in a spreadsheet. The archival export
+                # (export_backup) still writes the column verbatim.
+                _sanitize_csv_field(", ".join(guest_names_list(g.plus_one_name))),
                 _sanitize_csv_field(g.zelle_ref),
                 "Yes" if g.checked_in else "No",
                 "Yes" if g.band_given else "No",
@@ -1681,36 +1835,127 @@ def phone_digits(value: str) -> str:
     return digits
 
 
-def sanitize_guest_names(text: str, max_names: int = 20) -> str:
-    """Sanitize a list of guest names (for bulk-ticket plus-ones).
+# One ticket per person, and the booker holds the first one, so the largest
+# possible booking names one fewer guest than it has tickets. Derived from
+# the constant the Register page clamps its selector to, so the ticket
+# selector and the name list can never disagree about the maximum party.
+MAX_GUEST_NAMES = config.MAX_TICKETS_PER_REGISTRATION - 1
 
-    Accepts names separated by newlines and/or commas. Each entry is run
-    through sanitize_name(). Returns the cleaned names normalized and
-    newline-joined.
 
-    Returns "" (signalling failure, consistent with the other sanitize_*
-    functions) if ANY entry is invalid or there are more than `max_names`
-    entries. Blank/whitespace-only input returns "" too, but that's the
-    normal "not provided" case for this optional field, not a failure.
+def _split_guest_names(text: str) -> list:
+    """Split raw guest-names input into trimmed, non-empty entries.
+
+    Newlines and commas both separate names — guests type the list either
+    way (and often both ways in one box), so both are accepted. No
+    validation happens here; see parse_guest_names().
     """
     raw = (text or "").strip()
     if not raw:
-        return ""
+        return []
+    return [p for p in (p.strip() for p in re.split(r"[\n,]+", raw)) if p]
 
-    parts = [p.strip() for p in re.split(r"[\n,]+", raw)]
-    parts = [p for p in parts if p]
 
-    if not parts or len(parts) > max_names:
-        return ""
+def count_guest_name_entries(text: str) -> int:
+    """How many names the guest has typed so far, valid or not.
+
+    Used by the Register page's live "you've entered N so far" progress
+    note, which must count what's in the box rather than what would pass
+    validation — telling someone who typed three names that they've entered
+    zero, because one of them has a typo in it, would be worse than useless.
+    """
+    return len(_split_guest_names(text))
+
+
+def parse_guest_names(text: str, max_names: int = MAX_GUEST_NAMES) -> tuple:
+    """Split a guest-names blob into individually-validated names.
+
+    Accepts names separated by newlines and/or commas; each entry is run
+    through sanitize_name(). Returns (names, reason):
+
+    - (["Alice Smith", "Bob Jones"], "") on success
+    - ([], "") for blank/whitespace-only input — "not provided", not a failure
+    - ([], "invalid") if ANY entry isn't a usable name (all-or-nothing: a
+      half-accepted list would silently drop somebody from the booking)
+    - ([], "too_many") if there are more than `max_names` entries
+
+    The reason is what lets validate_registration() tell a guest *which*
+    thing went wrong; sanitize_guest_names() below is the string-only
+    wrapper for callers that don't care.
+    """
+    parts = _split_guest_names(text)
+    if not parts:
+        return [], ""
+    if len(parts) > max_names:
+        return [], "too_many"
 
     cleaned = []
     for part in parts:
         name = sanitize_name(part)
         if not name:
-            return ""
+            return [], "invalid"
         cleaned.append(name)
 
-    return "\n".join(cleaned)
+    return cleaned, ""
+
+
+def sanitize_guest_names(text: str, max_names: int = MAX_GUEST_NAMES) -> str:
+    """Sanitize a list of guest names (for bulk-ticket plus-ones).
+
+    Thin wrapper over parse_guest_names(): returns the cleaned names
+    newline-joined, or "" (signalling failure, consistent with the other
+    sanitize_* functions) if any entry is invalid or there are more than
+    `max_names` entries. Blank/whitespace-only input returns "" too, but
+    that's the normal "not provided" case, not a failure.
+    """
+    names, _reason = parse_guest_names(text, max_names=max_names)
+    return "\n".join(names)
+
+
+def guest_names_list(value: str) -> list:
+    """Split a stored plus_one_name value back into individual names.
+
+    plus_one_name holds up to MAX_GUEST_NAMES newline-joined names, not one
+    name — every reader (success screen, door card, admin table, email) needs
+    to split it the same way, including tolerating the blank/None column
+    default and any stray whitespace from a hand-edited row.
+    """
+    return [n.strip() for n in (value or "").split("\n") if n.strip()]
+
+
+def guest_name_count(value: str) -> int:
+    """How many additional guests are named in a stored plus_one_name value."""
+    return len(guest_names_list(value))
+
+
+def additional_guests_expected(ticket_count) -> int:
+    """How many additional guest names a booking of `ticket_count` needs.
+
+    One ticket is the person filling in the form, so a 4-ticket booking is
+    the registrant plus 3 named guests. This is the single definition of
+    that rule — validate_registration() enforces it, and the UI reads it to
+    tell the guest up front how many names to type.
+    """
+    try:
+        tickets = int(ticket_count)
+    except (TypeError, ValueError):
+        tickets = 1
+    return max(tickets - 1, 0)
+
+
+def party_size(guest: dict) -> int:
+    """Total head count for a booking: the registrant plus their named guests.
+
+    Reads the names rather than trusting ticket_count, because rows that
+    predate mandatory guest names (and rows hand-edited in the database) can
+    have fewer names than tickets. Never returns less than 1 — somebody
+    registered.
+    """
+    named = guest_name_count(guest.get("plus_one_name"))
+    try:
+        tickets = int(guest.get("ticket_count") or 1)
+    except (TypeError, ValueError):
+        tickets = 1
+    return max(tickets, named + 1, 1)
 
 
 def sanitize_zelle_ref(ref: str) -> str:
@@ -1739,14 +1984,25 @@ def validate_registration(
     plus_one_name: str,
     zelle_ref: str,
     agree_terms: bool,
+    ticket_count=1,
 ) -> tuple:
     """Validate and sanitize registration form fields.
 
     Returns (cleaned, errors): two dicts keyed by "name", "email", "phone",
-    "plus_one_name", "zelle_ref", "terms". `cleaned` holds the sanitized
-    value for every field (empty string/False if invalid or not provided).
-    `errors` holds a user-facing message only for fields that failed
+    "ticket_count", "plus_one_name", "zelle_ref", "terms". `cleaned` holds
+    the sanitized value for every field (empty string/False if invalid or not
+    provided) plus "additional_guest_count", the number of guests actually
+    named. `errors` holds a user-facing message only for fields that failed
     validation (fields that passed are simply absent from `errors`).
+
+    Guest names are validated AGAINST the ticket count: a booking of N
+    tickets is the registrant plus N-1 other people, so exactly N-1
+    additional names are required (see additional_guests_expected). Names
+    used to be free-form and optional, which meant a 6-ticket booking could
+    arrive with nobody named — the organiser then had no idea who the other
+    five people were, and the door had no list to check against. Requiring
+    them here is the only point in the flow where the guest is still present
+    to answer.
 
     This replaces the validation that used to be duplicated twice in
     streamlit_app.page_register (once inside the st.form block, once after
@@ -1777,10 +2033,61 @@ def validate_registration(
     elif not phone_clean:
         errors["phone"] = "Please enter a valid 10-digit US phone number (only numbers after +1-)."
 
-    plus_one_raw = (plus_one_name or "").strip()
-    plus_one_clean = sanitize_guest_names(plus_one_raw) if plus_one_raw else ""
-    if plus_one_raw and not plus_one_clean:
-        errors["plus_one_name"] = "Guest names must use letters and spaces only, one per line (max 20)."
+    # Ticket count decides how many names are required below, so it is
+    # validated first. The Register page's number_input already constrains
+    # this, but it is a client-side widget and this function is the server
+    # -side authority — a garbage value must produce a fixable message, not
+    # a traceback out of int().
+    max_tickets = config.MAX_TICKETS_PER_REGISTRATION
+    try:
+        tickets_clean = int(ticket_count)
+    except (TypeError, ValueError):
+        tickets_clean = 0
+    if tickets_clean < 1 or tickets_clean > max_tickets:
+        errors["ticket_count"] = f"Please choose between 1 and {max_tickets} tickets."
+        tickets_clean = min(max(tickets_clean, 1), max_tickets)
+
+    names, names_reason = parse_guest_names(plus_one_name or "")
+    expected = additional_guests_expected(tickets_clean)
+    plus_one_clean = "\n".join(names)
+
+    if names_reason == "invalid":
+        plus_one_clean = ""
+        errors["plus_one_name"] = "Guest names must use letters and spaces only, one per line."
+    elif names_reason == "too_many":
+        plus_one_clean = ""
+        errors["plus_one_name"] = f"That's more than {MAX_GUEST_NAMES} names — please list at most {MAX_GUEST_NAMES}."
+    elif len(names) != expected:
+        # The count is the whole point of the field, so say exactly what was
+        # counted and exactly what's needed — "invalid input" would leave the
+        # guest guessing which of the two numbers to change.
+        got = len(names)
+        needed_word = "name" if expected == 1 else "names"
+        if got == 0:
+            errors["plus_one_name"] = (
+                f"{tickets_clean} tickets covers you plus {expected} other "
+                f"{'guest' if expected == 1 else 'guests'} — please enter their "
+                f"{needed_word}, one per line."
+            )
+        elif got < expected:
+            missing = expected - got
+            errors["plus_one_name"] = (
+                f"{tickets_clean} tickets needs {expected} additional guest {needed_word}, "
+                f"but you listed {got}. Please add the {missing} missing "
+                f"{'name' if missing == 1 else 'names'}, or lower the ticket count above."
+            )
+        else:
+            # More names than tickets. Says "raise the ticket count" without
+            # promising it's possible — the selector is capped by how many
+            # tickets are actually left, so a guest at the cap can only take
+            # the other branch (remove names).
+            extra = got - expected
+            covered = "only booked 1 ticket" if expected == 0 else f"booked {tickets_clean} tickets"
+            errors["plus_one_name"] = (
+                f"You listed {got} guest {'name' if got == 1 else 'names'} but {covered}. "
+                "Everyone coming needs their own ticket — raise the ticket count above, "
+                f"or remove {extra} {'name' if extra == 1 else 'names'}."
+            )
 
     zelle_clean = sanitize_zelle_ref(zelle_ref or "")
     if not zelle_clean:
@@ -1793,7 +2100,13 @@ def validate_registration(
         "name": name_clean,
         "email": email_clean,
         "phone": phone_clean,
+        "ticket_count": tickets_clean,
         "plus_one_name": plus_one_clean,
+        # How many people the booker added beyond themselves. Equal to
+        # tickets_clean - 1 whenever `errors` is empty; kept as its own key so
+        # the caller reports what was actually counted rather than re-deriving
+        # it from a field that may have failed validation.
+        "additional_guest_count": len(names) if not errors.get("plus_one_name") else 0,
         "zelle_ref": zelle_clean,
         "terms": bool(agree_terms),
     }
@@ -1815,14 +2128,18 @@ def register_guest(
     caller is responsible for both.
 
     Returns {"ok": True, "guest": {...}} on success, or
-    {"ok": False, "reason": "duplicate_email"|"db_error"|"db_unavailable",
-    "message": str}.
+    {"ok": False, "reason": "duplicate_email"|"sold_out"|"not_enough_tickets"|
+    "db_error"|"db_unavailable", "message": str}. The two capacity refusals
+    also carry "remaining" (tickets still available) so the caller can show
+    the guest how many are left.
     """
     # Refuse to write into the throwaway SQLite fallback: a registration
     # accepted there looks successful, emails a QR code, and then vanishes
     # when the container restarts. Far better to ask the guest to retry.
     if db_degraded():
         return {"ok": False, "reason": "db_unavailable", "message": DB_DEGRADED_MESSAGE}
+
+    requested = int(ticket_count) if ticket_count else 1
 
     session = get_db()
     try:
@@ -1834,11 +2151,31 @@ def register_guest(
                 "message": "This email is already registered. Check your email or use the 'My QR' page.",
             }
 
+        # Enforce the venue's hard ticket cap. This is the authoritative
+        # check — the Register page's sold-out screen and clamped selector
+        # are read from a cache and can be seconds stale, so the number that
+        # actually decides is this one, read inside the same transaction as
+        # the insert (and behind the advisory lock, so simultaneous submits
+        # can't both spend the last seat).
+        cap = config.max_total_tickets()
+        if cap > 0:
+            _lock_ticket_capacity(session)
+            remaining = max(0, cap - tickets_sold(session))
+            if remaining <= 0:
+                return {"ok": False, "reason": "sold_out", "message": SOLD_OUT_MESSAGE, "remaining": 0}
+            if requested > remaining:
+                return {
+                    "ok": False,
+                    "reason": "not_enough_tickets",
+                    "message": _not_enough_tickets_message(requested, remaining),
+                    "remaining": remaining,
+                }
+
         guest = Guest(
             name=name,
             email=email,
             phone=phone,
-            ticket_count=int(ticket_count) if ticket_count else 1,
+            ticket_count=requested,
             plus_one_name=plus_one_name,
             zelle_ref=zelle_ref,
             qr_code=generate_qr_code(),

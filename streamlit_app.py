@@ -88,6 +88,18 @@ def _cached_site_stats():
     return utils.get_site_stats()
 
 
+@st.cache_data(ttl=10, show_spinner=False)
+def _cached_availability():
+    """Ticket-capacity picture for the UI (see utils.ticket_availability()).
+
+    Display only, and up to 10s stale — the number that actually decides
+    whether a registration is accepted is re-read inside the transaction by
+    utils.register_guest(), so a guest who submits just as the last ticket
+    goes is refused there rather than oversold.
+    """
+    return utils.ticket_availability()
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_registration_daily_counts():
     return utils.get_registration_daily_counts()
@@ -215,6 +227,12 @@ def page_home():
     except Exception:
         pass
 
+    # ── Tickets left ────────────────────────────────────────────────────────
+    # Directly under the hero: the one number a visitor most needs before
+    # deciding whether to register now or later. Renders nothing when the cap
+    # is disabled (see theme.tickets_remaining).
+    st.markdown(theme.tickets_remaining(_cached_availability()), unsafe_allow_html=True)
+
     # ── Party Buzz ──────────────────────────────────────────────────────────
     # Public, aggregate-only site activity — no guest names/emails/phones/
     # Zelle refs ever appear here. Moved from the admin dashboard: the owner
@@ -330,28 +348,70 @@ def page_register():
             return
         st.session_state["registered_guest_id"] = None
 
+    # ── Ticket capacity ────────────────────────────────────────────────────
+    # Checked before anything else on the page: there's no point walking a
+    # guest through Zelle instructions for a party that's full.
+    availability = _cached_availability()
+    if availability["sold_out"]:
+        st.markdown(theme.stepper(1), unsafe_allow_html=True)
+        st.markdown(theme.sold_out_notice(utils.SOLD_OUT_MESSAGE), unsafe_allow_html=True)
+        _home_button(key="home_sold_out")
+        return
+
     st.markdown(theme.stepper(2), unsafe_allow_html=True)
+    st.markdown(theme.tickets_remaining(availability), unsafe_allow_html=True)
 
     # ── Zelle Payment Info Card ────────────────────────────────────────────
     st.markdown(theme.payment_card(ZELLE_INFO, TICKET_PRICE), unsafe_allow_html=True)
 
     # ── Ticket count & dynamic total (outside form so it updates live) ────
+    # Never offer more tickets than are actually left. Streamlit raises if a
+    # widget's session_state value sits outside its min/max, so an existing
+    # selection has to be clamped BEFORE the widget is instantiated — that
+    # happens when someone picks 8 tickets and other guests claim most of
+    # the remainder while this page is open.
+    max_tickets = config.MAX_TICKETS_PER_REGISTRATION
+    if not availability["unlimited"]:
+        max_tickets = max(1, min(max_tickets, availability["remaining"]))
+    try:
+        if int(st.session_state.get("ticket_count", 1)) > max_tickets:
+            st.session_state["ticket_count"] = max_tickets
+    except (TypeError, ValueError):
+        st.session_state["ticket_count"] = 1
+
     st.markdown(theme.section_header("Select Tickets"), unsafe_allow_html=True)
     ticket_count = st.number_input(
         "Number of Tickets *",
         min_value=1,
-        max_value=20,
+        max_value=max_tickets,
         value=1,
         step=1,
         key="ticket_count",
-        help="Select number of tickets. The total updates automatically as you change it.",
+        help=f"Select number of tickets (up to {max_tickets}). "
+             "The total updates automatically as you change it.",
     )
     st.markdown(theme.total_card(ticket_count, TICKET_PRICE), unsafe_allow_html=True)
+
+    reg_errors = st.session_state.get("reg_errors", {})
+    if "ticket_count" in reg_errors:
+        st.markdown(theme.field_error(reg_errors["ticket_count"]), unsafe_allow_html=True)
+
+    # How many other people this booking has to name, stated before the field
+    # rather than after a rejected submit. Lives outside the form alongside
+    # the selector, so changing the ticket count updates it immediately —
+    # utils.validate_registration enforces exactly this count.
+    names_required = utils.additional_guests_expected(ticket_count)
+    st.markdown(
+        theme.guest_names_requirement(
+            ticket_count,
+            utils.count_guest_name_entries(st.session_state.get("reg_plus_one", "")),
+        ),
+        unsafe_allow_html=True,
+    )
 
     # ── Registration Details ───────────────────────────────────────────────
     st.markdown(theme.section_header("Step 2: Fill Your Details"), unsafe_allow_html=True)
 
-    reg_errors = st.session_state.get("reg_errors", {})
     if reg_errors:
         st.markdown(theme.validation_banner(len(reg_errors)), unsafe_allow_html=True)
 
@@ -389,11 +449,32 @@ def page_register():
         if "phone" in reg_errors:
             st.markdown(theme.field_error(reg_errors["phone"]), unsafe_allow_html=True)
 
+        # Label and help both restate the required count, because this is
+        # the one field whose correctness depends on a control that sits
+        # outside the form (the ticket selector above). Changing that
+        # selector reruns the script, so this label re-renders with it.
+        if names_required:
+            names_label = (
+                f"Additional Guest Names — {names_required} "
+                f"{'name' if names_required == 1 else 'names'} required *"
+            )
+            names_help = (
+                f"One name per line (or comma-separated). You booked {ticket_count} tickets, "
+                f"so we need the {names_required} other "
+                f"{'guest' if names_required == 1 else 'guests'} by name — letters and spaces only."
+            )
+        else:
+            names_label = "Additional Guest Names — not needed for 1 ticket"
+            names_help = (
+                "Only for bookings of 2 or more. Everyone attending needs their own ticket, "
+                "so add a ticket above for each extra person and their name here."
+            )
+
         plus_one_name = st.text_area(
-            "Additional Guest Names (optional)",
+            names_label,
             key="reg_plus_one",
             placeholder="Jane Doe\nJohn Doe\nMary Smith",
-            help="One name per line (or comma-separated) — up to 20.",
+            help=names_help,
             height=120,
             max_chars=1000,
         )
@@ -468,7 +549,8 @@ def page_register():
 
     if submitted:
         cleaned, errors = utils.validate_registration(
-            name, email, phone, plus_one_name, zelle_ref, agree_terms
+            name, email, phone, plus_one_name, zelle_ref, agree_terms,
+            ticket_count=ticket_count,
         )
 
         if errors:
@@ -490,7 +572,7 @@ def page_register():
             cleaned["name"],
             cleaned["email"],
             cleaned["phone"],
-            int(ticket_count),
+            cleaned["ticket_count"],
             cleaned["plus_one_name"],
             cleaned["zelle_ref"],
         )
@@ -515,6 +597,7 @@ def page_register():
             _cached_stats.clear()
             _cached_site_stats.clear()
             _cached_registration_daily_counts.clear()
+            _cached_availability.clear()
             st.session_state["registered_guest_id"] = guest["id"]
             st.rerun()
         else:
@@ -531,6 +614,14 @@ def page_register():
             )
             if reason == "duplicate_email":
                 st.session_state["reg_errors"] = {"email": result["message"]}
+                st.rerun()
+            elif reason in ("sold_out", "not_enough_tickets"):
+                # The last tickets went while this form was open. Refresh the
+                # cached count so the rerun shows the true remainder (or the
+                # sold-out screen), and carry the explanation across it —
+                # st.error here would be discarded by the rerun.
+                _cached_availability.clear()
+                _set_flash("error", result["message"])
                 st.rerun()
             elif reason == "db_unavailable":
                 # The guest database is unreachable and we refused to write
@@ -552,7 +643,8 @@ def _show_registration_success(guest: dict):
     name = guest["name"]
     email = guest["email"]
     tickets = guest["ticket_count"]
-    plus_one = guest.get("plus_one_name") or ""
+    names_list = utils.guest_names_list(guest.get("plus_one_name"))
+    head_count = utils.party_size(guest)
 
     # The email send is fire-and-forget (utils.send_qr_email_async) — we have
     # no result to report here, so this must not claim delivery (see PART 1).
@@ -563,10 +655,13 @@ def _show_registration_success(guest: dict):
 
     st.markdown(theme.section_header("You're In!"), unsafe_allow_html=True)
     st.markdown(f"**{name}** • {tickets} Ticket{'s' if tickets != 1 else ''}")
-    if plus_one:
-        names_list = [n for n in plus_one.split("\n") if n.strip()]
+    # Read the head count back from what was actually saved, so the guest can
+    # confirm we recorded the party they booked for — this is the last chance
+    # to spot a missing name before the door.
+    if names_list:
         st.markdown(f"**Additional Guests ({len(names_list)}):**")
         st.markdown("\n".join(f"- {n}" for n in names_list))
+        st.markdown(f"👥 **{head_count} people** on this booking, including you.")
     st.markdown(f"📧 Sending your QR code to: `{email}`")
     st.divider()
 
@@ -1287,6 +1382,7 @@ def _clear_all_caches_and_state_after_reset() -> None:
     _cached_site_stats.clear()
     _cached_registration_daily_counts.clear()
     _cached_event_day_hourly_checkins.clear()
+    _cached_availability.clear()
     st.session_state["registered_guest_id"] = None
     st.session_state["scanner_result"] = None
     st.session_state["admin_pending_changes"] = None
@@ -1306,6 +1402,17 @@ def _admin_overview_tab():
     active_now = _safe_active_count(register=False)
     hard_limit = config.max_concurrent_users()
     st.caption(f"🟢 {active_now} active session(s) in the last minute · capacity guard at {hard_limit}")
+
+    # Ticket cap: how full the party is, and how close sign-ups are to closing.
+    availability = _cached_availability()
+    st.markdown(
+        theme.tickets_remaining(
+            availability,
+            context="Registration closes automatically once every ticket is claimed. "
+                    "Adjust the cap with the MAX_TOTAL_TICKETS secret.",
+        ),
+        unsafe_allow_html=True,
+    )
 
     if stats["total_guests"] == 0:
         st.markdown(
@@ -1328,6 +1435,8 @@ def _admin_overview_tab():
                     {"label": "Admitted Tickets", "value": stats["admitted_tickets"], "icon": "🚪", "accent": "info"},
                     {"label": "Revenue (est.)", "value": f"${stats['revenue']:,.2f}", "icon": "💰", "accent": "gold"},
                     {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "violet"},
+                    {"label": "Named Guests", "value": stats["named_guests"], "icon": "👥", "accent": "violet"},
+                    {"label": "Unnamed Tickets", "value": stats["unnamed_tickets"], "icon": "❓", "accent": "warn"},
                 ]
             ),
             unsafe_allow_html=True,
@@ -1440,6 +1549,8 @@ def _admin_guests_tab():
                 "Email": g["email"],
                 "Phone": g["phone"] or "—",
                 "Tickets": g["ticket_count"],
+                "Party Size": utils.party_size(g),
+                "Names": utils.guest_name_count(g["plus_one_name"]),
                 "Additional Guests": (g["plus_one_name"] or "").replace("\n", ", ") or "—",
                 "Checked In": bool(g["checked_in"]),
                 "Band Given": bool(g["band_given"]),
@@ -1461,12 +1572,20 @@ def _admin_guests_tab():
             "Email": st.column_config.TextColumn("Email"),
             "Phone": st.column_config.TextColumn("Phone", help="“—” means the guest registered before phone became mandatory."),
             "Tickets": st.column_config.NumberColumn("Tickets"),
+            "Party Size": st.column_config.NumberColumn(
+                "Party Size", help="Total people on this booking, including the person who registered."
+            ),
+            "Names": st.column_config.NumberColumn(
+                "Names",
+                help="How many additional guests were named. Should be Tickets − 1; a lower "
+                     "number means the booking predates mandatory guest names.",
+            ),
             "Additional Guests": st.column_config.TextColumn("Additional Guests"),
             "Checked In": st.column_config.CheckboxColumn("Checked In", help="Tick to check this guest in."),
             "Band Given": st.column_config.CheckboxColumn("Band Given", help="Tick once their wristband is on."),
             "Delete": st.column_config.CheckboxColumn("Delete", help="Tick then Save changes — a confirmation step follows."),
         },
-        disabled=["id", "Name", "Email", "Phone", "Tickets", "Additional Guests"],
+        disabled=["id", "Name", "Email", "Phone", "Tickets", "Party Size", "Names", "Additional Guests"],
     )
 
     if st.button("💾 Save changes", type="primary", use_container_width=True, key="admin_save_changes"):
@@ -1533,6 +1652,8 @@ def _apply_guest_changes_cache_clear(result: dict) -> None:
     """Targeted cache invalidation after utils.apply_guest_changes() (PART 7)."""
     _cached_stats.clear()
     if result.get("deleted"):
+        # Deleting a guest frees up their tickets against the cap.
+        _cached_availability.clear()
         _cached_site_stats.clear()
         _cached_registration_daily_counts.clear()
     if result.get("checked_in") or result.get("deleted"):

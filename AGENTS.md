@@ -18,7 +18,7 @@ DATABASE_URL = "sqlite:///local_e2e.db"
 MAIL_USERNAME = ""
 MAIL_PASSWORD = ""
 ADMIN_PASSWORD = "testadmin123"
-TICKET_PRICE_CENTS = "2000"
+TICKET_PRICE_CENTS = "3000"
 ZELLE_INFO = "test-zelle@example.com"
 EOF
 cd /tmp/pc-sandbox && python -m streamlit run /path/to/party-checkin/streamlit_app.py --server.port 8599
@@ -34,7 +34,7 @@ The `tests/e2e` suite does exactly this automatically.
 - **Python version:** 3.12 (set in Streamlit Cloud → Advanced settings)
 
 ## Required Streamlit Cloud Secrets
-`DATABASE_URL` (Supabase **Pooler** URL), `ADMIN_PASSWORD`, `TICKET_PRICE_CENTS`, `ZELLE_INFO`,
+`DATABASE_URL` (Supabase **Pooler** URL), `ADMIN_PASSWORD`, `TICKET_PRICE_CENTS`, `MAX_TOTAL_TICKETS`, `ZELLE_INFO`,
 `SECRET_KEY`, `APP_URL`, and the mail block (`MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`,
 `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER`).
 
@@ -64,9 +64,18 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 - **Registration email is fire-and-forget** (`utils.send_qr_email_async`). It snapshots the SMTP
   secrets on the calling thread; the worker must never touch `st.*`. Don't assume a synchronous
   result. `send_qr_email()` stays synchronous for the Resend buttons.
-- **`plus_one_name` holds up to 20 newline-joined names**, not one. The column is
-  `VARCHAR(1000)` and `init_db()` widens it on Postgres. Validate through
-  `utils.sanitize_guest_names()`.
+- **`plus_one_name` holds newline-joined names**, not one. The column is `VARCHAR(1000)` and
+  `init_db()` widens it on Postgres. Read it via `utils.guest_names_list()` /
+  `utils.guest_name_count()` — never `.split()` it inline.
+- **Guest names are required and counted against the ticket count.** One ticket per person and
+  the booker holds the first, so a booking of N tickets must name exactly N-1 others
+  (`utils.additional_guests_expected`). `validate_registration()` enforces it and takes
+  `ticket_count` for that reason; it rejects too few names, too many, and any name on a
+  1-ticket booking. `utils.MAX_GUEST_NAMES` is derived as
+  `config.MAX_TICKETS_PER_REGISTRATION - 1` so the selector and the name list can't disagree.
+  Rows registered before this rule can still be short — `get_stats()["unnamed_tickets"]` counts
+  them, and `utils.party_size()` tolerates them, so don't assume names == tickets-1 when
+  *reading*.
 - **`st.data_editor` paints cells on a canvas** with no accessibility mirror, so E2E tests
   cannot read cell text. Assert on the app's own "N of M guests shown" caption instead, and
   cover mutations through `utils.apply_guest_changes()` at the service level.

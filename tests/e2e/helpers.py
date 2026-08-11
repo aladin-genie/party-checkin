@@ -91,9 +91,14 @@ def fill_registration_form(
     """Fill the Register page form. `tickets` lives outside the form (it's
     the live-updating ticket count), everything else is inside it.
 
-    `guest_names` fills the "Additional Guest Names (optional)" multi-line
-    `st.text_area` (up to 20 names, one per line or comma-separated —
-    formerly a single-line "Plus One Name" field).
+    `guest_names` fills the "Additional Guest Names" multi-line `st.text_area`
+    (one per line or comma-separated). That field's label carries the
+    required count and therefore changes with `tickets`, so it is matched on
+    the stable prefix (get_by_label is substring-matching by default).
+
+    A booking of N tickets needs exactly N-1 names, so callers passing
+    tickets > 1 must pass matching `guest_names` or the submit will fail
+    validation — see utils.validate_registration.
 
     `phone` defaults to a valid US number because the field is mandatory —
     tests exercising one deliberately-invalid field would otherwise trip the
@@ -107,7 +112,7 @@ def fill_registration_form(
     if phone:
         page.get_by_label("Phone Number *").fill(phone)
     if guest_names:
-        page.get_by_label("Additional Guest Names (optional)").fill(guest_names)
+        page.get_by_label("Additional Guest Names").fill(guest_names)
     page.get_by_label("Zelle Transaction Reference *").fill(zelle_ref)
 
     if open_expander:

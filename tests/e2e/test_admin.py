@@ -70,7 +70,7 @@ def test_admin_auth_lockout_after_five_failed_attempts(page, base_url, reset_db)
 
 @pytest.mark.slow
 def test_admin_overview_stats_and_csv_export(page, base_url, reset_db):
-    # 2 tickets + 1 + 1 = 4 tickets @ $20 => $80.00 revenue.
+    # 2 tickets + 1 + 1 = 4 tickets @ $30 => $120.00 revenue.
     reset_db.register_guest("Filtera One", "filtera.one@example.com", "", 2, "", "ZELLE-FILTERA01")
     reset_db.register_guest("Filterb Two", "filterb.two@example.com", "", 1, "", "ZELLE-FILTERB01")
     reset_db.register_guest("Filterc Three", "filterc.three@example.com", "", 1, "", "ZELLE-FILTERC01")
@@ -90,7 +90,7 @@ def test_admin_overview_stats_and_csv_export(page, base_url, reset_db):
         login_admin(page, ADMIN_PASSWORD)
     expect(page.get_by_role("tab", name="Overview")).to_be_visible(timeout=10000)
 
-    expect(page.get_by_text("$80.00", exact=True)).to_be_visible(timeout=10000)  # Revenue (est.)
+    expect(page.get_by_text("$120.00", exact=True)).to_be_visible(timeout=10000)  # Revenue (est.)
     # NOTE: the Overview tab no longer shows Traffic tiles, the two charts,
     # or an "Avg Tickets" stat -- those moved to the Home page's "Party
     # Buzz" section (see test_home.py) or were dropped outright ("Avg

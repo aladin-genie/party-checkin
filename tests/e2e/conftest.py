@@ -43,7 +43,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 # expected totals) without ever touching the real project secrets.
 ADMIN_PASSWORD = "e2e-sandbox-admin-pw-9f3a1c"
 ZELLE_INFO_TEST = "test-zelle@example.com"
-TICKET_PRICE_CENTS = "2000"
+TICKET_PRICE_CENTS = "3000"
 
 
 def pytest_configure(config):

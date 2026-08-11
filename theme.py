@@ -562,6 +562,87 @@ div[data-testid="stContainer"] {
     color: var(--text);
 }
 
+/* ── Ticket capacity (how many tickets are left to sell) ────────────────── */
+/* The venue's hard cap, shown on Home and above the Register form. Reuses
+   the progress-meter track shape so "how full is the party" reads the same
+   way as "how many have checked in". See theme.tickets_remaining(). */
+.tickets-left {
+    background: var(--elevated);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+}
+.tickets-left.is-low { border-left-color: var(--warn); }
+.tickets-left.is-out { border-left-color: var(--err); }
+.tickets-left-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.tickets-left-count {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--gold-soft);
+}
+.tickets-left.is-low .tickets-left-count { color: var(--warn); }
+.tickets-left.is-out .tickets-left-count { color: var(--err); }
+.tickets-left-count strong { font-size: 1.5rem; }
+.tickets-left-of {
+    color: var(--text-dimmer);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.tickets-left-track {
+    height: 10px;
+    border-radius: var(--radius-pill);
+    background: var(--elevated-strong);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.tickets-left-fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--gold-dark) 0%, var(--gold) 60%, var(--gold-soft) 100%);
+    transition: width 0.4s ease;
+}
+.tickets-left.is-low .tickets-left-fill {
+    background: linear-gradient(90deg, var(--warn) 0%, var(--gold-soft) 100%);
+}
+.tickets-left-note {
+    margin-top: 8px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+/* Full-width refusal shown in place of the Register form once the cap is hit. */
+.sold-out-notice {
+    text-align: center;
+    background: var(--err-bg);
+    border: 1px solid var(--err-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-5);
+    margin: var(--space-4) 0;
+}
+.sold-out-icon { font-size: 2.2rem; margin-bottom: 8px; }
+.sold-out-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+.sold-out-message {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    max-width: 46ch;
+    margin: 0 auto;
+}
+
 /* ── Empty state ───────────────────────────────────────────────────────── */
 /* A friendly placeholder for an otherwise-empty section (fresh install or
    just after an admin Danger Zone reset) so it reads as "nothing here yet",
@@ -703,6 +784,37 @@ div[data-testid="stContainer"] {
 .total-caption {
     font-size: 0.88rem;
     color: var(--text-dim);
+}
+
+/* ── Guest-names requirement (how many names the ticket count needs) ───── */
+/* Sits between the ticket selector and the form, and re-renders every time
+   the ticket count changes, so the guest learns how many names are wanted
+   before they reach the field rather than from a validation error after
+   submitting. See theme.guest_names_requirement(). */
+.guest-req {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    font-size: 0.92rem;
+    color: var(--text);
+}
+.guest-req.is-solo {
+    background: var(--elevated);
+    border-color: var(--border);
+    color: var(--text-dim);
+}
+.guest-req-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+}
+.guest-req-count {
+    font-weight: 800;
+    color: var(--gold);
 }
 
 /* ── Stepper ───────────────────────────────────────────────────────────── */
@@ -1167,6 +1279,71 @@ def checkin_progress_meter(checked_in: int, total: int) -> str:
     )
 
 
+# Below this many tickets left, the remaining-tickets meter switches to the
+# warning accent — "8 left" should not look as calm as "180 left".
+TICKETS_LOW_THRESHOLD = 25
+
+
+def tickets_remaining(availability: dict, context: str = "") -> str:
+    """A meter showing how many tickets are still available.
+
+    `availability` is a utils.ticket_availability() payload. Returns an empty
+    string when the cap is disabled (`unlimited`), so callers can render this
+    unconditionally and get nothing when there is no cap to report.
+
+    Colour follows scarcity: gold normally, warn under TICKETS_LOW_THRESHOLD,
+    err at zero. `context` replaces the default note under the bar.
+    """
+    if not availability or availability.get("unlimited"):
+        return ""
+
+    cap = max(0, int(availability.get("cap", 0)))
+    if cap <= 0:
+        return ""
+    remaining = max(0, int(availability.get("remaining", 0)))
+    sold = max(0, min(cap, int(availability.get("sold", 0))))
+
+    if remaining <= 0:
+        state, note = "is-out", "Every ticket has been claimed."
+    elif remaining <= TICKETS_LOW_THRESHOLD:
+        state, note = "is-low", "Almost gone — register soon to be sure of your spot."
+    else:
+        state, note = "", "Tickets are first come, first served."
+    if context:
+        note = context
+
+    plural = "s" if remaining != 1 else ""
+    filled = round(sold / cap * 100, 1) if cap else 0.0
+    return (
+        f'<div class="tickets-left {state}">'
+        '<div class="tickets-left-head">'
+        f'<span class="tickets-left-count">🎟️ <strong>{remaining}</strong> ticket{plural} left</span>'
+        f'<span class="tickets-left-of">{sold} of {cap} claimed</span>'
+        '</div>'
+        f'<div class="tickets-left-track" role="progressbar" aria-valuenow="{sold}" '
+        f'aria-valuemin="0" aria-valuemax="{cap}" aria-label="Tickets claimed">'
+        f'<div class="tickets-left-fill" style="width:{filled}%;"></div></div>'
+        f'<div class="tickets-left-note">{html.escape(note)}</div>'
+        '</div>'
+    )
+
+
+def sold_out_notice(message: str) -> str:
+    """The notice shown in place of the Register form once the cap is hit.
+
+    `message` is utils.SOLD_OUT_MESSAGE — kept in utils rather than inlined
+    here so the same wording covers both this screen and the refusal a guest
+    hits if the last ticket goes while their form is open.
+    """
+    return f"""
+    <div class="sold-out-notice">
+        <div class="sold-out-icon">🎟️</div>
+        <div class="sold-out-title">Sold out — every ticket is claimed</div>
+        <div class="sold-out-message">{html.escape(message)}</div>
+    </div>
+    """
+
+
 def empty_state(icon: str, title: str, message: str) -> str:
     """A friendly placeholder for an otherwise-empty section.
 
@@ -1234,6 +1411,45 @@ def total_card(tickets: int, price: float) -> str:
         <div class="total-caption">{tickets} ticket{plural} × ${price:.2f}</div>
     </div>
     """
+
+
+def guest_names_requirement(ticket_count: int, provided: int = 0) -> str:
+    """The live note telling the guest how many names their tickets need.
+
+    `ticket_count` is the current value of the Register page's ticket
+    selector (which lives outside the form, so changing it re-renders this);
+    `provided` is how many names are currently saved for the booking, used
+    only to show progress after a failed submit — a fresh form passes 0.
+
+    One ticket per person means a booking of N tickets is the registrant plus
+    N-1 named guests, which is exactly what utils.validate_registration
+    enforces. Stating it here, in the same words and before the field, is the
+    difference between a guest who fills it in correctly and one who submits
+    and gets an error.
+    """
+    tickets = int(ticket_count)
+    needed = max(tickets - 1, 0)
+
+    if needed == 0:
+        return (
+            '<div class="guest-req is-solo">'
+            '<span class="guest-req-icon">🎟️</span>'
+            "<span>Just you on this booking — no other names needed. "
+            "Bringing someone? Add a ticket for each person above.</span>"
+            "</div>"
+        )
+
+    people_word = "guest" if needed == 1 else "guests"
+    name_word = "name" if needed == 1 else "names"
+    progress = f" You've entered {int(provided)} so far." if provided else ""
+    return (
+        '<div class="guest-req">'
+        '<span class="guest-req-icon">👥</span>'
+        f"<span>{tickets} tickets covers <strong>you plus "
+        f'<span class="guest-req-count">{needed}</span> other {people_word}</strong> — '
+        f"please enter their {name_word} below, one per line.{html.escape(progress)}</span>"
+        "</div>"
+    )
 
 
 def stepper(current_step: int, steps: list = None) -> str:
@@ -1312,9 +1528,13 @@ def capacity_full_page() -> str:
     Shown instead of the whole app when too many sessions are active at
     once. Deliberately warm and party-themed, never server/error-flavored —
     the owner's ask was that anyone turned away should feel like the party
-    is popular, not that something broke, and should always be told their
-    spot is safe. Pair with an st.button("Retry") below this in the caller;
-    HTML markup alone can't submit a rerun.
+    is popular, not that something broke. Pair with an st.button("Retry")
+    below this in the caller; HTML markup alone can't submit a rerun.
+
+    Note this deliberately does NOT promise that a spot is being held. Tickets
+    are capped (config.max_total_tickets()) and genuinely first come, first
+    served, so a guest bounced off this screen must not be told to relax —
+    only that nothing they've already completed is at risk.
     """
     return f"""
     <div class="capacity-page">
@@ -1322,13 +1542,13 @@ def capacity_full_page() -> str:
         <div class="capacity-page-title">Whoa — lots of people checking this out right now!</div>
         <div class="capacity-page-message">
             So many guests are on the site at once that we're asking new visitors to hang back
-            for just a minute so it stays fast for everyone.
+            for just a moment so it stays fast for everyone.
             <br><br>
-            <strong>Your spot is completely safe</strong> — nothing here is first-come,
-            first-served, registration stays open for weeks, and nothing you've already
-            done is at risk.
+            <strong>Anything you've already done is safe</strong> — registrations and check-ins
+            that went through are saved, and nothing is lost by waiting here.
             <br><br>
-            Give it a minute and try again — it'll be quick.
+            Tickets are limited and go first come, first served, so try again in a moment —
+            it'll be quick.
         </div>
     </div>
     """
@@ -1404,16 +1624,29 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
     }
     css_class = status_map.get(status, "status-ok")
 
+    try:
+        tickets = int(guest.get("ticket_count") or 1)
+    except (TypeError, ValueError):
+        tickets = 1
+
     rows = [
         ("Email", guest.get("email") or "—", False),
         ("Phone", guest.get("phone") or "— (registered before phone was required)", False),
-        ("Tickets", str(guest.get("ticket_count") or 1), True),
+        ("Tickets", str(tickets), True),
         ("Wristbands", str(bands), True),
     ]
 
+    # Names are collected at registration, one per ticket beyond the booker
+    # (see utils.additional_guests_expected), so door staff can read the
+    # whole party off this card. Bookings made before names were required
+    # can still be short — say so plainly rather than silently listing
+    # fewer people than are standing there.
     extra_names = [n for n in (guest.get("plus_one_name") or "").split("\n") if n.strip()]
-    if extra_names:
-        rows.append((f"Additional guests ({len(extra_names)})", ", ".join(extra_names), False))
+    expected = max(tickets - 1, 0)
+    if extra_names or expected:
+        label = f"Additional guests ({len(extra_names)} of {expected})"
+        value = ", ".join(extra_names) if extra_names else "— none on file"
+        rows.append((label, value, False))
 
     # Concatenated for the same reason as guest_result_card() above: a blank
     # line inside the HTML block would end it and dump the rest as text.
