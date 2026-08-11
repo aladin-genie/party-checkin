@@ -6,6 +6,7 @@ Run with: python test_party_checkin.py
 
 import os
 import sys
+import html
 import io
 import csv
 import threading
@@ -74,6 +75,9 @@ from utils import (
     CHECKIN_MODE_AUTO,
     CHECKIN_MODE_OPEN,
     CHECKIN_MODE_CLOSED,
+    resolve_image_src,
+    gallery_photos,
+    sponsor_list,
 )
 from datetime import datetime, timezone, timedelta
 
@@ -82,6 +86,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 import config
+import theme
 
 # Mock st.secrets before importing utils
 mock_secrets = {
@@ -93,6 +98,26 @@ mock_secrets = {
     "MAIL_USERNAME": "",
     "MAIL_PASSWORD": "",
 }
+
+
+def _guest_name(index: int) -> str:
+    """A distinct, always-valid guest name for the Nth guest in a booking.
+
+    sanitize_name() accepts letters and spaces only, so the suffix has to
+    keep being letters past the 26th guest — "Guest A"…"Guest Z", then
+    "Guest AA", "Guest AB", …. (A plain chr(65 + index) silently produced
+    "Guest [" at index 26, which is exactly the sort of invalid name these
+    tests are meant to prove gets rejected.) MAX_GUEST_NAMES is derived from
+    config.MAX_TICKETS_PER_REGISTRATION, so this has to hold for whatever
+    that cap is raised to.
+    """
+    label = ""
+    n = index + 1
+    while n:
+        n, rem = divmod(n - 1, 26)
+        label = chr(65 + rem) + label
+    return f"Guest {label}"
+
 
 class TestPartyCheckIn(unittest.TestCase):
     @classmethod
@@ -1449,13 +1474,43 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(result, "")
 
     def test_sanitize_guest_names_over_max_returns_empty(self):
-        too_many = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1)]
+        too_many = [_guest_name(i) for i in range(utils.MAX_GUEST_NAMES + 1)]
         self.assertEqual(sanitize_guest_names("\n".join(too_many)), "")
 
     def test_sanitize_guest_names_exactly_max_accepted(self):
-        at_max = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES)]
+        at_max = [_guest_name(i) for i in range(utils.MAX_GUEST_NAMES)]
         expected = "\n".join(at_max)
         self.assertEqual(sanitize_guest_names("\n".join(at_max)), expected)
+
+    def test_guest_name_storage_fits_a_maximum_size_booking(self):
+        """The name box and the plus_one_name column are derived from the
+        ticket cap, so raising the cap can never silently truncate the tail
+        of a big booking's guest list — which would lose real people off the
+        door list with no error anywhere."""
+        widest = "\n".join("A" * utils.MAX_NAME_LENGTH for _ in range(utils.MAX_GUEST_NAMES))
+        self.assertLessEqual(len(widest), utils.GUEST_NAMES_MAX_CHARS)
+        self.assertEqual(
+            utils.Guest.__table__.c.plus_one_name.type.length, utils.GUEST_NAMES_MAX_CHARS
+        )
+        self.assertEqual(
+            utils.SubmissionLog.__table__.c.plus_one_name.type.length,
+            utils.GUEST_NAMES_MAX_CHARS,
+        )
+
+    def test_a_maximum_size_booking_stores_every_guest_name(self):
+        """The end-to-end version of the above: book the largest party the
+        form allows and read all its names back out."""
+        tickets = config.MAX_TICKETS_PER_REGISTRATION
+        names = [_guest_name(i) for i in range(tickets - 1)]
+        result = self._register(
+            name="Biggest Booking", email="biggest.booking@example.com",
+            ticket_count=tickets, plus_one_name="\n".join(names),
+            zelle_ref="ZELLE-BIGGEST01",
+        )
+        self.assertTrue(result["ok"], result)
+        stored = get_guest(result["guest"]["id"])
+        self.assertEqual(utils.guest_names_list(stored["plus_one_name"]), names)
+        self.assertEqual(utils.party_size(stored), tickets)
 
     def test_max_guest_names_is_one_below_the_ticket_cap(self):
         # The booker holds the first ticket, so the biggest possible booking
@@ -1472,7 +1527,7 @@ class TestPartyCheckIn(unittest.TestCase):
     def test_validate_registration_plus_one_bulk_names_at_max_no_error(self):
         # The largest bookable party: every ticket the selector allows, with
         # a name for everyone but the booker.
-        names = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES)]
+        names = [_guest_name(i) for i in range(utils.MAX_GUEST_NAMES)]
         text = "\n".join(names)
         cleaned, errors = validate_registration(
             "Jane Doe", "janebulkmax@example.com", "", text, "ZELLE12345678", True,
@@ -1483,7 +1538,7 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(cleaned["additional_guest_count"], utils.MAX_GUEST_NAMES)
 
     def test_validate_registration_plus_one_over_max_names_error(self):
-        too_many = [f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1)]
+        too_many = [_guest_name(i) for i in range(utils.MAX_GUEST_NAMES + 1)]
         text = "\n".join(too_many)
         cleaned, errors = validate_registration(
             "Jane Doe", "janebulkover@example.com", "", text, "ZELLE12345678", True,
@@ -1610,7 +1665,7 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(utils.parse_guest_names("Ann Lee\nBob Ray"), (["Ann Lee", "Bob Ray"], ""))
         self.assertEqual(utils.parse_guest_names(""), ([], ""))
         self.assertEqual(utils.parse_guest_names("Ann Lee\nBob123"), ([], "invalid"))
-        too_many = "\n".join(f"Guest {chr(65 + i)}" for i in range(utils.MAX_GUEST_NAMES + 1))
+        too_many = "\n".join(_guest_name(i) for i in range(utils.MAX_GUEST_NAMES + 1))
         self.assertEqual(utils.parse_guest_names(too_many), ([], "too_many"))
 
     # ── Async email: send_qr_email_async ────────────────────────────────────
@@ -1885,6 +1940,462 @@ class TestPartyCheckIn(unittest.TestCase):
         real_tables = set(sa_inspect(get_engine()).get_table_names())
         for table in BACKUP_TABLES:
             self.assertIn(table, real_tables)
+
+    # ── Home page content: photos & sponsors ────────────────────────────
+    # config.PHOTOS / config.SPONSORS are hand-edited by the organiser, so
+    # every one of these covers a way that hand-editing goes wrong: a
+    # mistyped path, a half-filled entry, a pasted `javascript:` URL. None
+    # of them may take the Home page down or reach the browser.
+
+    def _photo_uri(self, name="pixel.png"):
+        """Write a real 1x1 PNG into the project dir and return its path."""
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+        # Smallest valid PNG — this is decoded by a browser, never by us.
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
+            b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        with open(path, "wb") as fh:
+            fh.write(png)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        # The resolver caches by path, and these files are created and
+        # deleted per-test, so a stale hit would leak between tests.
+        self.addCleanup(utils._asset_data_uri.cache_clear)
+        utils._asset_data_uri.cache_clear()
+        return name
+
+    def test_resolve_image_src_passes_through_https_and_data_uris(self):
+        self.assertEqual(
+            resolve_image_src("https://example.com/a.jpg"), "https://example.com/a.jpg"
+        )
+        self.assertEqual(resolve_image_src("data:image/png;base64,AAA"), "data:image/png;base64,AAA")
+
+    def test_resolve_image_src_rejects_non_https_and_script_schemes(self):
+        """Only https and local files ever reach an <img src>."""
+        for bad in (
+            "http://example.com/a.jpg",      # blocked as mixed content anyway
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",           # casing must not get through
+            "jAvAsCrIpT:alert(1)",
+            "vbscript:msgbox(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "//example.com/a.jpg",
+            "ftp://example.com/a.jpg",
+            "",
+            "   ",
+        ):
+            with self.subTest(src=bad):
+                self.assertEqual(resolve_image_src(bad), "")
+
+    def test_resolve_image_src_accepts_https_and_data_uris_in_any_casing(self):
+        self.assertEqual(
+            resolve_image_src("HTTPS://example.com/a.jpg"), "HTTPS://example.com/a.jpg"
+        )
+        self.assertEqual(resolve_image_src("DATA:image/png;base64,AAA"), "DATA:image/png;base64,AAA")
+
+    def test_resolve_image_src_inlines_a_local_file_as_a_data_uri(self):
+        name = self._photo_uri()
+        result = resolve_image_src(name)
+        self.assertTrue(result.startswith("data:image/png;base64,"), result[:40])
+
+    def test_resolve_image_src_resolves_relative_to_the_project_not_the_cwd(self):
+        """The app is deliberately run from a different cwd (see AGENTS.md),
+        so a project-relative photo path must still resolve there."""
+        name = self._photo_uri()
+        original_cwd = os.getcwd()
+        os.chdir(os.path.dirname(os.path.abspath(os.sep)))  # "/" — definitely not the project
+        try:
+            result = resolve_image_src(name)
+        finally:
+            os.chdir(original_cwd)
+        self.assertTrue(result.startswith("data:image/png;base64,"))
+
+    def test_resolve_image_src_skips_missing_and_unsupported_files(self):
+        self.assertEqual(resolve_image_src("assets/photos/definitely-not-here.jpg"), "")
+        self.assertEqual(resolve_image_src("assets/photos/notes.txt"), "")
+
+    def test_resolve_image_src_skips_an_oversized_file(self):
+        """Local images are base64'd into the page on every rerun, so an
+        unresized photo has to be refused rather than shipped."""
+        name = self._photo_uri("oversized.png")
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+        with open(path, "wb") as fh:
+            fh.write(b"\x00" * (utils.MAX_INLINE_IMAGE_BYTES + 1))
+        utils._asset_data_uri.cache_clear()
+        self.assertEqual(resolve_image_src(name), "")
+
+    def test_gallery_photos_returns_nothing_when_none_are_configured(self):
+        """With PHOTOS empty, Home falls back to its "coming soon" state
+        rather than rendering an empty grid."""
+        with patch.object(config, "PHOTOS", []):
+            self.assertEqual(gallery_photos(), [])
+
+    def test_gallery_photos_drops_entries_that_cannot_render(self):
+        name = self._photo_uri()
+        with patch.object(config, "PHOTOS", [
+            {"src": name, "caption": "Good one"},
+            {"src": "assets/photos/missing.jpg", "caption": "Bad path"},
+            {"src": "", "caption": "No source"},
+            "not-even-a-dict",
+        ]):
+            photos = gallery_photos()
+        self.assertEqual(len(photos), 1)
+        self.assertEqual(photos[0]["caption"], "Good one")
+        self.assertTrue(photos[0]["src"].startswith("data:image/png;base64,"))
+
+    def test_sponsor_list_orders_by_tier_and_marks_the_top_one(self):
+        """Tier ranking is a config question, so the ordering happens in the
+        service layer and the wall just walks it."""
+        with patch.object(config, "SPONSOR_TIERS", ("Top Sponsor", "Gold", "Silver")):
+            with patch.object(config, "SPONSORS", [
+                {"name": "Silver Co", "tier": "Silver"},
+                {"name": "Top Co", "tier": "Top Sponsor"},
+                {"name": "Gold One", "tier": "Gold"},
+                {"name": "Gold Two", "tier": "Gold"},
+            ]):
+                sponsors = sponsor_list()
+
+        self.assertEqual(
+            [s["name"] for s in sponsors], ["Top Co", "Gold One", "Gold Two", "Silver Co"],
+            "tiers must sort best-first, and sponsors within a tier must keep their listed order",
+        )
+        self.assertEqual([s["featured"] for s in sponsors], [True, False, False, False])
+
+    def test_sponsor_list_keeps_an_unknown_tier_at_the_end_rather_than_dropping_it(self):
+        """A sponsor who paid must never vanish because their tier label
+        isn't in the list — a typo costs them position, not their card."""
+        with patch.object(config, "SPONSOR_TIERS", ("Top Sponsor", "Gold")):
+            with patch.object(config, "SPONSORS", [
+                {"name": "Mystery Co", "tier": "Platinum-ish"},
+                {"name": "Gold Co", "tier": "Gold"},
+                {"name": "No Tier Co"},
+            ]):
+                sponsors = sponsor_list()
+        self.assertEqual([s["name"] for s in sponsors][0], "Gold Co")
+        self.assertEqual(len(sponsors), 3)
+        self.assertIn("Mystery Co", [s["name"] for s in sponsors])
+
+    def test_sponsor_list_features_the_best_tier_present_even_without_a_top_sponsor(self):
+        with patch.object(config, "SPONSOR_TIERS", ("Top Sponsor", "Gold", "Silver")):
+            with patch.object(config, "SPONSORS", [
+                {"name": "Gold Co", "tier": "Gold"},
+                {"name": "Silver Co", "tier": "Silver"},
+            ]):
+                sponsors = sponsor_list()
+        self.assertTrue(sponsors[0]["featured"], "the best tier present leads the wall")
+        self.assertFalse(sponsors[1]["featured"])
+
+    def test_sponsor_list_keeps_a_sponsor_with_no_logo_yet(self):
+        """The lineup is usually confirmed before the artwork arrives."""
+        with patch.object(config, "SPONSORS", [{"name": "Logo-less Co", "tier": "Gold"}]):
+            sponsors = sponsor_list()
+        self.assertEqual(len(sponsors), 1)
+        self.assertEqual(sponsors[0]["name"], "Logo-less Co")
+        self.assertEqual(sponsors[0]["logo"], "")
+
+    def test_sponsor_list_drops_nameless_entries_and_unsafe_urls(self):
+        with patch.object(config, "SPONSORS", [
+            {"name": "  ", "tier": "Gold"},
+            {"tier": "Silver"},
+            {"name": "Script Co", "url": "JavaScript:alert(1)"},
+            {"name": "Plain Co", "url": "http://example.com"},
+            {"name": "Safe Co", "url": "https://example.com"},
+        ]):
+            sponsors = sponsor_list()
+        self.assertEqual([s["name"] for s in sponsors], ["Script Co", "Plain Co", "Safe Co"])
+        self.assertEqual(sponsors[0]["url"], "")   # javascript: dropped, any casing
+        self.assertEqual(sponsors[1]["url"], "")   # plain http dropped
+        self.assertEqual(sponsors[2]["url"], "https://example.com")
+
+    # ── Home page content: rendering ────────────────────────────────────
+
+    def test_photo_gallery_and_sponsor_wall_render_nothing_when_empty(self):
+        """An empty list must produce no markup at all, so the caller can
+        swap in a placeholder instead of showing an empty grid."""
+        self.assertEqual(theme.photo_gallery([]), "")
+        self.assertEqual(theme.sponsor_wall([]), "")
+
+    def test_photo_gallery_escapes_captions_and_sets_alt_text(self):
+        html_out = theme.photo_gallery(
+            [{"src": "https://example.com/a.jpg", "caption": '<script>alert("x")</script>'}]
+        )
+        self.assertNotIn("<script>", html_out)
+        self.assertIn("&lt;script&gt;", html_out)
+        self.assertIn('alt="', html_out)
+
+    def test_sponsor_wall_groups_into_labelled_tiers_in_the_given_order(self):
+        html_out = theme.sponsor_wall([
+            {"name": "Top Co", "tier": "Top Sponsor", "featured": True},
+            {"name": "Gold One", "tier": "Gold"},
+            {"name": "Gold Two", "tier": "Gold"},
+            {"name": "Silver Co", "tier": "Silver"},
+        ])
+        headings = [
+            block.split("</div>")[0]
+            for block in html_out.split('<div class="sponsor-tier-heading">')[1:]
+        ]
+        self.assertEqual(headings, ["Top Sponsor", "Gold", "Silver"],
+                         "one heading per tier, in the order the list came in")
+        # Two sponsors in one tier share a single grid, not one each.
+        self.assertEqual(html_out.count('class="sponsor-grid'), 3)
+        # Only the top tier's row gets the larger treatment.
+        self.assertEqual(html_out.count("is-featured-row"), 1)
+        self.assertEqual(html_out.count("sponsor-card is-featured"), 1)
+
+    def test_sponsor_wall_handles_a_lineup_with_no_tiers_at_all(self):
+        html_out = theme.sponsor_wall([{"name": "Just A Name"}])
+        self.assertIn("Just A Name", html_out)
+        self.assertNotIn("sponsor-tier-heading", html_out)
+
+    def test_sponsor_wall_renders_the_real_configured_lineup(self):
+        """End-to-end over the shipped config: every sponsor gets a card and
+        every tier a heading, with no unresolved logos."""
+        sponsors = sponsor_list()
+        html_out = theme.sponsor_wall(sponsors)
+        for sponsor in sponsors:
+            self.assertIn(html.escape(sponsor["name"]), html_out)
+        for tier in {s["tier"] for s in sponsors if s["tier"]}:
+            self.assertIn(f'>{html.escape(tier)}</div>', html_out)
+
+    def test_configured_sponsor_logos_and_photos_all_resolve(self):
+        """A mistyped path silently drops the image, so assert the shipped
+        config actually points at files that exist."""
+        self.assertEqual(
+            len(gallery_photos()), len(config.PHOTOS),
+            "a configured photo failed to resolve — check the path and extension",
+        )
+        for sponsor in config.SPONSORS:
+            if sponsor.get("logo"):
+                with self.subTest(sponsor=sponsor["name"]):
+                    self.assertTrue(
+                        resolve_image_src(sponsor["logo"]).startswith("data:image/"),
+                        f"logo did not resolve: {sponsor['logo']}",
+                    )
+
+    def test_sponsor_wall_links_only_when_a_url_is_present(self):
+        linked = theme.sponsor_wall([{"name": "Acme", "url": "https://acme.example"}])
+        self.assertIn('href="https://acme.example"', linked)
+        self.assertIn('rel="noopener noreferrer"', linked)
+
+        unlinked = theme.sponsor_wall([{"name": "Acme", "url": ""}])
+        self.assertNotIn("<a ", unlinked)
+        self.assertIn("Acme", unlinked)
+
+    def test_sponsor_wall_escapes_hostile_names_and_blurbs(self):
+        html_out = theme.sponsor_wall([{
+            "name": '<img src=x onerror=alert(1)>',
+            "tier": '"><script>',
+            "blurb": "<b>bold</b>",
+        }])
+        self.assertNotIn("<img src=x", html_out)
+        self.assertNotIn("<script>", html_out)
+        self.assertNotIn("<b>bold</b>", html_out)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", html_out)
+
+    def test_registration_confirmation_reports_the_saved_booking(self):
+        html_out = theme.registration_confirmation(
+            "Ada Lovelace", "ada@example.com", 3, ["Alan Turing", "Grace Hopper"]
+        )
+        self.assertIn("You're in, Ada Lovelace!", html_out)
+        self.assertIn("ada@example.com", html_out)
+        self.assertIn("3 tickets", html_out)
+        self.assertIn("Additional guests (2)", html_out)
+        self.assertIn("3 people, including you", html_out)
+        # Fire-and-forget email: never claim it was delivered (PART 1).
+        self.assertIn("on its way", html_out)
+        self.assertNotIn("has been sent", html_out)
+
+    def test_registration_confirmation_omits_guest_rows_for_a_solo_booking(self):
+        html_out = theme.registration_confirmation("Solo Guest", "solo@example.com", 1, [])
+        self.assertIn("1 ticket", html_out)
+        self.assertNotIn("Additional guests", html_out)
+        self.assertNotIn("On this booking", html_out)
+
+    def test_registration_confirmation_escapes_guest_supplied_text(self):
+        html_out = theme.registration_confirmation(
+            "<script>alert(1)</script>", "x@y.com", 2, ["<b>Bold Guest</b>"]
+        )
+        self.assertNotIn("<script>", html_out)
+        self.assertNotIn("<b>Bold Guest</b>", html_out)
+
+    def test_stepper_marks_only_the_current_step_active(self):
+        """The Register page lands on step 1, so nothing may be pre-marked
+        as done — that told a first-time visitor they'd missed something."""
+        first = theme.stepper(1)
+        self.assertIn("step-active", first)
+        self.assertNotIn("step-done", first)
+
+        last = theme.stepper(3)
+        self.assertEqual(last.count("step-done"), 2)
+        self.assertIn("step-active", last)
+
+    def test_landing_page_is_a_real_page(self):
+        """config.LANDING_PAGE feeds straight into the router's page list."""
+        self.assertEqual(config.LANDING_PAGE, "Register")
+        self.assertIn(
+            config.LANDING_PAGE,
+            ["Home", "Register", "My QR", "Scanner", "Admin"],
+        )
+
+    # ── Group discounts ─────────────────────────────────────────────────
+
+    def test_group_discount_prices_at_every_boundary(self):
+        """$30 individual, $29 from 11 tickets, $28 from 22 — checked on
+        both sides of each boundary, since an off-by-one here charges the
+        wrong amount rather than failing loudly."""
+        for tickets, expected_cents in [
+            (1, 3000), (2, 3000), (9, 3000), (10, 3000),   # below the first tier
+            (11, 2900), (12, 2900), (21, 2900),            # first tier
+            (22, 2800), (23, 2800), (30, 2800),            # second tier
+        ]:
+            with self.subTest(tickets=tickets):
+                self.assertEqual(config.ticket_price_cents_for(tickets), expected_cents)
+
+    def test_group_discount_totals(self):
+        self.assertEqual(config.booking_total_cents(1), 3000)      # $30.00
+        self.assertEqual(config.booking_total_cents(10), 30000)    # $300.00
+        self.assertEqual(config.booking_total_cents(11), 31900)    # $319.00
+        self.assertEqual(config.booking_total_cents(22), 61600)    # $616.00
+        self.assertEqual(config.booking_total_dollars(11), 319.0)
+
+    def test_group_discount_savings_are_zero_below_the_first_tier(self):
+        self.assertEqual(config.booking_savings_cents(1), 0)
+        self.assertEqual(config.booking_savings_cents(10), 0)
+        self.assertEqual(config.booking_savings_cents(11), 1100)   # 11 × $1
+        self.assertEqual(config.booking_savings_cents(22), 4400)   # 22 × $2
+
+    def test_group_discount_never_raises_on_a_garbage_ticket_count(self):
+        """The selector is a client-side widget; a bad value must fall back
+        to the FULL price, never to a discount nobody earned."""
+        base = config.ticket_price_cents()
+        for bad in (None, "", "abc", [], {}):
+            with self.subTest(value=bad):
+                self.assertEqual(config.ticket_price_cents_for(bad), base)
+        self.assertEqual(config.booking_total_cents(None), 0)
+        self.assertEqual(config.booking_savings_cents("nope"), 0)
+
+    def test_group_discount_tiers_move_with_the_base_price(self):
+        """Tiers are discounts off the base, so raising TICKET_PRICE_CENTS
+        must raise every tier — never turn a discount into a surcharge."""
+        with patch.object(config, "ticket_price_cents", lambda: 5000):
+            self.assertEqual(config.ticket_price_cents_for(1), 5000)
+            self.assertEqual(config.ticket_price_cents_for(11), 4900)
+            self.assertEqual(config.ticket_price_cents_for(22), 4800)
+
+    def test_group_discount_never_produces_a_free_ticket(self):
+        """A misconfigured tier bigger than the price must clamp at zero,
+        not go negative and start paying guests to attend."""
+        with patch.object(config, "GROUP_DISCOUNT_TIERS", ((2, 999999),)):
+            self.assertEqual(config.ticket_price_cents_for(5), 0)
+
+    def test_price_tiers_cover_every_booking_size_without_gaps(self):
+        tiers = config.price_tiers()
+        self.assertEqual(tiers[0]["min"], 1)
+        self.assertIsNone(tiers[-1]["max"], "the top tier must be open-ended")
+        for earlier, later in zip(tiers, tiers[1:]):
+            self.assertEqual(later["min"], earlier["max"] + 1, "gap between tiers")
+        # And the table must agree with what guests are actually charged.
+        for tier in tiers:
+            self.assertEqual(
+                tier["price_cents"], config.ticket_price_cents_for(tier["min"])
+            )
+
+    def test_price_tiers_are_sorted_even_if_the_config_is_not(self):
+        with patch.object(config, "GROUP_DISCOUNT_TIERS", ((22, 200), (11, 100))):
+            self.assertEqual(config.ticket_price_cents_for(11), 2900)
+            self.assertEqual(config.ticket_price_cents_for(22), 2800)
+            self.assertEqual([t["min"] for t in config.price_tiers()], [1, 11, 22])
+
+    def test_next_price_tier_points_at_the_next_cheaper_one(self):
+        self.assertEqual(config.next_price_tier(10)["min"], 11)
+        self.assertEqual(config.next_price_tier(1)["min"], 11)
+        self.assertEqual(config.next_price_tier(11)["min"], 22)
+        self.assertIsNone(config.next_price_tier(22), "already on the best tier")
+        self.assertIsNone(config.next_price_tier(30))
+
+    def test_next_price_tier_is_hidden_when_it_exceeds_the_booking_cap(self):
+        """Never advertise a price the form won't let anyone buy."""
+        with patch.object(config, "MAX_TICKETS_PER_REGISTRATION", 15):
+            self.assertEqual(config.next_price_tier(10)["min"], 11)
+            self.assertIsNone(config.next_price_tier(12), "22+ is past the cap of 15")
+
+    def test_top_discount_tier_is_actually_bookable(self):
+        """The whole point of the 22+ tier is that someone can reach it —
+        a per-registration cap below it would make it advertising fiction."""
+        largest_tier_min = max(m for m, _off in config.GROUP_DISCOUNT_TIERS)
+        self.assertGreaterEqual(config.MAX_TICKETS_PER_REGISTRATION, largest_tier_min)
+
+    # ── Group discounts: rendering ──────────────────────────────────────
+
+    def _tier_rows(self, html_out):
+        """Split rendered tier-table HTML back into one string per row."""
+        return [f'<div class="tier-row{part}' for part in html_out.split('<div class="tier-row')[1:]]
+
+    def test_price_tier_table_lists_every_tier_and_marks_the_current_one(self):
+        for tickets, expected_price, expected_range in [
+            (1, "$30.00", "1–10"),
+            (10, "$30.00", "1–10"),
+            (11, "$29.00", "11–21"),
+            (22, "$28.00", "22+"),
+        ]:
+            with self.subTest(tickets=tickets):
+                html_out = theme.price_tier_table(config.price_tiers(), ticket_count=tickets)
+                # The whole table is always shown — that's the point of
+                # putting it above the selector.
+                for price in ("$30.00", "$29.00", "$28.00"):
+                    self.assertIn(price, html_out)
+                # ...with exactly one row highlighted: the one they're on.
+                active = [row for row in self._tier_rows(html_out) if "is-active" in row]
+                self.assertEqual(len(active), 1)
+                self.assertIn(expected_price, active[0])
+                self.assertIn(expected_range, active[0])
+
+    def test_price_tier_table_highlights_nothing_before_a_count_is_chosen(self):
+        html_out = theme.price_tier_table(config.price_tiers(), ticket_count=0)
+        self.assertNotIn("is-active", html_out)
+
+    def test_price_tier_table_renders_nothing_without_tiers(self):
+        self.assertEqual(theme.price_tier_table([]), "")
+
+    def test_tier_range_labels(self):
+        self.assertEqual(theme.tier_range_label({"min": 1, "max": 10}), "1–10")
+        self.assertEqual(theme.tier_range_label({"min": 22, "max": None}), "22+")
+        self.assertEqual(theme.tier_range_label({"min": 5, "max": 5}), "5")
+
+    def test_total_card_shows_the_discounted_price_and_savings(self):
+        html_out = theme.total_card(11, 29.0, savings=11.0)
+        self.assertIn("$319.00", html_out)
+        self.assertIn("11 tickets × $29.00", html_out)
+        self.assertIn("you save $11.00", html_out)
+
+    def test_total_card_hides_the_savings_line_when_there_is_no_discount(self):
+        html_out = theme.total_card(1, 30.0, savings=0.0)
+        self.assertIn("$30.00", html_out)
+        self.assertNotIn("you save", html_out)
+
+    def test_next_tier_nudge_states_the_new_price_and_renders_nothing_at_the_top(self):
+        tier = config.next_price_tier(10)
+        html_out = theme.next_tier_nudge(10, tier, config.ticket_price_cents_for(10))
+        self.assertIn("$29.00", html_out)
+        self.assertIn("11", html_out)
+
+        self.assertEqual(theme.next_tier_nudge(22, None, 2800), "")
+        self.assertEqual(theme.next_tier_nudge(22, config.next_price_tier(22), 2800), "")
+
+    def test_expected_revenue_prices_each_booking_at_its_own_tier(self):
+        """A flat tickets × base_price would over-report the take on every
+        group, which is exactly the number an organiser reconciles against
+        their Zelle history."""
+        self._register(name="Solo Guest", email="solo.rev@example.com", ticket_count=1)
+        self._register(
+            name="Group Guest", email="group.rev@example.com", ticket_count=11,
+            plus_one_name="\n".join(_guest_name(i) for i in range(10)),
+        )
+        stats = get_stats()
+        self.assertEqual(stats["total_tickets"], 12)
+        # 1 × $30 + 11 × $29 = $349.00, NOT 12 × $30 = $360.00
+        self.assertEqual(stats["revenue"], 349.0)
 
 
 def run_tests():

@@ -15,6 +15,32 @@ from .helpers import (
 )
 
 
+# ── Landing page ────────────────────────────────────────────────────────
+
+def test_landing_page_is_register(page, base_url, reset_db):
+    """The bare app URL — the link the organiser actually sends out — opens
+    on the registration form, at step 1, not on Home."""
+    goto(page, base_url)  # no ?page= at all
+
+    expect(page.get_by_role("heading", name=re.compile(r"Register Guest"), level=1)).to_be_visible(
+        timeout=15000
+    )
+    # Step 1 of 3 is the one being worked on; nothing is pre-marked as done.
+    step_one = page.locator(".step", has_text="Pay via Zelle")
+    expect(step_one).to_have_class(re.compile(r"step-active"), timeout=10000)
+    expect(page.locator(".step.step-done")).to_have_count(0)
+
+
+def test_home_still_reachable_directly(page, base_url, reset_db, app_config):
+    """Register being the default must not make Home unreachable — the
+    explicit ?page=Home link (the one in the QR email footer, the nav
+    cards, the sidebar) still goes straight there."""
+    goto(page, base_url, "Home")
+
+    expect(page.get_by_text(app_config.EVENT_TAGLINE, exact=False).first).to_be_visible(timeout=15000)
+    expect(page.get_by_text("Party Buzz", exact=False).first).to_be_visible(timeout=10000)
+
+
 # ── Flow 2: happy path ──────────────────────────────────────────────────
 
 def test_registration_happy_path_creates_guest_and_submission_log(page, base_url, reset_db):
@@ -29,8 +55,12 @@ def test_registration_happy_path_creates_guest_and_submission_log(page, base_url
     )
     submit_registration(page)
 
-    expect(page.get_by_text("You're registered", exact=False)).to_be_visible(timeout=15000)
-    expect(page.get_by_text("Happy Path Guest", exact=False).first).to_be_visible(timeout=10000)
+    # A successful submit hands the guest over to Home, with their
+    # confirmation at the top of it (see streamlit_app._finish_registration).
+    expect(page.get_by_text("You're in, Happy Path Guest", exact=False)).to_be_visible(timeout=15000)
+    expect(page).to_have_url(re.compile(r"page=Home"), timeout=10000)
+    # ...and the rest of Home is right there underneath it.
+    expect(page.get_by_text("Party Buzz", exact=False).first).to_be_visible(timeout=10000)
 
     guest = reset_db.get_guest_by_email(email)
     assert guest is not None, "guest row was not created"
@@ -157,16 +187,19 @@ def test_registration_duplicate_email_rejected_without_creating_second_row(page,
 
 def test_ticket_total_updates_live_without_submitting(page, base_url, reset_db, app_config):
     goto(page, base_url, "Register")
-    price = app_config.ticket_price_dollars()
+    # Totals come from the app's own pricing so this keeps working if the
+    # base price or the discount tiers change (3 and 5 are both below the
+    # first group tier, but don't hardcode that).
+    total_for = app_config.booking_total_dollars
 
     fill_and_blur(page, "Number of Tickets *", "3")
-    expect(page.get_by_text(f"${3 * price:,.2f}", exact=True)).to_be_visible(timeout=8000)
+    expect(page.get_by_text(f"${total_for(3):,.2f}", exact=True)).to_be_visible(timeout=8000)
 
     fill_and_blur(page, "Number of Tickets *", "5")
-    expect(page.get_by_text(f"${5 * price:,.2f}", exact=True)).to_be_visible(timeout=8000)
+    expect(page.get_by_text(f"${total_for(5):,.2f}", exact=True)).to_be_visible(timeout=8000)
     # The old total for 3 tickets must be gone, confirming a real re-render
     # rather than the new value simply being appended somewhere.
-    expect(page.get_by_text(f"${3 * price:,.2f}", exact=True)).to_have_count(0)
+    expect(page.get_by_text(f"${total_for(3):,.2f}", exact=True)).to_have_count(0)
 
     session = reset_db.get_db()
     try:
@@ -175,11 +208,114 @@ def test_ticket_total_updates_live_without_submitting(page, base_url, reset_db, 
         session.close()
 
 
+# ── Group discounts ─────────────────────────────────────────────────────
+
+def test_group_discount_table_is_on_the_form(page, base_url, reset_db, app_config):
+    """Every tier is listed above the ticket selector — the price is meant
+    to inform how many tickets someone picks, so it has to be visible
+    before they pick."""
+    goto(page, base_url, "Register")
+
+    for tier in app_config.price_tiers():
+        price = tier["price_cents"] / 100
+        expect(page.get_by_text(f"${price:,.2f}", exact=False).first).to_be_visible(timeout=10000)
+
+    # The row for the current selection (1 ticket) is the highlighted one.
+    active = page.locator(".tier-row.is-active")
+    expect(active).to_have_count(1, timeout=10000)
+    expect(active).to_contain_text(f"${app_config.ticket_price_dollars_for(1):,.2f}")
+
+
+def test_group_discount_applies_at_each_tier_boundary(page, base_url, reset_db, app_config):
+    """The number a guest is told to Zelle must be their tier's, not the
+    base rate — checked either side of every boundary the config defines."""
+    goto(page, base_url, "Register")
+
+    boundaries = [t["min"] for t in app_config.price_tiers()]
+    # Just below each boundary, and on it: the pair that catches an off-by-one.
+    for tickets in sorted({n for b in boundaries for n in (b - 1, b) if n >= 1}):
+        fill_and_blur(page, "Number of Tickets *", str(tickets))
+
+        unit = app_config.ticket_price_dollars_for(tickets)
+        total = app_config.booking_total_dollars(tickets)
+        savings = app_config.booking_savings_cents(tickets) / 100
+
+        expect(page.get_by_text(f"${total:,.2f}", exact=True).first).to_be_visible(timeout=10000)
+        expect(page.get_by_text(f"× ${unit:,.2f}", exact=False).first).to_be_visible(timeout=8000)
+
+        if savings > 0:
+            expect(page.get_by_text(f"you save ${savings:,.2f}", exact=False)).to_be_visible(
+                timeout=8000
+            )
+        else:
+            expect(page.get_by_text("you save", exact=False)).to_have_count(0)
+
+        expect(page.locator(".tier-row.is-active")).to_have_count(1)
+
+
+def test_group_booking_at_the_discount_tier_registers_with_all_its_names(
+    page, base_url, reset_db, app_config
+):
+    """An 11-ticket booking — the first discounted tier — has to name its
+    other 10 guests, and all 10 must persist."""
+    tickets = 11
+    names = [f"Group Guest {chr(65 + i)}" for i in range(tickets - 1)]
+    email = "group.tier.booking@example.com"
+
+    goto(page, base_url, "Register")
+    fill_registration_form(
+        page, name="Group Organiser", email=email, phone="555-410-0011",
+        guest_names="\n".join(names), zelle_ref="ZELLE-GROUP0011", tickets=tickets,
+    )
+    # The discounted total is what they were told to pay.
+    expect(
+        page.get_by_text(f"${app_config.booking_total_dollars(tickets):,.2f}", exact=True).first
+    ).to_be_visible(timeout=10000)
+    submit_registration(page)
+
+    expect(page.get_by_text("You're in, Group Organiser", exact=False)).to_be_visible(timeout=20000)
+    expect(page.get_by_text(f"Additional guests ({len(names)})", exact=False)).to_be_visible(
+        timeout=10000
+    )
+
+    guest = reset_db.get_guest_by_email(email)
+    assert guest is not None
+    assert guest["ticket_count"] == tickets
+    assert guest["plus_one_name"] == "\n".join(names)
+
+
+@pytest.mark.parametrize("supplied", [9, 11])
+def test_group_booking_rejects_a_name_count_that_does_not_match_the_tickets(
+    page, base_url, reset_db, supplied
+):
+    """11 tickets needs exactly 10 additional names — one per person, with
+    the booker holding the first ticket. Too few and too many are both
+    refused, and nothing is written either way."""
+    tickets = 11
+    expected = tickets - 1
+    names = [f"Group Guest {chr(65 + i)}" for i in range(supplied)]
+    email = f"group.names.{supplied}@example.com"
+
+    goto(page, base_url, "Register")
+    fill_registration_form(
+        page, name="Group Organiser", email=email, phone="555-410-0012",
+        guest_names="\n".join(names), zelle_ref="ZELLE-GROUPBAD1", tickets=tickets,
+    )
+    submit_registration(page)
+
+    expect(page.get_by_text(validation_banner_text(1), exact=False)).to_be_visible(timeout=10000)
+    # The message names both numbers, so the guest knows which one to change.
+    expect(page.get_by_text(str(expected), exact=False).first).to_be_visible(timeout=8000)
+    expect(page.get_by_text("You're in,", exact=False)).to_have_count(0)
+
+    assert reset_db.get_guest_by_email(email) is None, "an unbalanced booking must not be saved"
+
+
 # ── PART 2: bulk "Additional Guest Names" ───────────────────────────────
 
 def test_registration_bulk_guest_names_persists_all_and_shows_on_success(page, base_url, reset_db):
     """5 names, mixing comma- and newline-separation, all persist to
-    plus_one_name newline-joined and are listed on the success screen."""
+    plus_one_name newline-joined and are listed on the confirmation card."""
     goto(page, base_url, "Register")
 
     email = "bulk.guest.names@example.com"
@@ -194,14 +330,46 @@ def test_registration_bulk_guest_names_persists_all_and_shows_on_success(page, b
     )
     submit_registration(page)
 
-    expect(page.get_by_text("You're registered", exact=False)).to_be_visible(timeout=15000)
-    expect(page.get_by_text("Additional Guests (5)", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("You're in, Bulk Names Guest", exact=False)).to_be_visible(timeout=15000)
+    expect(page.get_by_text("Additional guests (5)", exact=False)).to_be_visible(timeout=10000)
     for n in names:
         expect(page.get_by_text(n, exact=False).first).to_be_visible(timeout=10000)
 
     guest = reset_db.get_guest_by_email(email)
     assert guest is not None
     assert guest["plus_one_name"] == "\n".join(names)
+
+
+def test_register_someone_else_returns_to_a_blank_step_one_form(page, base_url, reset_db):
+    """"Register Someone Else" on the confirmation card goes back to the
+    form — emptied, and at step 1 again, not still showing the last
+    booking's details."""
+    goto(page, base_url, "Register")
+
+    fill_registration_form(
+        page, name="First Booker", email="first.booker@example.com",
+        phone="555-901-0001", zelle_ref="ZELLE-FIRST0001", tickets=1,
+    )
+    submit_registration(page)
+    expect(page.get_by_text("You're in, First Booker", exact=False)).to_be_visible(timeout=15000)
+
+    page.get_by_role("button", name=re.compile(r"Register Someone Else")).click()
+
+    expect(page.get_by_role("heading", name=re.compile(r"Register Guest"), level=1)).to_be_visible(
+        timeout=15000
+    )
+    expect(page.get_by_label("Full Name *")).to_have_value("", timeout=10000)
+    expect(page.get_by_label("Email Address *")).to_have_value("")
+    expect(page.get_by_label("Zelle Transaction Reference *")).to_have_value("")
+    expect(page.locator(".step", has_text="Pay via Zelle")).to_have_class(re.compile(r"step-active"))
+
+    # The previous booking's confirmation must not still be sitting on Home.
+    # Navigate with the in-app button, not goto() — a full navigation would
+    # start a fresh Streamlit session and clear the flag by itself, making
+    # this assertion prove nothing.
+    page.get_by_role("button", name=re.compile(r"Home")).first.click()
+    expect(page.get_by_text("Party Buzz", exact=False).first).to_be_visible(timeout=15000)
+    expect(page.get_by_text("You're in, First Booker", exact=False)).to_have_count(0)
 
 
 def test_registration_guest_names_with_digits_shows_field_error(page, base_url, reset_db):

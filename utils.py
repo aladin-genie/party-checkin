@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+from functools import lru_cache
 from hmac import compare_digest
 
 import qrcode
@@ -35,6 +36,27 @@ import streamlit as st
 import config
 
 # ── Configuration ─────────────────────────────────────────────────────────────
+
+# Longest a single person's name may be (sanitize_name enforces it, and the
+# `name` columns are sized to match).
+MAX_NAME_LENGTH = 100
+
+# One ticket per person, and the booker holds the first one, so the largest
+# possible booking names one fewer guest than it has tickets. Derived from the
+# constant the Register page clamps its selector to, so the ticket selector and
+# the name list can never disagree about the maximum party.
+MAX_GUEST_NAMES = config.MAX_TICKETS_PER_REGISTRATION - 1
+
+# How much room a stored guest-name list needs: every name at its maximum
+# length, plus the newline joining it to the next. Derived rather than fixed
+# because it has to grow with MAX_TICKETS_PER_REGISTRATION — a hardcoded width
+# would quietly truncate the tail of a large booking's guest list the moment
+# the cap was raised, losing real people off the door list with no error.
+#
+# This sizes three things that must agree: the plus_one_name columns below,
+# the ALTER in init_db() that widens them on an existing Postgres database,
+# and the Register form's name box (streamlit_app passes it as max_chars).
+GUEST_NAMES_MAX_CHARS = MAX_GUEST_NAMES * (MAX_NAME_LENGTH + 1)
 
 Base = declarative_base()
 
@@ -71,7 +93,10 @@ class Guest(Base):
     email = Column(String(120), nullable=False, index=True)
     phone = Column(String(30), default="")
     ticket_count = Column(Integer, default=1)
-    plus_one_name = Column(String(1000), default="")  # Optional plus-one/bulk guest names (newline-separated)
+    # Sized from GUEST_NAMES_MAX_CHARS so it grows with
+    # config.MAX_TICKETS_PER_REGISTRATION — see init_db() for the migration
+    # that widens it on an existing database.
+    plus_one_name = Column(String(GUEST_NAMES_MAX_CHARS), default="")  # bulk guest names, newline-separated
     zelle_ref = Column(String(100), default="")  # Zelle transaction reference
     qr_code = Column(String(200), unique=True)
     checked_in = Column(Boolean, default=False, index=True)
@@ -130,7 +155,7 @@ class SubmissionLog(Base):
     email = Column(String(120), default="")
     phone = Column(String(30), default="")
     ticket_count = Column(Integer, default=1)
-    plus_one_name = Column(String(1000), default="")
+    plus_one_name = Column(String(GUEST_NAMES_MAX_CHARS), default="")
     zelle_ref = Column(String(100), default="")
     status = Column(String(50), default="attempted")  # attempted, validation_error, duplicate_email, registered, email_failed
     errors = Column(String(500), default="")
@@ -371,21 +396,28 @@ def init_db():
                 conn.execute(text("ALTER TABLE guests ADD COLUMN plus_one_name VARCHAR(100) DEFAULT ''"))
                 conn.commit()
 
-    # Widen plus_one_name to fit bulk guest-name lists (up to 20 names).
-    # Idempotent: re-running ALTER COLUMN ... TYPE VARCHAR(1000) on a column
-    # that's already VARCHAR(1000) (or wider) is a harmless no-op on
-    # PostgreSQL. SQLite doesn't enforce VARCHAR length at all, so there's
-    # nothing to migrate there. Runs against the live production table, so
-    # every failure is swallowed and logged rather than raised.
+    # Widen plus_one_name to fit a full bulk guest-name list. The target width
+    # is GUEST_NAMES_MAX_CHARS, derived from config.MAX_TICKETS_PER_REGISTRATION,
+    # so raising the ticket cap widens the column on the next boot instead of
+    # silently truncating the tail of a large booking's guest list.
+    #
+    # Idempotent: re-running ALTER COLUMN ... TYPE VARCHAR(n) on a column that
+    # is already that wide is a harmless metadata-only no-op on PostgreSQL, and
+    # widening never rewrites the table. SQLite doesn't enforce VARCHAR length
+    # at all, so there's nothing to migrate there. Runs against the live
+    # production table, so every failure is swallowed and logged rather than
+    # raised — a column that stays wider than needed (because the cap was
+    # lowered) is harmless, and the app must boot either way.
     if not _using_fallback_db():
         from sqlalchemy import text
+        width = int(GUEST_NAMES_MAX_CHARS)
         for table, column in (("guests", "plus_one_name"), ("submission_logs", "plus_one_name")):
             try:
                 with engine.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR(1000)"))
+                    conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR({width})"))
                     conn.commit()
             except Exception as e:
-                print(f"Migration skipped: widen {table}.{column} to VARCHAR(1000): {e}")
+                print(f"Migration skipped: widen {table}.{column} to VARCHAR({width}): {e}")
 
     _ensure_secondary_indexes(engine)
 
@@ -694,6 +726,26 @@ def _named_guests_expr():
     )
 
 
+def _expected_revenue_cents(session) -> int:
+    """Total the guest list should have brought in, in cents.
+
+    Group discounts are priced per booking (see config.GROUP_DISCOUNT_TIERS),
+    so this has to charge each booking at its own tier and sum the results —
+    `total_tickets × base_price` would over-state the take on every group.
+
+    Integer cents throughout: this figure is meant to be reconciled against a
+    Zelle history line by line, so it must not accumulate float error across
+    a couple of hundred bookings.
+    """
+    total_cents = 0
+    for ticket_count, bookings in session.query(
+        Guest.ticket_count, func.count(Guest.id)
+    ).group_by(Guest.ticket_count):
+        count = int(ticket_count or 0)
+        total_cents += int(bookings) * count * config.ticket_price_cents_for(count)
+    return total_cents
+
+
 def get_stats() -> dict:
     """Return current event statistics.
 
@@ -744,14 +796,13 @@ def get_stats() -> dict:
         # Check-in percentage
         checkin_pct = round(checked_in / total * 100, 1) if total else 0.0
 
-        # Estimated revenue from ticket price
-        try:
-            ticket_price_cents = int(
-                _get_secret("TICKET_PRICE_CENTS", "3000")
-            )
-        except Exception:
-            ticket_price_cents = 3000
-        revenue = round(tickets * (ticket_price_cents / 100), 2)
+        # Estimated revenue. Not tickets × one price: group discounts price
+        # each BOOKING by its own size (config.ticket_price_cents_for), so a
+        # flat multiply would over-report what the organiser should actually
+        # find in their Zelle history. Grouping by ticket_count keeps this to
+        # one extra aggregate query — at most ~30 rows back, one per possible
+        # booking size — rather than reading every guest row.
+        revenue = round(_expected_revenue_cents(session) / 100, 2)
 
         return {
             "total_guests": total,
@@ -1079,7 +1130,7 @@ def record_submission(
             email=email[:120].lower().strip(),
             phone=phone[:30],
             ticket_count=int(ticket_count) if ticket_count else 1,
-            plus_one_name=plus_one_name[:1000],
+            plus_one_name=plus_one_name[:GUEST_NAMES_MAX_CHARS],
             zelle_ref=zelle_ref[:100].upper(),
             status=status,
             errors=errors[:500],
@@ -1486,6 +1537,176 @@ def generate_welcome_announcement(name: str, ticket_count: int) -> str:
     return f"Welcome {name}! You have {ticket_count} tickets. Enjoy the party!"
 
 
+# ── Home Page Content: Photos & Sponsors ──────────────────────────────────────
+# The organiser fills config.PHOTOS / config.SPONSORS in; these functions turn
+# whatever is there into a list the theme builders can render without checking
+# anything themselves. Both are defensive by design: this is hand-edited
+# content, so a typo'd path or a half-filled entry must degrade to "that item
+# isn't shown" rather than a broken image or a crashed Home page.
+
+# Image formats a browser will display inline, mapped to their MIME type.
+_IMAGE_MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+# Refuse to inline anything larger than this. Every local image is base64'd
+# into the page HTML, which Streamlit re-sends on every rerun — a couple of
+# unresized phone photos would make the whole app feel broken.
+MAX_INLINE_IMAGE_BYTES = 3 * 1024 * 1024
+
+_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@lru_cache(maxsize=64)
+def _asset_data_uri(path: str) -> str:
+    """Read a local image into a `data:` URI, or "" if it can't be used.
+
+    Streamlit serves no arbitrary static files, so a local photo can only
+    reach the browser inlined in the HTML. Relative paths resolve against
+    the project directory, NOT the cwd: the app is deliberately run from a
+    different working directory in development and testing (see AGENTS.md),
+    so a cwd-relative lookup would silently find nothing there.
+
+    Cached because the base64 encode would otherwise repeat on every single
+    Streamlit rerun for every photo on the page.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    mime = _IMAGE_MIME_TYPES.get(ext)
+    if not mime:
+        print(f"skipping image with unsupported extension: {path}")
+        return ""
+
+    full_path = path if os.path.isabs(path) else os.path.join(_PROJECT_DIR, path)
+    try:
+        if os.path.getsize(full_path) > MAX_INLINE_IMAGE_BYTES:
+            print(
+                f"skipping oversized image (>{MAX_INLINE_IMAGE_BYTES // (1024 * 1024)}MB), "
+                f"please resize it first: {path}"
+            )
+            return ""
+        with open(full_path, "rb") as fh:
+            encoded = base64.b64encode(fh.read()).decode("ascii")
+    except OSError as e:
+        print(f"skipping unreadable image {path}: {e}")
+        return ""
+    return f"data:{mime};base64,{encoded}"
+
+
+# Any "scheme:" prefix, e.g. https:, javascript:, DATA:, vbscript:. Matched
+# case-insensitively against the whole string so the allowlist below is the
+# only way a URL scheme gets through.
+_URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
+
+
+def resolve_image_src(src: str) -> str:
+    """Turn a configured image reference into something an <img> can load.
+
+    Accepts a remote https URL (used as-is), an already-built image data
+    URI, or a repo-relative/absolute local path (inlined via
+    _asset_data_uri). Everything else returns "".
+
+    Allowlist, not a blocklist: any other scheme is refused outright rather
+    than enumerated. That covers plain `http:` (blocked as mixed content on
+    the HTTPS deployment anyway) and, more importantly, `javascript:` and
+    friends in whatever casing — this value goes straight into an `src`
+    attribute, and the lists it comes from are hand-edited.
+    """
+    src = (src or "").strip()
+    if not src:
+        return ""
+    lowered = src.lower()
+    if lowered.startswith("https://") or lowered.startswith("data:image/"):
+        return src
+    if _URL_SCHEME_RE.match(src) or src.startswith("//"):
+        print(f"skipping image with unsupported source: {src[:60]}")
+        return ""
+    return _asset_data_uri(src)
+
+
+def gallery_photos() -> list:
+    """config.PHOTOS, normalized and filtered down to photos that can render.
+
+    Returns a list of {"src", "caption"} dicts. An entry whose image can't
+    be resolved is dropped, so a mistyped filename costs that one photo
+    rather than showing a broken tile to every guest.
+    """
+    photos = []
+    for item in getattr(config, "PHOTOS", None) or []:
+        if not isinstance(item, dict):
+            continue
+        src = resolve_image_src(item.get("src", ""))
+        if not src:
+            continue
+        photos.append({"src": src, "caption": str(item.get("caption") or "").strip()})
+    return photos
+
+
+def _sponsor_tier_rank(tier: str) -> int:
+    """Sort position for a tier name, per config.SPONSOR_TIERS.
+
+    An unrecognised tier (a new one invented mid-season, or a typo) sorts to
+    the end rather than being dropped — a sponsor who paid must never vanish
+    from the page because their tier label doesn't match a list in the code.
+    """
+    tiers = [str(t).strip().lower() for t in (getattr(config, "SPONSOR_TIERS", None) or ())]
+    try:
+        return tiers.index((tier or "").strip().lower())
+    except ValueError:
+        return len(tiers)
+
+
+def sponsor_list() -> list:
+    """config.SPONSORS, normalized and ordered best tier first.
+
+    Returns a list of {"name", "tier", "logo", "url", "blurb", "featured"}
+    dicts. Only `name` is required — a sponsor with no logo yet still gets a
+    card (with their name set in type), because the lineup is usually
+    confirmed well before the artwork arrives.
+
+    Ordering happens here rather than in the theme so that "which tier
+    outranks which" stays a config question, not a rendering one. The sort is
+    stable, so sponsors within a tier keep the order they were listed in —
+    that order is usually deliberate, and shuffling co-equal sponsors between
+    page loads is the kind of thing sponsors notice.
+
+    `featured` marks the top tier, which the sponsor wall renders larger.
+    """
+    sponsors = []
+    for item in getattr(config, "SPONSORS", None) or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        url = str(item.get("url") or "").strip()
+        sponsors.append({
+            "name": name,
+            "tier": str(item.get("tier") or "").strip(),
+            "logo": resolve_image_src(item.get("logo", "")),
+            # Same allowlist rule as images: only https links are ever
+            # emitted into an href, so hand-edited config can't introduce a
+            # javascript: link in any casing.
+            "url": url if url.lower().startswith("https://") else "",
+            "blurb": str(item.get("blurb") or "").strip(),
+        })
+
+    sponsors.sort(key=lambda s: _sponsor_tier_rank(s["tier"]))
+
+    # "Featured" is whichever tier actually came out on top, not a hardcoded
+    # name — so a lineup with no Top Sponsor still leads with its best tier
+    # rather than rendering every card the same size.
+    if sponsors:
+        best = _sponsor_tier_rank(sponsors[0]["tier"])
+        for sponsor in sponsors:
+            sponsor["featured"] = _sponsor_tier_rank(sponsor["tier"]) == best
+    return sponsors
+
+
 # ── Formatting Helpers ────────────────────────────────────────────────────────
 
 def format_dt(dt, fmt: str = "%I:%M %p", fallback: str = "—") -> str:
@@ -1782,9 +2003,9 @@ def sanitize_name(name: str) -> str:
     if not re.match(r"^[A-Za-z\s]+$", name):
         return ""
     # Must contain at least one letter and be reasonable length
-    if not re.search(r'[A-Za-z]', name) or len(name) < 2 or len(name) > 100:
+    if not re.search(r'[A-Za-z]', name) or len(name) < 2 or len(name) > MAX_NAME_LENGTH:
         return ""
-    return name[:100]
+    return name[:MAX_NAME_LENGTH]
 
 
 def sanitize_phone(phone: str) -> str:
@@ -1835,11 +2056,9 @@ def phone_digits(value: str) -> str:
     return digits
 
 
-# One ticket per person, and the booker holds the first one, so the largest
-# possible booking names one fewer guest than it has tickets. Derived from
-# the constant the Register page clamps its selector to, so the ticket
-# selector and the name list can never disagree about the maximum party.
-MAX_GUEST_NAMES = config.MAX_TICKETS_PER_REGISTRATION - 1
+# MAX_GUEST_NAMES and GUEST_NAMES_MAX_CHARS live at the top of this module:
+# the ORM models are sized from them, so they must exist before those class
+# bodies are evaluated.
 
 
 def _split_guest_names(text: str) -> list:

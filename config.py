@@ -64,15 +64,219 @@ APP_VERSION = "3.0"
 _DEFAULT_APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"
 APP_URL = get_secret("APP_URL", _DEFAULT_APP_URL).rstrip("/")
 
+# ── Landing page ─────────────────────────────────────────────────────────────
+# The bare app URL is the link the organiser sends out, so it opens on the
+# thing that link is *for*: registration. Home is where a guest is sent after
+# they submit — the hub for stats, photos, sponsors, and everything else — so
+# it is deliberately the destination, not the doorstep. An explicit
+# `?page=Home` (or the sidebar) still reaches Home directly.
+LANDING_PAGE = "Register"
+
+
+# ── Home page content: photos & sponsors ─────────────────────────────────────
+# Both lists are still being finalised, so they ship empty and the Home page
+# renders a "coming soon" placeholder for each. Filling them in is a pure
+# data edit — no code or layout changes needed.
+#
+# `src`/`logo` may be either a public https URL or a path relative to this
+# repo (e.g. "assets/photos/dance-floor.jpg"); utils.resolve_image_src()
+# inlines local files as data URIs, because Streamlit does not serve
+# arbitrary files over HTTP. Anything it cannot resolve is dropped rather
+# than rendered as a broken image.
+
+# ⚠️ EVERYTHING BELOW IS A PLACEHOLDER — swap in the real team photos and
+# sponsor logos before the link goes out. The images are generated stand-ins
+# (see assets/README.md), stamped "PLACEHOLDER"/"SAMPLE" on purpose so nobody
+# mistakes a stand-in for a real sponsor. The names are deliberately generic
+# for the same reason: never ship an invented company name that a guest could
+# take for a genuine backer.
+PHOTOS = [
+    {"src": "assets/photos/2016-the-first-crew.png",
+     "caption": "2016 · the crew that started it all"},
+    {"src": "assets/photos/2016-team-lineup.png",
+     "caption": "2016 · everyone who showed up, in one frame"},
+    {"src": "assets/photos/2017-the-dance-floor.png",
+     "caption": "2017 · the dance floor, well past midnight"},
+    {"src": "assets/photos/2019-the-cricket-team.png",
+     "caption": "2019 · the cricket team, mid-celebration"},
+    {"src": "assets/photos/2022-the-kids-table.png",
+     "caption": "2022 · the next generation takes over"},
+    {"src": "assets/photos/2025-twelve-years-on.png",
+     "caption": "2025 · twelve years on, same faces"},
+]
+
+# Tier display order, best first. A sponsor whose `tier` isn't listed here is
+# still shown — it just sorts to the end under its own heading, so a new tier
+# invented mid-season can't make a sponsor vanish. The FIRST tier is rendered
+# larger than the rest (see theme.sponsor_wall).
+SPONSOR_TIERS = ("Top Sponsor", "Gold", "Silver", "Community")
+
+# `tier` should be one of SPONSOR_TIERS. `url` (https only), `logo` and
+# `blurb` are all optional — a sponsor with just a name still gets a card,
+# since the lineup is usually confirmed before the artwork arrives.
+SPONSORS = [
+    {"name": "Placeholder Top Sponsor", "tier": "Top Sponsor",
+     "logo": "assets/sponsors/top-sponsor.png",
+     "blurb": "Sample entry — replace with the headline sponsor's name and logo."},
+    {"name": "Placeholder Gold Sponsor", "tier": "Gold",
+     "logo": "assets/sponsors/gold-one.png",
+     "blurb": "Sample entry — replace with a real Gold sponsor."},
+    {"name": "Second Gold Placeholder", "tier": "Gold",
+     "logo": "assets/sponsors/gold-two.png",
+     "blurb": "Sample entry — replace with a real Gold sponsor."},
+    {"name": "Placeholder Silver Sponsor", "tier": "Silver",
+     "logo": "assets/sponsors/silver-one.png"},
+    {"name": "Second Silver Placeholder", "tier": "Silver",
+     "logo": "assets/sponsors/silver-two.png"},
+    {"name": "Placeholder Community Supporter", "tier": "Community",
+     "blurb": "Sample entry with no logo yet — this is how a name-only card looks."},
+]
+
 
 def ticket_price_cents() -> int:
-    """Return the configured ticket price in cents."""
+    """Return the base (individual) ticket price in cents.
+
+    This is the full price one person pays. Larger bookings pay less per
+    ticket — see ticket_price_cents_for(), which is what the Register page
+    and every total actually use.
+    """
     return get_secret_int("TICKET_PRICE_CENTS", 3000)
 
 
 def ticket_price_dollars() -> float:
-    """Return the configured ticket price in dollars."""
+    """Return the base (individual) ticket price in dollars."""
     return ticket_price_cents() / 100
+
+
+# ── Group discounts ──────────────────────────────────────────────────────────
+# A bigger booking pays less per ticket. Each tier is
+# (minimum tickets in ONE registration, discount per ticket in cents), and a
+# booking is charged at the last tier whose minimum it reaches. At the
+# default $30.00 base that gives exactly:
+#
+#     1–10 tickets   →  $30.00 each
+#     11–21 tickets  →  $29.00 each
+#     22+ tickets    →  $28.00 each
+#
+# Stored as money OFF the base rather than as absolute prices so that raising
+# TICKET_PRICE_CENTS moves every tier with it — otherwise a price rise would
+# silently turn the "discounts" into surcharges.
+#
+# The discount is per registration, not per person across registrations: 22
+# tickets bought in one booking get the 22+ rate; two separate bookings of 11
+# each get the 11+ rate each. That is the only rule the app can actually
+# enforce, since separate registrations are separate people paying separately.
+GROUP_DISCOUNT_TIERS = (
+    (11, 100),   # 11+ tickets: $1.00 off each
+    (22, 200),   # 22+ tickets: $2.00 off each
+)
+
+
+def ticket_price_cents_for(ticket_count) -> int:
+    """Per-ticket price in cents for a booking of `ticket_count` tickets.
+
+    Must never raise: this feeds the price shown on the form, and a garbage
+    ticket count (the selector is a client-side widget) has to fall back to
+    the full base price rather than take the page down. Falling back *up* to
+    the base price is the safe direction — it can never invent a discount
+    nobody is entitled to.
+    """
+    base = ticket_price_cents()
+    try:
+        count = int(ticket_count)
+    except (TypeError, ValueError):
+        return base
+
+    discount = 0
+    # Sorted rather than trusting the literal above to stay in order — a tier
+    # appended out of sequence would otherwise silently win over a larger one.
+    for minimum, off in sorted(GROUP_DISCOUNT_TIERS):
+        if count >= minimum:
+            discount = off
+    # A misconfigured tier must not produce a free (or negative) ticket.
+    return max(base - discount, 0)
+
+
+def ticket_price_dollars_for(ticket_count) -> float:
+    """Per-ticket price in dollars for a booking of `ticket_count` tickets."""
+    return ticket_price_cents_for(ticket_count) / 100
+
+
+def booking_total_cents(ticket_count) -> int:
+    """What a booking of `ticket_count` tickets costs in total, in cents.
+
+    Integer cents throughout — the amount a guest is told to Zelle must not
+    drift by a rounding error, and float dollars can't represent every price
+    exactly.
+    """
+    try:
+        count = max(0, int(ticket_count))
+    except (TypeError, ValueError):
+        count = 0
+    return count * ticket_price_cents_for(count)
+
+
+def booking_total_dollars(ticket_count) -> float:
+    """What a booking of `ticket_count` tickets costs in total, in dollars."""
+    return booking_total_cents(ticket_count) / 100
+
+
+def booking_savings_cents(ticket_count) -> int:
+    """How much a booking saves against paying the base price per ticket.
+
+    0 for any booking that isn't big enough for a discount.
+    """
+    try:
+        count = max(0, int(ticket_count))
+    except (TypeError, ValueError):
+        return 0
+    return count * (ticket_price_cents() - ticket_price_cents_for(count))
+
+
+def price_tiers() -> list:
+    """The whole price table, ready to display.
+
+    Returns a list of {"min", "max", "price_cents"} dicts covering every
+    booking size from 1 upward, with `max` = None on the open-ended top
+    tier. Derived from GROUP_DISCOUNT_TIERS rather than written out
+    separately, so what the Register page shows a guest can't drift from
+    what ticket_price_cents_for() actually charges them.
+    """
+    minimums = sorted({int(m) for m, _off in GROUP_DISCOUNT_TIERS if int(m) > 1})
+    boundaries = [1] + minimums
+
+    tiers = []
+    for i, start in enumerate(boundaries):
+        end = boundaries[i + 1] - 1 if i + 1 < len(boundaries) else None
+        tiers.append({
+            "min": start,
+            "max": end,
+            "price_cents": ticket_price_cents_for(start),
+        })
+    return tiers
+
+
+def next_price_tier(ticket_count):
+    """The next cheaper tier a booking could reach, or None.
+
+    Used to tell someone booking 10 tickets that an 11th would drop the
+    price of every ticket. Returns None when the booking is already on the
+    best tier, or when reaching the next one would exceed
+    MAX_TICKETS_PER_REGISTRATION (there's no point advertising a price the
+    form won't let them buy).
+    """
+    try:
+        count = int(ticket_count)
+    except (TypeError, ValueError):
+        return None
+
+    current_price = ticket_price_cents_for(count)
+    for tier in price_tiers():
+        if tier["min"] > count and tier["price_cents"] < current_price:
+            if tier["min"] > MAX_TICKETS_PER_REGISTRATION:
+                return None
+            return tier
+    return None
 
 
 # ── Ticket capacity ──────────────────────────────────────────────────────────
@@ -95,7 +299,23 @@ def max_total_tickets() -> int:
 # Most tickets one guest may claim in a single registration. The Register page
 # also clamps its selector to whatever is actually left, so the effective
 # maximum is min(this, tickets remaining).
-MAX_TICKETS_PER_REGISTRATION = 20
+#
+# Raised from 20 when group discounts were added: the top tier starts at 22
+# tickets (see GROUP_DISCOUNT_TIERS), so a cap of 20 would have advertised a
+# price no booking could ever reach. Anything set here must stay above the
+# largest tier minimum or that tier becomes unbuyable — config.next_price_tier()
+# refuses to advertise a tier past this cap for the same reason, and
+# test_top_discount_tier_is_actually_bookable fails if it ever slips below.
+#
+# Set to 50 to leave headroom for an unusually large group rather than sizing
+# it to the smallest number that works.
+#
+# Raising this raises utils.MAX_GUEST_NAMES (this minus one), so a 50-ticket
+# booking must name its other 49 guests. utils.GUEST_NAMES_MAX_CHARS — the
+# size of the Register form's name box AND of the plus_one_name column — is
+# derived from that, so the storage grows with the cap instead of silently
+# truncating the tail of a big booking's guest list.
+MAX_TICKETS_PER_REGISTRATION = 50
 
 
 _DEFAULT_ZELLE = "dallashudugaru@gmail.com"
