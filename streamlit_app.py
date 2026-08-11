@@ -56,6 +56,11 @@ def _ensure_state(key, default):
 
 
 _ensure_state("registered_guest_id", None)
+# Set on a successful submit; tells page_home() to lead with the guest's
+# confirmation card, since registration redirects there rather than
+# confirming in place (see _finish_registration).
+_ensure_state("just_registered", False)
+_ensure_state("confirmation_celebrated", False)
 _ensure_state("scanner_result", None)
 # The guest a door search pulled up, awaiting staff confirmation. Holding a
 # guest here means "found, but nobody has been checked in yet".
@@ -68,6 +73,10 @@ _ensure_state("admin_pending_changes", None)
 _ensure_state("flash", None)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
+# The BASE (individual) price. What a given booking actually pays per ticket
+# depends on its size — see config.ticket_price_cents_for() and the group
+# discount tiers — so this is only ever the "1 ticket" reference point, never
+# the number a group is quoted.
 TICKET_PRICE = config.ticket_price_dollars()
 ZELLE_INFO = config.zelle_info()
 
@@ -214,6 +223,13 @@ def _render_bar_chart(df):
 # HOME PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 def page_home():
+    # Registration is the landing page (config.LANDING_PAGE), and submitting
+    # it redirects here — so the confirmation travels with the guest and is
+    # the first thing on the page, above even the hero. Without that, a
+    # submit would look like it did nothing but move them somewhere else.
+    if st.session_state.get("just_registered"):
+        _render_registration_confirmation()
+
     st.markdown(theme.hero(), unsafe_allow_html=True)
 
     # Warn if running on fallback SQLite (e.g., Cloud secret missing or DB unreachable)
@@ -232,6 +248,12 @@ def page_home():
     # deciding whether to register now or later. Renders nothing when the cap
     # is disabled (see theme.tickets_remaining).
     st.markdown(theme.tickets_remaining(_cached_availability()), unsafe_allow_html=True)
+
+    # ── Photos & sponsors ───────────────────────────────────────────────────
+    # Ahead of Party Buzz on purpose: a guest arriving here straight off the
+    # registration form came to see the party, not the analytics.
+    _home_photos_section()
+    _home_sponsors_section()
 
     # ── Party Buzz ──────────────────────────────────────────────────────────
     # Public, aggregate-only site activity — no guest names/emails/phones/
@@ -302,15 +324,142 @@ def page_home():
             st.markdown(theme.nav_card(icon, title, desc), unsafe_allow_html=True)
             if st.button(f"{icon} {title} →", key=key, use_container_width=True):
                 st.session_state["page"] = page
+                _sync_page_query_param(page)
                 st.rerun()
 
     st.markdown(theme.footer(), unsafe_allow_html=True)
+
+
+def _home_photos_section() -> None:
+    """The Home page photo gallery, or a placeholder while it's still empty.
+
+    Photos are configured in config.PHOTOS and are expected to stay empty
+    for a while, so the empty state has to read as "not yet", not "broken".
+    """
+    st.markdown(
+        theme.section_header("📸 Photos", "Moments from the party and the years before it."),
+        unsafe_allow_html=True,
+    )
+    photos = utils.gallery_photos()
+    if photos:
+        st.markdown(theme.photo_gallery(photos), unsafe_allow_html=True)
+    else:
+        st.markdown(
+            theme.empty_state(
+                "📷", "Photos are on the way",
+                "We're still picking the best shots from previous years. Check back soon — "
+                "and the night itself will fill this up too.",
+            ),
+            unsafe_allow_html=True,
+        )
+
+
+def _home_sponsors_section() -> None:
+    """The Home page sponsor wall, or a placeholder while it's still empty.
+
+    Same shape as _home_photos_section(): reads config.SPONSORS, and says
+    "being finalised" rather than showing nothing, since an empty section
+    on a page a sponsor might be sent to looks worse than an honest one.
+    """
+    st.markdown(
+        theme.section_header("🤝 Our Sponsors", "The people helping make this night happen."),
+        unsafe_allow_html=True,
+    )
+    sponsors = utils.sponsor_list()
+    if sponsors:
+        st.markdown(theme.sponsor_wall(sponsors), unsafe_allow_html=True)
+    else:
+        st.markdown(
+            theme.empty_state(
+                "🤝", "Sponsor lineup coming soon",
+                "We're still confirming this year's sponsors. Want to support the party? "
+                "Get in touch with the organisers.",
+            ),
+            unsafe_allow_html=True,
+        )
+
+
+def _render_registration_confirmation() -> None:
+    """The post-registration confirmation, rendered at the top of Home.
+
+    The guest is redirected here by page_register() on a successful submit
+    (see _finish_registration), so this is where they learn it worked. It
+    stays put for the rest of the session until they dismiss it or register
+    someone else, so navigating away and back doesn't lose their receipt.
+    """
+    guest_id = st.session_state.get("registered_guest_id")
+    guest = utils.get_guest(guest_id) if guest_id else None
+    if not guest:
+        # The row is gone — an admin deleted it, or the data was reset.
+        # Drop the banner rather than confirm a booking that no longer
+        # exists; the rest of Home renders normally underneath.
+        _clear_registration_confirmation()
+        return
+
+    # Once per registration, not once per rerun: any button press on Home
+    # re-runs the whole script, and re-firing the animation on every click
+    # is grating rather than celebratory.
+    if not st.session_state.get("confirmation_celebrated"):
+        st.balloons()
+        st.session_state["confirmation_celebrated"] = True
+
+    st.markdown(theme.stepper(3), unsafe_allow_html=True)
+    st.markdown(
+        theme.registration_confirmation(
+            guest["name"],
+            guest["email"],
+            guest["ticket_count"],
+            utils.guest_names_list(guest.get("plus_one_name")),
+        ),
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📧 Resend QR Email", key="confirm_resend", use_container_width=True):
+            with st.spinner("Emailing your QR code…"):
+                sent = utils.send_qr_email(SimpleNamespace(**guest))
+            if sent:
+                st.success("QR code emailed again!")
+            else:
+                st.warning(
+                    "We couldn't send the email right now (SMTP may be disabled in this environment). "
+                    "Please try again later or contact the organizer."
+                )
+    with col2:
+        if st.button("🔄 Register Someone Else", key="confirm_register_another", use_container_width=True):
+            _clear_registration_confirmation()
+            st.session_state["reset_register_form"] = True
+            st.session_state["page"] = "Register"
+            _sync_page_query_param("Register")
+            st.rerun()
+
+
+def _clear_registration_confirmation() -> None:
+    """Forget the just-registered guest so Home stops showing their receipt."""
+    st.session_state["just_registered"] = False
+    st.session_state["confirmation_celebrated"] = False
+    st.session_state["registered_guest_id"] = None
+
+
+def _sync_page_query_param(page: str) -> None:
+    """Keep ?page= in step with a programmatic navigation.
+
+    Best-effort: st.query_params is unavailable in some embedding contexts,
+    and a URL that lags the real page is cosmetic — never a reason to break
+    the navigation itself.
+    """
+    try:
+        st.query_params["page"] = page
+    except Exception:
+        pass
 
 
 def _home_button(key="home_button"):
     """Render a Home button that returns to the Home page."""
     if st.button("🏠 Home", key=key, use_container_width=True):
         st.session_state["page"] = "Home"
+        _sync_page_query_param("Home")
         st.rerun()
 
 
@@ -339,15 +488,6 @@ def page_register():
     with header_col2:
         _home_button(key="home_register")
 
-    # If a guest was just registered, show their QR
-    if st.session_state.get("registered_guest_id"):
-        guest_id = st.session_state["registered_guest_id"]
-        guest = utils.get_guest(guest_id)
-        if guest:
-            _show_registration_success(guest)
-            return
-        st.session_state["registered_guest_id"] = None
-
     # ── Ticket capacity ────────────────────────────────────────────────────
     # Checked before anything else on the page: there's no point walking a
     # guest through Zelle instructions for a party that's full.
@@ -358,11 +498,25 @@ def page_register():
         _home_button(key="home_sold_out")
         return
 
-    st.markdown(theme.stepper(2), unsafe_allow_html=True)
+    # Step 1, not step 2: this is where the flow begins now that Register is
+    # the landing page, and paying via Zelle — the card directly below — is
+    # the first thing a guest actually does. Marking step 1 as already
+    # complete on arrival told a first-time visitor they had missed
+    # something.
+    st.markdown(theme.stepper(1), unsafe_allow_html=True)
     st.markdown(theme.tickets_remaining(availability), unsafe_allow_html=True)
 
     # ── Zelle Payment Info Card ────────────────────────────────────────────
-    st.markdown(theme.payment_card(ZELLE_INFO, TICKET_PRICE), unsafe_allow_html=True)
+    # Carries the whole group-discount table, with the row for the current
+    # selection highlighted. It has to render BEFORE the selector (that's
+    # where Step 1 belongs on the page), so it reads session_state for the
+    # count instead of the widget's return value further down — same number,
+    # just available earlier in the script.
+    selected_tickets = st.session_state.get("ticket_count", 1)
+    st.markdown(
+        theme.payment_card(ZELLE_INFO, config.price_tiers(), selected_tickets),
+        unsafe_allow_html=True,
+    )
 
     # ── Ticket count & dynamic total (outside form so it updates live) ────
     # Never offer more tickets than are actually left. Streamlit raises if a
@@ -387,10 +541,30 @@ def page_register():
         value=1,
         step=1,
         key="ticket_count",
-        help=f"Select number of tickets (up to {max_tickets}). "
-             "The total updates automatically as you change it.",
+        help=f"Select number of tickets (up to {max_tickets}) — one per person. "
+             "The price per ticket drops for larger groups, and the total updates "
+             "automatically as you change it.",
     )
-    st.markdown(theme.total_card(ticket_count, TICKET_PRICE), unsafe_allow_html=True)
+    # Priced at this booking's own tier, not the base rate — the total is the
+    # number the guest is about to Zelle, so it must be the real one.
+    unit_price = config.ticket_price_dollars_for(ticket_count)
+    st.markdown(
+        theme.total_card(
+            ticket_count, unit_price, config.booking_savings_cents(ticket_count) / 100
+        ),
+        unsafe_allow_html=True,
+    )
+    # Worth knowing right after picking a quantity: how close they are to the
+    # next tier. Renders nothing when they're already on the best one, or when
+    # reaching it would exceed the per-registration cap.
+    st.markdown(
+        theme.next_tier_nudge(
+            ticket_count,
+            config.next_price_tier(ticket_count),
+            config.ticket_price_cents_for(ticket_count),
+        ),
+        unsafe_allow_html=True,
+    )
 
     reg_errors = st.session_state.get("reg_errors", {})
     if "ticket_count" in reg_errors:
@@ -423,7 +597,7 @@ def page_register():
             "Full Name *",
             key="reg_name",
             placeholder="Enter your full name (letters only)",
-            max_chars=100,
+            max_chars=utils.MAX_NAME_LENGTH,
             help="Use letters and spaces only. Example: John Smith or Mary Jane",
         )
         if "name" in reg_errors:
@@ -476,7 +650,10 @@ def page_register():
             placeholder="Jane Doe\nJohn Doe\nMary Smith",
             help=names_help,
             height=120,
-            max_chars=1000,
+            # Sized to hold a full-capacity booking's guest list — every name
+            # at its maximum length. A fixed 1000 silently cut the tail off a
+            # large group once the ticket cap was raised.
+            max_chars=utils.GUEST_NAMES_MAX_CHARS,
         )
         if "plus_one_name" in reg_errors:
             st.markdown(theme.field_error(reg_errors["plus_one_name"]), unsafe_allow_html=True)
@@ -580,9 +757,9 @@ def page_register():
         if result["ok"]:
             guest = result["guest"]
             # Fire-and-forget: a guest who just paid shouldn't stare at a
-            # spinner for a full SMTP round-trip. The success screen below
-            # reflects this honestly — it says the email is "on its way",
-            # not that it was delivered (see PART 1).
+            # spinner for a full SMTP round-trip. The confirmation card on
+            # Home reflects this honestly — it says the email is "on its
+            # way", not that it was delivered (see PART 1).
             utils.send_qr_email_async(guest)
             utils.record_submission(
                 name=cleaned["name"],
@@ -598,8 +775,7 @@ def page_register():
             _cached_site_stats.clear()
             _cached_registration_daily_counts.clear()
             _cached_availability.clear()
-            st.session_state["registered_guest_id"] = guest["id"]
-            st.rerun()
+            _finish_registration(guest["id"])
         else:
             reason = result["reason"]
             utils.record_submission(
@@ -635,55 +811,28 @@ def page_register():
                 )
 
 
-def _show_registration_success(guest: dict):
-    """Display the post-registration confirmation. QR code is emailed; not shown here."""
-    st.balloons()
-    st.markdown(theme.stepper(3), unsafe_allow_html=True)
+def _finish_registration(guest_id: int):
+    """Hand a just-registered guest over to the Home page.
 
-    name = guest["name"]
-    email = guest["email"]
-    tickets = guest["ticket_count"]
-    names_list = utils.guest_names_list(guest.get("plus_one_name"))
-    head_count = utils.party_size(guest)
+    Register is the landing page, so it is the first (and for most guests
+    the only) screen they see. Once they've submitted, the useful thing to
+    show them is everything else — photos, sponsors, ticket count, the
+    party stats — rather than a dead-end confirmation screen on the form
+    they've finished with. So the confirmation itself moves to the top of
+    Home (_render_registration_confirmation) and this sends them there.
 
-    # The email send is fire-and-forget (utils.send_qr_email_async) — we have
-    # no result to report here, so this must not claim delivery (see PART 1).
-    st.success(
-        f"🎉 You're registered, {name}! Your QR code is on its way to {email} — "
-        "check your inbox (and spam folder) in a few minutes."
-    )
-
-    st.markdown(theme.section_header("You're In!"), unsafe_allow_html=True)
-    st.markdown(f"**{name}** • {tickets} Ticket{'s' if tickets != 1 else ''}")
-    # Read the head count back from what was actually saved, so the guest can
-    # confirm we recorded the party they booked for — this is the last chance
-    # to spot a missing name before the door.
-    if names_list:
-        st.markdown(f"**Additional Guests ({len(names_list)}):**")
-        st.markdown("\n".join(f"- {n}" for n in names_list))
-        st.markdown(f"👥 **{head_count} people** on this booking, including you.")
-    st.markdown(f"📧 Sending your QR code to: `{email}`")
-    st.divider()
-
-    st.info("📧 No need to screenshot — your QR code is on its way to your email.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📧 Resend QR Email", use_container_width=True):
-            with st.spinner("Emailing your QR code…"):
-                sent = utils.send_qr_email(SimpleNamespace(**guest))
-            if sent:
-                st.success("QR code emailed again!")
-            else:
-                st.warning(
-                    "We couldn't send the email right now (SMTP may be disabled in this environment). "
-                    "Please try again later or contact the organizer."
-                )
-    with col2:
-        if st.button("🔄 Register Another", use_container_width=True):
-            st.session_state["registered_guest_id"] = None
-            st.session_state["reset_register_form"] = True
-            st.rerun()
+    Nothing is rendered here: the st.rerun() below discards the current
+    frame, so any message written now would never be painted (see PART 6).
+    """
+    st.session_state["registered_guest_id"] = guest_id
+    st.session_state["just_registered"] = True
+    st.session_state["confirmation_celebrated"] = False
+    # Clear the form behind them, so "Register Someone Else" lands on a
+    # blank step 1 rather than the previous guest's details.
+    st.session_state["reset_register_form"] = True
+    st.session_state["page"] = "Home"
+    _sync_page_query_param("Home")
+    st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -758,6 +907,7 @@ def page_my_qr():
                 use_container_width=True,
             ):
                 st.session_state["page"] = "Register"
+                _sync_page_query_param("Register")
                 st.rerun()
 
 
@@ -1743,13 +1893,19 @@ def main():
     # blocked — staff must never be locked out of their own door. This is
     # the same resolution the sidebar below performs; hoisted up here so the
     # gate can see it without rendering the sidebar first.
+    #
+    # With no ?page= of its own, the bare app URL opens on
+    # config.LANDING_PAGE (Register) — that URL is the registration link the
+    # organiser sends out, so it opens on the form. Home is where a guest is
+    # sent once they've submitted, and is still reachable directly via
+    # ?page=Home or the sidebar.
     if "page" not in st.session_state:
         try:
             qp = st.query_params
             requested = qp["page"] if "page" in qp else None
-            st.session_state["page"] = requested if requested in PAGES else "Home"
+            st.session_state["page"] = requested if requested in PAGES else config.LANDING_PAGE
         except Exception:
-            st.session_state["page"] = "Home"
+            st.session_state["page"] = config.LANDING_PAGE
     target_page = st.session_state["page"]
 
     gate_exempt = target_page in ("Admin", "Scanner") or bool(
@@ -1783,10 +1939,7 @@ def main():
 
         if page != st.session_state.get("page"):
             st.session_state["page"] = page
-            try:
-                st.query_params["page"] = page
-            except Exception:
-                pass
+            _sync_page_query_param(page)
             st.rerun()
 
         st.markdown("---")
@@ -1804,18 +1957,21 @@ def main():
 
     # Record page visit once per navigation / refresh for traffic stats
     try:
-        current_page = st.session_state.get("page", "Home")
+        current_page = st.session_state.get("page", config.LANDING_PAGE)
         if st.session_state.get("last_recorded_page") != current_page:
             utils.record_visit(st.session_state["visitor_token"], current_page)
             st.session_state["last_recorded_page"] = current_page
     except Exception:
         pass
 
-    # Reset registration state when navigating to the Register page from elsewhere
-    current_page = st.session_state.get("page", "Home")
+    # Reset registration state when navigating to the Register page from
+    # elsewhere: a fresh visit to the form starts at step 1 with empty
+    # fields, and the previous booking's confirmation card on Home goes with
+    # it — it belongs to a registration the guest has moved on from.
+    current_page = st.session_state.get("page", config.LANDING_PAGE)
     if st.session_state.get("_prev_page") != current_page:
         if current_page == "Register":
-            st.session_state["registered_guest_id"] = None
+            _clear_registration_confirmation()
             st.session_state["reset_register_form"] = True
         st.session_state["_prev_page"] = current_page
 

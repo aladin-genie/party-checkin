@@ -101,5 +101,6 @@ def test_masked_number_registers_and_is_stored_normalized(page, base_url, reset_
     )
     submit_registration(page)
 
-    expect(page.get_by_text("You're registered", exact=False)).to_be_visible(timeout=15000)
+    # A successful submit lands on Home with the confirmation card on top.
+    expect(page.get_by_text("You're in, Masked Guest", exact=False)).to_be_visible(timeout=15000)
     assert reset_db.get_guest_by_email(email)["phone"] == "+1-555-987-6543"

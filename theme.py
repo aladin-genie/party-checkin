@@ -698,6 +698,171 @@ div[data-testid="stContainer"] {
     font-size: 0.92rem !important;
 }
 
+/* ── Photo gallery (Home) ──────────────────────────────────────────────── */
+/* A plain responsive grid of fixed-ratio tiles. Fixed ratio matters: the
+   photos are dropped in by the organiser at whatever size their phone
+   produced, and without it a single portrait shot would tower over the row
+   next to it. */
+.photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    /* Size each card to its own content instead of stretching it to the
+       tallest in the row: captions are optional, and a stretched card with
+       no caption shows an empty strip that reads as a missing one. */
+    align-items: start;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 var(--space-5) 0;
+}
+.photo-card {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--elevated);
+    box-shadow: var(--shadow-md);
+}
+.photo-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+}
+.photo-caption {
+    padding: 10px var(--space-4) var(--space-3) var(--space-4);
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+/* ── Sponsor wall (Home) ───────────────────────────────────────────────── */
+/* Grouped into labelled tiers, best first. The top tier gets wider tracks and
+   a gold-tinted card, because visible prominence is the thing a headline
+   sponsor is actually paying for — a wall where every logo looks identical
+   sells the top tier short. */
+.sponsor-wall {
+    margin: var(--space-3) 0 var(--space-5) 0;
+}
+.sponsor-tier-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-4) 0 var(--space-2) 0;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+}
+/* A hairline rule trailing off to the right of each tier label. */
+.sponsor-tier-heading::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(var(--gold-rgb), 0.35), transparent);
+}
+.sponsor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    align-items: start;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-4) 0;
+}
+.sponsor-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: var(--space-5) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--elevated);
+    box-shadow: var(--shadow-md);
+    text-decoration: none !important;
+    color: inherit;
+}
+a.sponsor-card:hover {
+    background: rgba(var(--gold-rgb), 0.08);
+    border-color: rgba(var(--gold-rgb), 0.3);
+}
+.sponsor-logo {
+    max-height: 64px;
+    max-width: 100%;
+    width: auto;
+    object-fit: contain;
+}
+.sponsor-name {
+    font-weight: 800;
+    font-size: 1rem;
+    color: var(--gold-soft);
+    overflow-wrap: break-word;
+}
+.sponsor-blurb {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    line-height: 1.45;
+}
+
+/* Top tier: bigger card, bigger logo, gold wash. */
+.sponsor-card.is-featured {
+    padding: var(--space-6) var(--space-5);
+    border-color: rgba(var(--gold-rgb), 0.4);
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14) 0%, var(--elevated) 100%);
+    box-shadow: var(--shadow-gold-lg);
+}
+.sponsor-card.is-featured .sponsor-logo { max-height: 110px; }
+.sponsor-card.is-featured .sponsor-name { font-size: 1.25rem; color: var(--gold); }
+.sponsor-card.is-featured .sponsor-blurb { font-size: 0.92rem; }
+/* The featured row gets wider tracks so a headline sponsor isn't squeezed
+   into the same 190px column as a community supporter. Driven by a class the
+   builder puts on the grid rather than by :has(), which isn't available in
+   every browser a guest might open this on. */
+.sponsor-grid.is-featured-row {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* ── Registration confirmation (top of Home, straight after a submit) ──── */
+.confirm-card {
+    background: linear-gradient(135deg, rgba(var(--ok-rgb), 0.16) 0%, rgba(var(--gold-rgb), 0.1) 100%);
+    border: 1px solid var(--ok-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-6) var(--space-5);
+    margin: 0 0 var(--space-5) 0;
+    box-shadow: var(--shadow-md);
+}
+.confirm-icon { font-size: 2.2rem; line-height: 1; margin-bottom: 6px; }
+.confirm-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--gold-soft);
+    margin-bottom: 6px;
+    overflow-wrap: break-word;
+}
+.confirm-message {
+    color: var(--text);
+    font-size: 0.98rem;
+    line-height: 1.6;
+}
+.confirm-message strong { color: var(--gold-soft); word-break: break-word; }
+.confirm-rows {
+    margin-top: var(--space-4);
+    border-top: 1px solid var(--border-strong);
+    padding-top: var(--space-3);
+}
+.confirm-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 5px 0;
+    font-size: 0.95rem;
+}
+.confirm-label { color: var(--text-dim); flex: 0 0 auto; }
+.confirm-value {
+    color: var(--text);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-word;
+}
+
 /* ── Payment card ──────────────────────────────────────────────────────── */
 .payment-card {
     background: linear-gradient(135deg, var(--surface) 0%, #0d0d0d 100%);
@@ -759,6 +924,78 @@ div[data-testid="stContainer"] {
     color: var(--gold);
 }
 
+/* ── Group-discount price table (inside the payment card) ──────────────── */
+/* Every tier is listed, not just the one the guest currently qualifies for:
+   the table sits above the ticket selector precisely so the price can
+   influence how many tickets they pick. The row they're on is highlighted
+   so "what am I paying" is still answerable at a glance. */
+.tier-table {
+    border: 1px solid rgba(var(--gold-rgb), 0.25);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+}
+.tier-table-head {
+    padding: 10px var(--space-4);
+    font-size: 0.82rem;
+    color: var(--gold);
+    border-bottom: 1px solid var(--border);
+    line-height: 1.4;
+}
+.tier-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px var(--space-4);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.95rem;
+}
+.tier-row:first-of-type { border-top: none; }
+.tier-row.is-active {
+    background: rgba(var(--gold-rgb), 0.12);
+    color: var(--text);
+    box-shadow: inset 3px 0 0 var(--gold);
+}
+.tier-range { font-weight: 600; }
+.tier-price {
+    font-weight: 800;
+    color: var(--gold-soft);
+    white-space: nowrap;
+}
+.tier-row.is-active .tier-price { color: var(--gold); }
+.tier-each {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-dimmer);
+}
+
+/* Savings line inside the Total to Pay card. */
+.total-savings {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--ok);
+}
+
+/* "One more ticket unlocks the next tier" hint, under the total. */
+.tier-nudge {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--text);
+}
+.tier-nudge-icon { font-size: 1.1rem; line-height: 1.35; }
+.tier-nudge strong { color: var(--gold-soft); }
+
 /* ── Total-to-pay card ─────────────────────────────────────────────────── */
 .total-card {
     background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.25) 0%, rgba(var(--violet-rgb), 0.15) 100%);
@@ -818,10 +1055,15 @@ div[data-testid="stContainer"] {
 }
 
 /* ── Stepper ───────────────────────────────────────────────────────────── */
+/* Left-aligned, not centered: the Register page is the app's landing page and
+   everything else on it (title, section headers, form fields, labels) starts
+   at the same left edge. A centered strip of step pills floating above all of
+   that read as an unrelated, stray element rather than as the progress
+   indicator for the form directly beneath it. */
 .stepper {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     flex-wrap: wrap;
     gap: var(--space-2);
     margin: 0 0 var(--space-5) 0;
@@ -1375,8 +1617,230 @@ def nav_card(icon: str, title: str, desc: str) -> str:
     )
 
 
-def payment_card(zelle_info: str, price: float) -> str:
-    """The Zelle payment instructions card shown on the Register page."""
+def photo_gallery(photos: list) -> str:
+    """A responsive grid of event photos, or "" when there are none.
+
+    `photos` is a utils.gallery_photos() payload — a list of
+    {"src", "caption"} dicts whose `src` is already resolved to a usable
+    https URL or data URI. Returns "" for an empty list so the caller can
+    decide between a placeholder and rendering nothing at all.
+    """
+    if not photos:
+        return ""
+
+    cards = []
+    for photo in photos:
+        src = photo.get("src") or ""
+        if not src:
+            continue
+        caption = str(photo.get("caption") or "").strip()
+        # A caption doubles as the alt text — it's the only description of
+        # the image anyone has written. With no caption the tile is
+        # decorative, so an empty alt keeps screen readers from announcing
+        # a meaningless filename.
+        cap_html = f'<div class="photo-caption">{html.escape(caption)}</div>' if caption else ""
+        cards.append(
+            '<div class="photo-card">'
+            f'<img src="{html.escape(src, quote=True)}" alt="{html.escape(caption, quote=True)}" loading="lazy">'
+            f"{cap_html}"
+            "</div>"
+        )
+    if not cards:
+        return ""
+    return f'<div class="photo-grid">{"".join(cards)}</div>'
+
+
+def _sponsor_card(sponsor: dict) -> str:
+    """One sponsor card. Returns "" for an entry with no name to show."""
+    name = str(sponsor.get("name") or "").strip()
+    if not name:
+        return ""
+
+    logo = sponsor.get("logo") or ""
+    blurb = str(sponsor.get("blurb") or "").strip()
+    url = sponsor.get("url") or ""
+    featured = bool(sponsor.get("featured"))
+
+    inner = []
+    if logo:
+        inner.append(
+            f'<img class="sponsor-logo" src="{html.escape(logo, quote=True)}" '
+            f'alt="{html.escape(name, quote=True)} logo" loading="lazy">'
+        )
+    inner.append(f'<div class="sponsor-name">{html.escape(name)}</div>')
+    if blurb:
+        inner.append(f'<div class="sponsor-blurb">{html.escape(blurb)}</div>')
+    body = "".join(inner)
+
+    classes = "sponsor-card is-featured" if featured else "sponsor-card"
+    if url:
+        return (
+            f'<a class="{classes}" href="{html.escape(url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer">{body}</a>'
+        )
+    return f'<div class="{classes}">{body}</div>'
+
+
+def sponsor_wall(sponsors: list) -> str:
+    """The tiered sponsor wall, or "" when there are no sponsors.
+
+    `sponsors` is a utils.sponsor_list() payload — already ordered best tier
+    first, since which tier outranks which is a config question, not a
+    rendering one. This walks that order and starts a new labelled section
+    every time the tier changes, so the grouping can never disagree with the
+    sort.
+
+    The top tier's cards render larger (`featured`), which is the whole point
+    of paying for it. A sponsor with a `url` becomes a link (new tab, with
+    rel="noopener" so the sponsor's site gets no handle on this one); a
+    missing logo is fine — the name is set in type instead.
+    """
+    if not sponsors:
+        return ""
+
+    sections = []
+    current_tier = None
+    cards = []
+    featured_row = False
+
+    def _flush():
+        if not cards:
+            return
+        heading = (
+            f'<div class="sponsor-tier-heading">{html.escape(current_tier)}</div>'
+            if current_tier
+            else ""
+        )
+        grid_class = "sponsor-grid is-featured-row" if featured_row else "sponsor-grid"
+        sections.append(f'{heading}<div class="{grid_class}">{"".join(cards)}</div>')
+
+    for sponsor in sponsors:
+        card = _sponsor_card(sponsor)
+        if not card:
+            continue
+        tier = str(sponsor.get("tier") or "").strip()
+        if tier != current_tier and cards:
+            _flush()
+            cards = []
+            featured_row = False
+        current_tier = tier
+        featured_row = featured_row or bool(sponsor.get("featured"))
+        cards.append(card)
+    _flush()
+
+    if not sections:
+        return ""
+    return f'<div class="sponsor-wall">{"".join(sections)}</div>'
+
+
+def registration_confirmation(name: str, email: str, tickets: int, guest_names: list) -> str:
+    """The "you're in" card shown at the top of Home right after a submit.
+
+    Registration redirects to Home so the guest lands on the photos,
+    sponsors, and party stats — but the confirmation has to travel with
+    them, or a submit would look like it did nothing. Reads the booking
+    back from what was actually saved so this doubles as the guest's last
+    chance to spot a missing name before the door.
+
+    The QR email is fire-and-forget (utils.send_qr_email_async), so the
+    wording here says it is on its way, never that it arrived (see PART 1).
+    """
+    try:
+        tickets = int(tickets)
+    except (TypeError, ValueError):
+        tickets = 1
+    guest_names = [str(n).strip() for n in (guest_names or []) if str(n).strip()]
+    plural = "s" if tickets != 1 else ""
+
+    rows = [("Tickets", f"{tickets} ticket{plural}"), ("QR code emailed to", email or "—")]
+    if guest_names:
+        rows.append((f"Additional guests ({len(guest_names)})", ", ".join(guest_names)))
+        rows.append(("On this booking", f"{len(guest_names) + 1} people, including you"))
+
+    # Concatenated rather than an f-string block: a blank line inside the
+    # HTML would end st.markdown's HTML block and dump the rest as text.
+    parts = ['<div class="confirm-card">']
+    parts.append('<div class="confirm-icon">🎉</div>')
+    parts.append(f'<div class="confirm-title">You\'re in, {html.escape(str(name))}!</div>')
+    parts.append(
+        '<div class="confirm-message">Your QR code is on its way to '
+        f"<strong>{html.escape(str(email))}</strong> — check your inbox (and spam folder) in a "
+        "few minutes. No need to screenshot anything; you can also pull it up again from "
+        "<strong>My QR Code</strong> below at any time.</div>"
+    )
+    parts.append('<div class="confirm-rows">')
+    for label, value in rows:
+        parts.append(
+            '<div class="confirm-row">'
+            f'<span class="confirm-label">{html.escape(label)}</span>'
+            f'<span class="confirm-value">{html.escape(str(value))}</span>'
+            "</div>"
+        )
+    parts.append("</div></div>")
+    return "".join(parts)
+
+
+def tier_range_label(tier: dict) -> str:
+    """Human label for one price tier's ticket range, e.g. "11–21" or "22+"."""
+    low = int(tier.get("min", 1))
+    high = tier.get("max")
+    if high is None:
+        return f"{low}+"
+    high = int(high)
+    if high <= low:
+        return str(low)
+    return f"{low}–{high}"
+
+
+def price_tier_table(tiers: list, ticket_count: int = 0) -> str:
+    """The group-discount price table, shown inside the payment card.
+
+    `tiers` is a config.price_tiers() payload. `ticket_count` highlights the
+    row the current selection falls into — the point of showing the whole
+    table on the form is that a guest can see both what they're paying and
+    what one more ticket would get them, so the row they're on has to be
+    unmistakable.
+    """
+    if not tiers:
+        return ""
+
+    try:
+        count = int(ticket_count)
+    except (TypeError, ValueError):
+        count = 0
+
+    rows = []
+    for tier in tiers:
+        low = int(tier.get("min", 1))
+        high = tier.get("max")
+        active = count >= low and (high is None or count <= int(high))
+        price = int(tier.get("price_cents", 0)) / 100
+        rows.append(
+            f'<div class="tier-row{" is-active" if active else ""}">'
+            f'<span class="tier-range">{html.escape(tier_range_label(tier))} '
+            f'{"ticket" if low == 1 and high == 1 else "tickets"}</span>'
+            f'<span class="tier-price">${price:,.2f} <span class="tier-each">each</span></span>'
+            "</div>"
+        )
+    return (
+        '<div class="tier-table">'
+        '<div class="tier-table-head">🎟️ Group pricing — the more tickets on one '
+        "booking, the less each one costs</div>"
+        f'{"".join(rows)}'
+        "</div>"
+    )
+
+
+def payment_card(zelle_info: str, tiers: list, ticket_count: int = 0) -> str:
+    """The Zelle payment instructions card shown on the Register page.
+
+    Carries the full group-discount table rather than a single price,
+    because this card sits ABOVE the ticket selector: at the point a guest
+    reads it they haven't chosen a quantity yet, and the whole reason to
+    show tiers here is to let the price influence that choice. The exact
+    amount for the quantity they land on is restated by total_card() below
+    the selector.
+    """
     return f"""
     <div class="payment-card">
         <div class="payment-card-head">
@@ -1391,26 +1855,86 @@ def payment_card(zelle_info: str, price: float) -> str:
             <div class="zelle-label">Send Zelle To</div>
             <div class="zelle-email">{html.escape(zelle_info)}</div>
         </div>
-        <div class="payment-price-row">
-            <span>Price per ticket</span>
-            <span class="price-tag">${price:.2f}</span>
-        </div>
+        {price_tier_table(tiers, ticket_count)}
     </div>
     """
 
 
-def total_card(tickets: int, price: float) -> str:
-    """The live-updating 'Total to Pay' card on the Register page."""
+def total_card(tickets: int, price: float, savings: float = 0.0) -> str:
+    """The live-updating 'Total to Pay' card on the Register page.
+
+    `price` is the per-ticket price for THIS booking size
+    (config.ticket_price_dollars_for), not the base price — a group booking
+    must be told the number it should actually send via Zelle. `savings` is
+    what the group discount took off, shown only when there is some, so a
+    solo booking doesn't get a "you saved $0.00" line.
+    """
     tickets = int(tickets)
     total = tickets * price
     plural = "s" if tickets != 1 else ""
+    savings_html = (
+        f'<div class="total-savings">🎉 Group discount applied — you save '
+        f"${savings:,.2f}</div>"
+        if savings > 0
+        else ""
+    )
     return f"""
     <div class="total-card">
         <div class="total-label">Total to Pay</div>
         <div class="total-value">${total:,.2f}</div>
         <div class="total-caption">{tickets} ticket{plural} × ${price:.2f}</div>
+        {savings_html}
     </div>
     """
+
+
+def next_tier_nudge(ticket_count: int, tier: dict, base_price_cents: int) -> str:
+    """"Add N more tickets and every ticket drops to $X" — or "" if not close.
+
+    `tier` is a config.next_price_tier() payload (None when the booking is
+    already on the best tier, or when the next tier is past the
+    per-registration cap). Shown under the total, because the moment a guest
+    has picked a quantity is the moment this is worth knowing.
+
+    Deliberately states the extra tickets as tickets for *people* — one
+    ticket per person is the rule the rest of the form enforces, so this must
+    not read as an invitation to buy spare seats for nobody.
+    """
+    if not tier:
+        return ""
+    try:
+        count = int(ticket_count)
+        needed = int(tier["min"]) - count
+        tier_price = int(tier["price_cents"]) / 100
+    except (TypeError, ValueError, KeyError):
+        return ""
+    if needed <= 0:
+        return ""
+
+    # What they'd save overall by going up, versus their current total.
+    current_price_cents = base_price_cents
+    try:
+        current_price_cents = int(base_price_cents)
+    except (TypeError, ValueError):
+        pass
+    new_total = int(tier["min"]) * int(tier["price_cents"])
+    old_total = count * current_price_cents
+    delta = (old_total - new_total) / 100
+
+    saving_html = (
+        f" — that's <strong>${delta:,.2f} less</strong> in total, for "
+        f"{needed} more {'person' if needed == 1 else 'people'}"
+        if delta > 0
+        else ""
+    )
+    return (
+        '<div class="tier-nudge">'
+        "<span class=\"tier-nudge-icon\">💡</span>"
+        f"<span>Booking for <strong>{int(tier['min'])}</strong> brings every ticket down to "
+        f"<strong>${tier_price:,.2f}</strong>{saving_html}. "
+        "Everyone coming needs their own ticket and their name below.</span>"
+        "</div>"
+    )
 
 
 def guest_names_requirement(ticket_count: int, provided: int = 0) -> str:

@@ -8,7 +8,7 @@ Event registration and check-in for **Dallas Boys Party 2026**, built with **Str
 - **Live app:** https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/
 - **Repo:** `aladin-genie/party-checkin` (branch `main`)
 - **Database:** Supabase PostgreSQL
-- **Payment:** Zelle → `dallashudugaru@gmail.com` · $30.00 per ticket · 225 tickets total
+- **Payment:** Zelle → `dallashudugaru@gmail.com` · $30 / $29 / $28 per ticket by group size · 225 tickets total
 
 ---
 
@@ -49,7 +49,8 @@ The code is layered so that business logic is testable without a browser:
 |---------|-------------|
 | **Zelle Payments** | Guests pay via Zelle, then submit their transaction reference |
 | **Auto QR Email** | QR code is emailed after registration, on a background thread so the guest isn't held up by the SMTP round-trip |
-| **Bulk registration** | One person can buy up to 20 tickets and list every guest's name |
+| **Bulk registration** | One person can buy up to 50 tickets and list every guest's name |
+| **Group discounts** | Per-ticket price drops for bigger bookings — $30, $29 from 11 tickets, $28 from 22 |
 | **My QR lookup** | Guests re-find their QR code by email **or phone number**, or via the link in their email |
 | **Self Check-In** | Camera scan, or search by phone / email / ticket ID — always confirmed against the guest's details before anyone is checked in |
 | **Check-in window** | Check-in stays locked until 2 hours before the party, with an admin override |
@@ -59,6 +60,76 @@ The code is layered so that business logic is testable without a browser:
 | **Party Buzz** | Public, aggregate-only activity stats and charts on the Home page |
 | **CSV Export** | Download the guest list anytime (formula-injection safe) |
 | **Submission audit log** | Every form submit — successful or not — is recorded |
+| **Photos & sponsors** | Home page photo gallery and tiered sponsor wall, filled in from `config.py` |
+
+### The registration link is the front door
+
+The bare app URL — the link the organiser sends out — **opens on the registration form**,
+not on Home (`config.LANDING_PAGE`). The form starts at **step 1 of 3** ("Pay via Zelle"),
+and submitting it **redirects to Home**, where the guest's confirmation sits at the top of
+the page followed by the photos, sponsors, ticket count, and party stats.
+
+Home is still reachable directly at `…/?page=Home`, from the sidebar, and from the 🏠 Home
+button in every page header. Changing `LANDING_PAGE` in `config.py` is all it takes to point
+the front door somewhere else.
+
+### Group discounts
+
+The per-ticket price drops as a booking gets bigger. **One registration, one price** — the
+tier is decided by the ticket count on that single booking:
+
+| Tickets on one booking | Price each | Total |
+|---|---|---|
+| 1–10 | $30.00 | e.g. 10 → $300.00 |
+| 11–21 | $29.00 | e.g. 11 → $319.00 |
+| 22–50 | $28.00 | e.g. 22 → $616.00 |
+
+The Register page shows the whole table above the ticket selector (with the guest's current
+row highlighted), the exact total under it, how much the discount saved, and a hint when the
+next tier is within reach.
+
+Tiers live in `config.GROUP_DISCOUNT_TIERS` as **`(minimum tickets, discount per ticket in
+cents)`**, applied against `TICKET_PRICE_CENTS`. They're stored as money *off the base* so
+that raising the base price moves every tier with it instead of silently turning a discount
+into a surcharge. `config.price_tiers()` derives the displayed table from the same constant
+the pricing functions use, so the form can't quote a price the app won't charge.
+
+> **`MAX_TICKETS_PER_REGISTRATION` (50) must stay ≥ the largest tier minimum (22)**, or that
+> tier is advertised but unbuyable — there's a test that fails if it slips. Because
+> `utils.MAX_GUEST_NAMES` is derived from it, a 50-ticket booking must name its other 49
+> guests; the name-count rule below applies at every size. `utils.GUEST_NAMES_MAX_CHARS` —
+> which sizes both the form's name box and the `plus_one_name` column — is derived from that
+> in turn, and `init_db()` widens the column on boot, so raising the cap can't silently
+> truncate a big booking's guest list.
+
+Admin → Overview → **Revenue (est.)** prices each booking at its own tier, so it matches what
+should actually be in the Zelle history (see the reconciliation queries near the end of this
+file).
+
+### Photos & sponsors
+
+The Home page has a **📸 Photos** gallery and a tiered **🤝 Our Sponsors** wall.
+
+> ⚠️ **Both currently hold PLACEHOLDERS** — generated stand-in images stamped
+> "PLACEHOLDER"/"SAMPLE LOGO", with deliberately generic names ("Placeholder Top Sponsor").
+> Swap in the real team photos and sponsor logos before the registration link goes out.
+> Everything to change is in `config.PHOTOS` and `config.SPONSORS`.
+
+Sponsors are grouped into labelled tiers, best first, in the order set by
+`config.SPONSOR_TIERS` (`Top Sponsor` → `Gold` → `Silver` → `Community`). The **top tier
+renders larger**, with a bigger logo and a gold-washed card — that prominence is what a
+headline sponsor is paying for. A sponsor whose tier isn't in that list still appears, sorted
+to the end under its own heading, so a typo costs position rather than the whole card. Only
+`name` is required; a sponsor with no logo yet gets their name set in type.
+
+Filling either in is a data edit — see [`assets/README.md`](assets/README.md). In short: drop
+files in `assets/photos/` or `assets/sponsors/`, list them in `config.py`, done. Remote images
+must be `https://`; local ones are inlined as data URIs (Streamlit serves no static files), so
+keep them under 3 MB. Anything that can't be resolved is skipped rather than rendered as a
+broken image — `test_configured_sponsor_logos_and_photos_all_resolve` fails if a configured
+path doesn't exist.
+
+With both lists empty, each section shows a "coming soon" placeholder instead of a gap.
 
 ### Check-in window
 
@@ -112,22 +183,31 @@ confirmation step. Identity columns are read-only so they can't be edited by acc
 
 | Page | Who uses it | URL |
 |------|-------------|-----|
-| **Home** | Everyone | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ |
-| **Register** | Guests | …/?page=Register |
+| **Register** ← *the link you send* | Guests | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ |
+| **Home** | Everyone | …/?page=Home |
 | **My QR** | Guests | …/?page=My%20QR |
 | **Scanner** | Check-in staff | …/?page=Scanner |
 | **Admin** | Organiser | …/?page=Admin |
+
+The bare URL and `…/?page=Register` are the same page — share whichever reads better.
 
 ---
 
 ## Guest Flow
 
 ```
-  Organiser shares Zelle details + registration link
+  Organiser shares the registration link
           |
-  Guest sends $20 per ticket via Zelle
+  Guest opens it — the link lands ON the registration form (step 1)
           |
-  Guest registers (name, email, phone, tickets, Zelle reference, accepts T&Cs)
+  Guest picks a ticket count; the form quotes their group price + total
+          |
+  Guest Zelles that total
+          |
+  Guest registers (name, email, phone, tickets, every guest's name,
+                   Zelle reference, accepts T&Cs)
+          |
+  Redirected to Home: confirmation on top, then photos, sponsors, stats
           |
   QR code is emailed to the guest
           |
@@ -164,7 +244,8 @@ MAIL_PASSWORD = "your-gmail-app-password"   # NOT your normal Gmail password
 MAIL_DEFAULT_SENDER = "your-sender@gmail.com"
 
 ADMIN_PASSWORD = "choose-a-strong-password"
-TICKET_PRICE_CENTS = "3000"                  # 3000 = $30.00
+TICKET_PRICE_CENTS = "3000"                  # 3000 = $30.00 — the BASE price;
+                                             # group discounts come off this
 MAX_TOTAL_TICKETS = "225"                    # hard ticket cap; "0" disables it
 ZELLE_INFO = "dallashudugaru@gmail.com"
 APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"
@@ -235,6 +316,7 @@ sanitization, CSV-injection and XSS escaping, and Postgres URL normalization.
 | **Full Name** | Letters and spaces only; 2–100 characters |
 | **Email** | Standard email format; must be unique |
 | **Phone** | Required; US numbers only (a `+` country code other than `+1` is rejected, as is an area code starting with 0 or 1). The field starts at `+1-` and formats itself to `+1-XXX-XXX-XXXX` as the guest types; `sanitize_phone()` re-normalizes server-side, so the mask is cosmetic and validation is identical without it |
+| **Number of Tickets** | 1–50 per registration. Decides both the per-ticket price (see Group discounts) and how many guest names are required |
 | **Additional Guest Names** | Required whenever more than one ticket is booked, and the count must match: **exactly `tickets - 1` names**, since the person registering holds the first ticket. One per line or comma-separated; letters and spaces only. A 1-ticket booking must leave it empty — everyone attending needs their own ticket |
 | **Zelle Reference** | Required; 8–30 characters; letters, digits, hyphens |
 | **Terms** | Must accept "I/We Agree" |
@@ -273,7 +355,7 @@ Editor** (query).
 | `name` | varchar(100) | Letters and spaces only; validated on entry |
 | `email` | varchar(120) | **Unique** — one registration per address |
 | `phone` | varchar(30) | Required at registration; stored normalized as `+1-XXX-XXX-XXXX`, and a second lookup key alongside email. Rows created before it became mandatory keep `""` |
-| `ticket_count` | integer | 1–20 |
+| `ticket_count` | integer | 1–50. Also decides the per-ticket price — see Group discounts |
 | `plus_one_name` | varchar(1000) | Additional guest names, **newline-separated**. Registration requires exactly `ticket_count - 1` of them — one ticket per person, and the booker holds the first. Rows created before that rule may hold fewer |
 | `zelle_ref` | varchar(100) | Payment reference, uppercased; cross-check against your bank |
 | `qr_code` | varchar(200) | **Unique**; format `PARTY2026-YYYYMMDD-<random>` |
@@ -331,10 +413,26 @@ Use this to see how many people *tried* to register and where they got stuck.
 SELECT name, email, ticket_count, zelle_ref
 FROM guests WHERE NOT checked_in ORDER BY name;
 
--- Money owed vs collected (cross-check against your Zelle history)
-SELECT COUNT(*) AS guests, SUM(ticket_count) AS tickets,
-       SUM(ticket_count) * 20 AS expected_dollars
+-- Money owed vs collected (cross-check against your Zelle history).
+-- Priced per booking, because group discounts depend on each booking's own
+-- size -- SUM(ticket_count) * 30 would over-report every group.
+SELECT COUNT(*) AS guests,
+       SUM(ticket_count) AS tickets,
+       SUM(ticket_count * CASE WHEN ticket_count >= 22 THEN 28
+                               WHEN ticket_count >= 11 THEN 29
+                               ELSE 30 END) AS expected_dollars
 FROM guests;
+
+-- What each booking should have paid, biggest first
+SELECT name, email, ticket_count,
+       CASE WHEN ticket_count >= 22 THEN 28
+            WHEN ticket_count >= 11 THEN 29
+            ELSE 30 END AS price_each,
+       ticket_count * CASE WHEN ticket_count >= 22 THEN 28
+                           WHEN ticket_count >= 11 THEN 29
+                           ELSE 30 END AS total_owed,
+       zelle_ref
+FROM guests ORDER BY ticket_count DESC, name;
 
 -- Everyone who listed extra guests, one name per line
 SELECT name, ticket_count, plus_one_name FROM guests

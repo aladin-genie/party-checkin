@@ -44,7 +44,7 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 ## Code Layout
 | File | Rule |
 |------|------|
-| `config.py` | The only place that reads config secrets and the only place event date/venue/name strings live. Never hardcode them elsewhere. |
+| `config.py` | The only place that reads config secrets and the only place event date/venue/name strings, pricing/discount tiers, and Home-page photo/sponsor content live. Never hardcode them elsewhere. |
 | `utils.py` | Models + service layer + validation + email. **No Streamlit UI code.** |
 | `theme.py` | All CSS and HTML component builders. Builders return HTML strings and `html.escape()` their inputs. |
 | `streamlit_app.py` | Pages and navigation only. Must not open DB sessions or touch the ORM — call a service function in `utils.py` instead. |
@@ -55,6 +55,39 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 - Do **not** commit `.streamlit/secrets.toml`.
 
 ## Behavior worth knowing before you change things
+- **Register is the landing page, not Home.** The bare app URL resolves to
+  `config.LANDING_PAGE` ("Register") — that URL is the link the organiser sends out. A
+  successful submit calls `_finish_registration()`, which flips `st.session_state["page"]` to
+  Home and sets `just_registered`; Home then leads with
+  `_render_registration_confirmation()`. There is no success screen on the Register page any
+  more. E2E tests must pass an explicit page to `goto()` if they want Home.
+- **Ticket prices are tiered by booking size.** Never use `config.ticket_price_dollars()` to
+  quote or total anything — that's the *base* (1-ticket) price. Use
+  `ticket_price_cents_for()` / `booking_total_cents()` / `booking_savings_cents()`, which
+  apply `config.GROUP_DISCOUNT_TIERS` ($1 off at 11+, $2 off at 22+). Tiers are discounts off
+  the base, so they track `TICKET_PRICE_CENTS`. `config.MAX_TICKETS_PER_REGISTRATION` (30)
+  must stay ≥ the largest tier minimum (22) or that tier can't be bought;
+  `test_top_discount_tier_is_actually_bookable` enforces it. Money is computed in **integer
+  cents** — `get_stats()["revenue"]` sums per-booking via `_expected_revenue_cents()` rather
+  than `tickets × base_price`, which would over-report every group.
+- **`config.PHOTOS` / `config.SPONSORS` are hand-edited content**, so `utils` treats them as
+  untrusted: `resolve_image_src()` is an allowlist (https / `data:image/` / local file only,
+  any other scheme dropped), local files are inlined as data URIs relative to the *project
+  dir* not the cwd, and unresolvable entries are skipped rather than rendered. Keep it that
+  way — these values go straight into `src`/`href` attributes. Sponsor **ordering** is a
+  config question (`config.SPONSOR_TIERS`) resolved in `utils.sponsor_list()`;
+  `theme.sponsor_wall()` just walks that order and starts a new heading when the tier
+  changes, so grouping can't disagree with the sort.
+- **Everything in `assets/` is currently a generated PLACEHOLDER** (stamped
+  "PLACEHOLDER"/"SAMPLE LOGO", with deliberately generic sponsor names). It ships on a public
+  page, so if you add more stand-ins keep them unmistakably fake — never invent a plausible
+  company name a guest could take for a real backer. See `assets/README.md`.
+- **Guest-name storage is derived, not fixed.** `utils.GUEST_NAMES_MAX_CHARS`
+  (= `MAX_GUEST_NAMES × (MAX_NAME_LENGTH + 1)`) sizes three things that must agree: the
+  `plus_one_name` columns, the `ALTER … TYPE VARCHAR(n)` in `init_db()`, and the Register
+  form's `max_chars`. Never hardcode a width there — a fixed 1000 silently truncated the tail
+  of a large booking's guest list when the ticket cap was raised, losing real people off the
+  door list with no error.
 - **Check-in is gated by an event-time window.** `utils.check_in_by_code()` refuses outside it
   and returns `status="not_open"`. Mode is persisted in the `app_settings` table
   (`checkin_mode` = `auto` | `open` | `closed`, default `auto`). Tests must call
