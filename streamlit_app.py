@@ -249,6 +249,10 @@ def page_home():
     # is disabled (see theme.tickets_remaining).
     st.markdown(theme.tickets_remaining(_cached_availability()), unsafe_allow_html=True)
 
+    # ── The flyer ───────────────────────────────────────────────────────────
+    # Renders nothing until the artwork exists at config.EVENT_FLYER.
+    st.markdown(theme.flyer_card(utils.event_flyer_src()), unsafe_allow_html=True)
+
     # ── Photos & sponsors ───────────────────────────────────────────────────
     # Ahead of Party Buzz on purpose: a guest arriving here straight off the
     # registration form came to see the party, not the analytics.
@@ -280,7 +284,7 @@ def page_home():
             theme.stat_tiles(
                 [
                     {"label": "Unique Visitors", "value": site_stats["unique_visitors"], "caption": "All time", "icon": "👀", "accent": "info"},
-                    {"label": "Page Views", "value": site_stats["total_visits"], "caption": "All time", "icon": "📈", "accent": "cyan"},
+                    {"label": "Page Views", "value": site_stats["total_visits"], "caption": "All time", "icon": "📈", "accent": "turquoise"},
                     {"label": "Registered Guests", "value": site_stats["total_regs"], "caption": f"+{site_stats['today_regs']} today", "icon": "📝", "accent": "gold"},
                     {"label": "Visitors Today", "value": site_stats["today_unique"], "caption": f"{site_stats['today_visits']} views", "icon": "🔥", "accent": "warn"},
                 ]
@@ -504,6 +508,18 @@ def page_register():
     # complete on arrival told a first-time visitor they had missed
     # something.
     st.markdown(theme.stepper(1), unsafe_allow_html=True)
+    # Date, venue, and the dress theme, restated here because Register is the
+    # landing page — a guest arriving from the flyer may never see Home's hero.
+    st.markdown(theme.event_strip(), unsafe_allow_html=True)
+
+    # The flyer, collapsed. Register is a form a guest is trying to get
+    # through, so a tall poster must not sit between them and it — but the
+    # flyer is where most of them came from, so it stays one tap away.
+    flyer_src = utils.event_flyer_src()
+    if flyer_src:
+        with st.expander("📜 See the party flyer", expanded=False):
+            st.markdown(theme.flyer_card(flyer_src), unsafe_allow_html=True)
+
     st.markdown(theme.tickets_remaining(availability), unsafe_allow_html=True)
 
     # ── Zelle Payment Info Card ────────────────────────────────────────────
@@ -1580,12 +1596,12 @@ def _admin_overview_tab():
                     {"label": "Total Guests", "value": stats["total_guests"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
                     {"label": "Checked In", "value": stats["checked_in"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
                     {"label": "Pending", "value": stats["pending"], "icon": "⏳", "accent": "warn"},
-                    {"label": "Bands Given", "value": stats["bands_distributed"], "icon": "🏷️", "accent": "cyan"},
+                    {"label": "Bands Given", "value": stats["bands_distributed"], "icon": "🏷️", "accent": "turquoise"},
                     {"label": "Total Tickets", "value": stats["total_tickets"], "icon": "🎫"},
                     {"label": "Admitted Tickets", "value": stats["admitted_tickets"], "icon": "🚪", "accent": "info"},
                     {"label": "Revenue (est.)", "value": f"${stats['revenue']:,.2f}", "icon": "💰", "accent": "gold"},
-                    {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "violet"},
-                    {"label": "Named Guests", "value": stats["named_guests"], "icon": "👥", "accent": "violet"},
+                    {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "rust"},
+                    {"label": "Named Guests", "value": stats["named_guests"], "icon": "👥", "accent": "rust"},
                     {"label": "Unnamed Tickets", "value": stats["unnamed_tickets"], "icon": "❓", "accent": "warn"},
                 ]
             ),

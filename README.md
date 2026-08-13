@@ -4,11 +4,11 @@ Event registration and check-in for **Dallas Boys Party 2026**, built with **Str
 
 - **Event:** Friday, October 9, 2026 · 5:30 PM onwards
 - **Venue:** Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
-- **Theme:** 12th Year of Togetherness
+- **Theme:** 12th Year of Togetherness · dress theme **Texas Cowboys**
 - **Live app:** https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/
 - **Repo:** `aladin-genie/party-checkin` (branch `main`)
 - **Database:** Supabase PostgreSQL
-- **Payment:** Zelle → `dallashudugaru@gmail.com` · $30 / $29 / $28 per ticket by group size · 225 tickets total
+- **Payment:** Zelle → `dallashudugaru@gmail.com` · $30 per ticket, $29 for 10+, $28 for 20+ · 225 tickets total
 
 ---
 
@@ -50,7 +50,7 @@ The code is layered so that business logic is testable without a browser:
 | **Zelle Payments** | Guests pay via Zelle, then submit their transaction reference |
 | **Auto QR Email** | QR code is emailed after registration, on a background thread so the guest isn't held up by the SMTP round-trip |
 | **Bulk registration** | One person can buy up to 50 tickets and list every guest's name |
-| **Group discounts** | Per-ticket price drops for bigger bookings — $30, $29 from 11 tickets, $28 from 22 |
+| **Group discounts** | Per-ticket price drops for bigger bookings — $30, $29 from 10 tickets, $28 from 20 |
 | **My QR lookup** | Guests re-find their QR code by email **or phone number**, or via the link in their email |
 | **Self Check-In** | Camera scan, or search by phone / email / ticket ID — always confirmed against the guest's details before anyone is checked in |
 | **Check-in window** | Check-in stays locked until 2 hours before the party, with an admin override |
@@ -61,6 +61,36 @@ The code is layered so that business logic is testable without a browser:
 | **CSV Export** | Download the guest list anytime (formula-injection safe) |
 | **Submission audit log** | Every form submit — successful or not — is recorded |
 | **Photos & sponsors** | Home page photo gallery and tiered sponsor wall, filled in from `config.py` |
+
+### Look & feel: Texas Cowboys
+
+The whole app is themed to match the printed flyer — worn leather ground, brass rope edges,
+saddle-stitched borders, branding-iron rust and belt-buckle turquoise accents. Guests arrive
+from the flyer, so the page they land on looks like it.
+
+| Piece | Where |
+|---|---|
+| Palette (`--leather`, `--tan`, `--gold`, `--rust`, `--turquoise`) | `theme.py` `:root` tokens |
+| Display face **Rye** (western) | Hero title + brand bar only — decorative, so it's used sparingly |
+| Heading face **Bitter** (slab serif) | All `h1/h2/h3`, buttons, tier labels |
+| Body face **Inter** | Everything else — this is a form filled in on a phone |
+
+The dark ground is deliberate and is *not* the flyer's cream paper: this gets read on phones,
+at night, in a ballroom. Contrast for the primary buttons stays dark-on-brass for the same
+reason.
+
+`config.EVENT_THEME` / `EVENT_THEME_NOTE` drive the "Texas Cowboys Theme" badge on the hero and
+the Register page's event strip — the dress code is the one thing on that banner a guest has to
+*act* on before Oct 9, so it isn't buried in the badge row. `config.EVENT_TAGLINE_LOCAL` carries
+the Kannada line from the flyer (ನಮ್ಮ ಹುಡುಗರು, ನಮ್ಮ ಪಾರ್ಟಿ). Both are optional — blank them and
+the hero degrades cleanly.
+
+### The event flyer
+
+`config.EVENT_FLYER` points at `assets/flyer.png`, which **does not exist yet**. Drop the flyer
+artwork there and it appears on its own: full-width on Home, and behind a collapsed
+"📜 See the party flyer" expander on Register (collapsed so a tall poster never sits between a
+guest and the form they're trying to submit). Until then both call sites render nothing.
 
 ### The registration link is the front door
 
@@ -80,9 +110,14 @@ tier is decided by the ticket count on that single booking:
 
 | Tickets on one booking | Price each | Total |
 |---|---|---|
-| 1–10 | $30.00 | e.g. 10 → $300.00 |
-| 11–21 | $29.00 | e.g. 11 → $319.00 |
-| 22–50 | $28.00 | e.g. 22 → $616.00 |
+| 1–9 | $30.00 | e.g. 9 → $270.00 |
+| 10–19 | $29.00 | e.g. 10 → $290.00 |
+| 20–50 | $28.00 | e.g. 20 → $560.00 |
+
+These are exactly what the printed flyer advertises — *"Ticket price: $30 · Group Discount: $29
+for 10+, $28 for 20+"*. **The boundaries are inclusive of the advertised number**: a booking of
+exactly 10 pays $29, exactly 20 pays $28. Guests price their group off that flyer, so the app
+has to agree with it at the boundary or somebody Zelles the wrong amount.
 
 The Register page shows the whole table above the ticket selector (with the guest's current
 row highlighted), the exact total under it, how much the discount saved, and a hint when the
@@ -94,7 +129,7 @@ that raising the base price moves every tier with it instead of silently turning
 into a surcharge. `config.price_tiers()` derives the displayed table from the same constant
 the pricing functions use, so the form can't quote a price the app won't charge.
 
-> **`MAX_TICKETS_PER_REGISTRATION` (50) must stay ≥ the largest tier minimum (22)**, or that
+> **`MAX_TICKETS_PER_REGISTRATION` (50) must stay ≥ the largest tier minimum (20)**, or that
 > tier is advertised but unbuyable — there's a test that fails if it slips. Because
 > `utils.MAX_GUEST_NAMES` is derived from it, a 50-ticket booking must name its other 49
 > guests; the name-count rule below applies at every size. `utils.GUEST_NAMES_MAX_CHARS` —
@@ -416,18 +451,18 @@ FROM guests WHERE NOT checked_in ORDER BY name;
 -- size -- SUM(ticket_count) * 30 would over-report every group.
 SELECT COUNT(*) AS guests,
        SUM(ticket_count) AS tickets,
-       SUM(ticket_count * CASE WHEN ticket_count >= 22 THEN 28
-                               WHEN ticket_count >= 11 THEN 29
+       SUM(ticket_count * CASE WHEN ticket_count >= 20 THEN 28
+                               WHEN ticket_count >= 10 THEN 29
                                ELSE 30 END) AS expected_dollars
 FROM guests;
 
 -- What each booking should have paid, biggest first
 SELECT name, email, ticket_count,
-       CASE WHEN ticket_count >= 22 THEN 28
-            WHEN ticket_count >= 11 THEN 29
+       CASE WHEN ticket_count >= 20 THEN 28
+            WHEN ticket_count >= 10 THEN 29
             ELSE 30 END AS price_each,
-       ticket_count * CASE WHEN ticket_count >= 22 THEN 28
-                           WHEN ticket_count >= 11 THEN 29
+       ticket_count * CASE WHEN ticket_count >= 20 THEN 28
+                           WHEN ticket_count >= 10 THEN 29
                            ELSE 30 END AS total_owed,
        zelle_ref
 FROM guests ORDER BY ticket_count DESC, name;
