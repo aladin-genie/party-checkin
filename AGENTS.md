@@ -18,7 +18,6 @@ DATABASE_URL = "sqlite:///local_e2e.db"
 MAIL_USERNAME = ""
 MAIL_PASSWORD = ""
 ADMIN_PASSWORD = "testadmin123"
-TICKET_PRICE_CENTS = "3000"
 ZELLE_INFO = "test-zelle@example.com"
 EOF
 cd /tmp/pc-sandbox && python -m streamlit run /path/to/party-checkin/streamlit_app.py --server.port 8599
@@ -34,7 +33,7 @@ The `tests/e2e` suite does exactly this automatically.
 - **Python version:** 3.12 (set in Streamlit Cloud → Advanced settings)
 
 ## Required Streamlit Cloud Secrets
-`DATABASE_URL` (Supabase **Pooler** URL), `ADMIN_PASSWORD`, `TICKET_PRICE_CENTS`, `MAX_TOTAL_TICKETS`, `ZELLE_INFO`,
+`DATABASE_URL` (Supabase **Pooler** URL), `ADMIN_PASSWORD`, `MAX_TOTAL_TICKETS`, `ZELLE_INFO`,
 `SECRET_KEY`, `APP_URL`, and the mail block (`MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`,
 `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER`).
 
@@ -129,6 +128,11 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 - `checkin_time` can be NULL while `checked_in` is true. Never call `.strftime()` on it
   directly — use `utils.format_dt()`.
 - Python 3.14 cannot import `altair`, so `st.bar_chart` breaks there. Develop on 3.12.
+- The ticket price is `config.TICKET_PRICE_CENTS`, a **constant, not a secret**. `get_secret()`
+  gives `st.secrets` precedence over code defaults, so a stale `TICKET_PRICE_CENTS` left in the
+  Streamlit Cloud dashboard used to silently override a shipped price change — the $20 → $30
+  rise deployed fine and the live site kept charging $20. Change the price in `config.py` and
+  redeploy. Delete `TICKET_PRICE_CENTS` from Cloud secrets if it is still there; it is ignored.
 - Streamlit is pinned to 1.40.0. `st.pills`, `st.segmented_control`, `st.badge`, and
   `st.metric(border=...)` do **not** exist in it.
 

@@ -92,11 +92,26 @@ class TestConfig(unittest.TestCase):
 
     # ── ticket_price_dollars ─────────────────────────────────────────────
 
-    def test_ticket_price_dollars_from_secret(self):
+    def test_ticket_price_ignores_a_stale_secret(self):
+        """The price is a code constant, NOT a secret.
+
+        A leftover TICKET_PRICE_CENTS in the Streamlit Cloud dashboard used
+        to win over the shipped price, so a deployed price change silently
+        did nothing. Guarding it here because the failure is invisible: the
+        app works perfectly and just charges the wrong amount.
+        """
         mock_st = MagicMock()
-        mock_st.secrets = {"TICKET_PRICE_CENTS": "2500"}
+        mock_st.secrets = {"TICKET_PRICE_CENTS": "2000"}
         with patch.object(config, "st", mock_st):
-            self.assertEqual(config.ticket_price_dollars(), 25.0)
+            self.assertEqual(config.ticket_price_dollars(), 30.0)
+            self.assertEqual(config.ticket_price_cents(), 3000)
+
+    def test_ticket_price_ignores_a_stale_env_var(self):
+        os.environ["TICKET_PRICE_CENTS"] = "2000"
+        mock_st = MagicMock()
+        mock_st.secrets = {}
+        with patch.object(config, "st", mock_st):
+            self.assertEqual(config.ticket_price_dollars(), 30.0)
 
     def test_ticket_price_dollars_default(self):
         mock_st = MagicMock()

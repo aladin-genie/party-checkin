@@ -244,8 +244,6 @@ MAIL_PASSWORD = "your-gmail-app-password"   # NOT your normal Gmail password
 MAIL_DEFAULT_SENDER = "your-sender@gmail.com"
 
 ADMIN_PASSWORD = "choose-a-strong-password"
-TICKET_PRICE_CENTS = "3000"                  # 3000 = $30.00 — the BASE price;
-                                             # group discounts come off this
 MAX_TOTAL_TICKETS = "225"                    # hard ticket cap; "0" disables it
 ZELLE_INFO = "dallashudugaru@gmail.com"
 APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"

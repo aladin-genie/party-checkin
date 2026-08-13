@@ -43,7 +43,6 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 # expected totals) without ever touching the real project secrets.
 ADMIN_PASSWORD = "e2e-sandbox-admin-pw-9f3a1c"
 ZELLE_INFO_TEST = "test-zelle@example.com"
-TICKET_PRICE_CENTS = "3000"
 
 
 def pytest_configure(config):
@@ -99,7 +98,6 @@ def sandbox_dir(tmp_path_factory):
 MAIL_USERNAME = ""
 MAIL_PASSWORD = ""
 ADMIN_PASSWORD = "{ADMIN_PASSWORD}"
-TICKET_PRICE_CENTS = "{TICKET_PRICE_CENTS}"
 ZELLE_INFO = "{ZELLE_INFO_TEST}"
 '''
     (st_dir / "secrets.toml").write_text(secrets)

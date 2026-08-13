@@ -133,6 +133,21 @@ SPONSORS = [
 ]
 
 
+# Ticket price in cents. Deliberately a plain constant rather than a secret,
+# like EVENT_DATE and VENUE_NAME above: the price is an event detail, not a
+# deployment credential.
+#
+# It used to read a TICKET_PRICE_CENTS secret. That is a trap, because
+# get_secret() gives st.secrets precedence over the code default — so a stale
+# value left in the Streamlit Cloud dashboard silently overrides whatever
+# price is shipped in code. The $20 -> $30 rise deployed correctly and the
+# live site kept charging $20, with nothing in the repo to explain why.
+# Changing the price is now a one-line edit here plus a redeploy, and what
+# the code says is what guests are charged. GROUP_DISCOUNT_TIERS below are
+# discounts *off* this number, so moving it moves every tier with it.
+TICKET_PRICE_CENTS = 3000
+
+
 def ticket_price_cents() -> int:
     """Return the base (individual) ticket price in cents.
 
@@ -140,7 +155,7 @@ def ticket_price_cents() -> int:
     ticket — see ticket_price_cents_for(), which is what the Register page
     and every total actually use.
     """
-    return get_secret_int("TICKET_PRICE_CENTS", 3000)
+    return TICKET_PRICE_CENTS
 
 
 def ticket_price_dollars() -> float:
