@@ -2273,10 +2273,40 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertIn("&amp;b=2", html_out)
         self.assertNotIn('alt="Ev"il"', html_out)
 
-    def test_event_flyer_src_is_empty_until_the_artwork_is_added(self):
-        """Absent by design — asserting it so that dropping the real flyer
-        in (which flips this) is a deliberate, visible change."""
-        self.assertEqual(utils.event_flyer_src(), "")
+    def test_event_flyer_resolves_to_a_real_image(self):
+        """The flyer is what most guests arrive from, so a broken path here
+        is a broken first impression. resolve_image_src() fails silently by
+        design, so the only way a typo surfaces is a test like this."""
+        src = utils.event_flyer_src()
+        self.assertTrue(src.startswith("data:image/"), "config.EVENT_FLYER did not resolve")
+
+    def test_inlined_images_stay_within_a_sane_page_weight(self):
+        """Every local image is base64'd into the page HTML and re-sent on
+        EVERY Streamlit rerun — there is no browser cache to save us. A
+        full-size camera JPEG dropped in here would quietly make the whole
+        app feel broken on phone data, with nothing in the UI to explain it.
+
+        Budget is generous (well under the per-file MAX_INLINE_IMAGE_BYTES
+        limit x the number of images) but finite: it fails loudly the moment
+        someone commits an unresized photo.
+        """
+        budget_bytes = 4 * 1024 * 1024
+        payload = len(utils.event_flyer_src())
+        payload += sum(len(p["src"]) for p in utils.gallery_photos())
+        payload += sum(len(s["logo"]) for s in utils.sponsor_list() if s["logo"])
+        self.assertLess(
+            payload, budget_bytes,
+            f"inlined Home-page images total {payload / 1024 / 1024:.1f}MB of base64 — "
+            "resize the originals (see assets/README.md)",
+        )
+
+    def test_every_configured_photo_resolves(self):
+        """Same reason as the flyer: a mistyped path drops the photo
+        silently, so the gallery shrinks with no error anywhere."""
+        self.assertEqual(
+            len(gallery_photos()), len(config.PHOTOS),
+            "a configured photo failed to resolve — check the path and extension",
+        )
 
     def test_event_flyer_src_uses_the_same_allowlist_as_every_other_image(self):
         with patch.object(config, "EVENT_FLYER", "javascript:alert(1)"):

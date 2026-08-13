@@ -95,26 +95,26 @@ LANDING_PAGE = "Register"
 # than rendered as a broken image.
 
 # The printed event flyer, shown on Home and behind an expander on Register.
-# Optional and currently ABSENT: no file sits at this path yet, and
-# utils.resolve_image_src() returns "" for anything it can't resolve, so both
-# call sites render nothing until the real artwork is dropped in. Save the
-# flyer here and it appears on its own — no code change.
-EVENT_FLYER = "assets/flyer.png"
+# Optional: utils.resolve_image_src() returns "" for anything it can't
+# resolve, so blanking this (or deleting the file) makes both call sites
+# render nothing rather than break.
+EVENT_FLYER = "assets/flyer.jpg"
 
 
-# ⚠️ EVERYTHING BELOW IS A PLACEHOLDER — swap in the real team photos and
-# sponsor logos before the link goes out. The images are generated stand-ins
-# (see assets/README.md), stamped "PLACEHOLDER"/"SAMPLE" on purpose so nobody
-# mistakes a stand-in for a real sponsor. The names are deliberately generic
-# for the same reason: never ship an invented company name that a guest could
-# take for a genuine backer.
+# The gallery. REAL photos first, then the generated stand-ins that are still
+# waiting to be replaced.
 #
-# To use the real group photo: save it as
-# assets/photos/2025-the-whole-crew.jpg and add the commented entry at the
-# end of this list. It is left commented out rather than pre-wired so that
-# test_configured_sponsor_logos_and_photos_all_resolve keeps meaning
-# something — every path listed here must point at a file that exists.
+# ⚠️ Every entry stamped "PLACEHOLDER" below is a generated stand-in (see
+# assets/README.md), and they render on a public page — so they are marked as
+# stand-ins on the image itself. Delete an entry as soon as the real photo
+# for that year exists; there is no value in keeping a fake tile next to a
+# real one.
+#
+# Order is display order, so the strongest real photo leads.
 PHOTOS = [
+    {"src": "assets/photos/2025-the-whole-crew.jpg",
+     "caption": "The whole crew, one frame — 12 years in"},
+    # ── Still placeholders, awaiting the real photos ──
     {"src": "assets/photos/2016-the-first-crew.png",
      "caption": "2016 · the crew that started it all"},
     {"src": "assets/photos/2016-team-lineup.png",
@@ -125,10 +125,6 @@ PHOTOS = [
      "caption": "2019 · the cricket team, mid-celebration"},
     {"src": "assets/photos/2022-the-kids-table.png",
      "caption": "2022 · the next generation takes over"},
-    {"src": "assets/photos/2025-twelve-years-on.png",
-     "caption": "2025 · twelve years on, same faces"},
-    # {"src": "assets/photos/2025-the-whole-crew.jpg",
-    #  "caption": "2025 · the whole crew, one frame"},
 ]
 
 # Tier display order, best first. A sponsor whose `tier` isn't listed here is
