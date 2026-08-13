@@ -5,9 +5,22 @@ Images shown on the **Home** page. Drop files in here, then list them in
 
 ```
 assets/
+  flyer.png   ← the event flyer   → config.EVENT_FLYER   (not added yet)
   photos/     ← event photos      → config.PHOTOS
   sponsors/   ← sponsor logos     → config.SPONSORS
 ```
+
+## The two images to add first
+
+These are the ones that make the biggest difference, and neither needs a code change:
+
+| Save it as | What happens |
+|---|---|
+| `assets/flyer.png` | The flyer appears full-width on Home, and behind a "📜 See the party flyer" expander on Register. Nothing renders until this file exists. |
+| `assets/photos/2025-the-whole-crew.jpg` | The group shot joins the gallery — then uncomment the last entry in `config.PHOTOS`. |
+
+Any of the supported formats works; the `.png` / `.jpg` in the paths above just have to match
+whatever you list in `config.py`.
 
 ## ⚠️ Everything in here right now is a placeholder
 

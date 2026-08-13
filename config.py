@@ -55,6 +55,16 @@ EVENT_TIME_TEXT = "5:30 PM onwards"
 EVENT_DATE_TEXT = "Friday, October 9, 2026"
 EVENT_DATE_SHORT = "Fri, Oct 9, 2026"
 
+# This year's dress-up theme, straight off the flyer. Drives the app's whole
+# look (see theme.py) as well as the badge on the hero, so guests arriving
+# from the flyer land somewhere that looks like the flyer.
+EVENT_THEME = "Texas Cowboys"
+EVENT_THEME_NOTE = "Boots, hats, and denim encouraged"
+
+# The Kannada line from the flyer: "namma hudugaru, namma party" —
+# our boys, our party. Shown under the tagline on the hero.
+EVENT_TAGLINE_LOCAL = "ನಮ್ಮ ಹುಡುಗರು, ನಮ್ಮ ಪಾರ್ಟಿ"
+
 VENUE_NAME = "Elegance Ballroom & Event Center"
 VENUE_ADDRESS = "8740 Ohio Dr A1, Plano, TX 75024"
 
@@ -84,12 +94,26 @@ LANDING_PAGE = "Register"
 # arbitrary files over HTTP. Anything it cannot resolve is dropped rather
 # than rendered as a broken image.
 
+# The printed event flyer, shown on Home and behind an expander on Register.
+# Optional and currently ABSENT: no file sits at this path yet, and
+# utils.resolve_image_src() returns "" for anything it can't resolve, so both
+# call sites render nothing until the real artwork is dropped in. Save the
+# flyer here and it appears on its own — no code change.
+EVENT_FLYER = "assets/flyer.png"
+
+
 # ⚠️ EVERYTHING BELOW IS A PLACEHOLDER — swap in the real team photos and
 # sponsor logos before the link goes out. The images are generated stand-ins
 # (see assets/README.md), stamped "PLACEHOLDER"/"SAMPLE" on purpose so nobody
 # mistakes a stand-in for a real sponsor. The names are deliberately generic
 # for the same reason: never ship an invented company name that a guest could
 # take for a genuine backer.
+#
+# To use the real group photo: save it as
+# assets/photos/2025-the-whole-crew.jpg and add the commented entry at the
+# end of this list. It is left commented out rather than pre-wired so that
+# test_configured_sponsor_logos_and_photos_all_resolve keeps meaning
+# something — every path listed here must point at a file that exists.
 PHOTOS = [
     {"src": "assets/photos/2016-the-first-crew.png",
      "caption": "2016 · the crew that started it all"},
@@ -103,6 +127,8 @@ PHOTOS = [
      "caption": "2022 · the next generation takes over"},
     {"src": "assets/photos/2025-twelve-years-on.png",
      "caption": "2025 · twelve years on, same faces"},
+    # {"src": "assets/photos/2025-the-whole-crew.jpg",
+    #  "caption": "2025 · the whole crew, one frame"},
 ]
 
 # Tier display order, best first. A sponsor whose `tier` isn't listed here is
@@ -167,23 +193,29 @@ def ticket_price_dollars() -> float:
 # A bigger booking pays less per ticket. Each tier is
 # (minimum tickets in ONE registration, discount per ticket in cents), and a
 # booking is charged at the last tier whose minimum it reaches. At the
-# default $30.00 base that gives exactly:
+# $30.00 base that gives exactly what the event flyer advertises —
+# "Ticket price: $30 · Group Discount: $29 for 10+, $28 for 20+":
 #
-#     1–10 tickets   →  $30.00 each
-#     11–21 tickets  →  $29.00 each
-#     22+ tickets    →  $28.00 each
+#     1–9 tickets    →  $30.00 each
+#     10–19 tickets  →  $29.00 each
+#     20+ tickets    →  $28.00 each
+#
+# Note the boundaries are INCLUSIVE of the advertised number: the flyer says
+# "$29 for 10+", so a booking of exactly 10 pays $29, and exactly 20 pays $28.
+# Guests price their group off that flyer, so the app has to agree with it at
+# the boundary or someone Zelles the wrong amount.
 #
 # Stored as money OFF the base rather than as absolute prices so that raising
 # TICKET_PRICE_CENTS moves every tier with it — otherwise a price rise would
 # silently turn the "discounts" into surcharges.
 #
-# The discount is per registration, not per person across registrations: 22
-# tickets bought in one booking get the 22+ rate; two separate bookings of 11
-# each get the 11+ rate each. That is the only rule the app can actually
+# The discount is per registration, not per person across registrations: 20
+# tickets bought in one booking get the 20+ rate; two separate bookings of 10
+# each get the 10+ rate each. That is the only rule the app can actually
 # enforce, since separate registrations are separate people paying separately.
 GROUP_DISCOUNT_TIERS = (
-    (11, 100),   # 11+ tickets: $1.00 off each
-    (22, 200),   # 22+ tickets: $2.00 off each
+    (10, 100),   # 10+ tickets: $1.00 off each
+    (20, 200),   # 20+ tickets: $2.00 off each
 )
 
 

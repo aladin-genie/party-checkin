@@ -63,9 +63,10 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 - **Ticket prices are tiered by booking size.** Never use `config.ticket_price_dollars()` to
   quote or total anything — that's the *base* (1-ticket) price. Use
   `ticket_price_cents_for()` / `booking_total_cents()` / `booking_savings_cents()`, which
-  apply `config.GROUP_DISCOUNT_TIERS` ($1 off at 11+, $2 off at 22+). Tiers are discounts off
-  the base, so they track `TICKET_PRICE_CENTS`. `config.MAX_TICKETS_PER_REGISTRATION` (30)
-  must stay ≥ the largest tier minimum (22) or that tier can't be bought;
+  apply `config.GROUP_DISCOUNT_TIERS` ($1 off at 10+, $2 off at 20+ — these mirror the printed
+  flyer, and the boundaries are INCLUSIVE, so exactly 10 tickets pays $29). Tiers are discounts
+  off the base, so they track `TICKET_PRICE_CENTS`. `config.MAX_TICKETS_PER_REGISTRATION` (50)
+  must stay ≥ the largest tier minimum (20) or that tier can't be bought;
   `test_top_discount_tier_is_actually_bookable` enforces it. Money is computed in **integer
   cents** — `get_stats()["revenue"]` sums per-booking via `_expected_revenue_cents()` rather
   than `tickets × base_price`, which would over-report every group.
@@ -77,6 +78,17 @@ locks everyone out of the admin dashboard rather than letting everyone in.
   config question (`config.SPONSOR_TIERS`) resolved in `utils.sponsor_list()`;
   `theme.sponsor_wall()` just walks that order and starts a new heading when the tier
   changes, so grouping can't disagree with the sort.
+- **The app is themed "Texas Cowboys" to match the printed flyer.** Palette tokens live in
+  `theme.py` `:root` (`--leather`, `--tan`, `--gold`, `--rust`, `--turquoise`); the two accent
+  tokens were renamed from `--violet`/`--cyan`, and `theme._STAT_ACCENTS` must stay in step with
+  them or `stat_tiles()` silently drops the accent and the tile renders grey
+  (`test_stat_accents_match_the_themed_tokens` catches it). Rye is display-only (hero + brand
+  bar), Bitter carries headings, Inter carries body — don't put Rye on body copy, it has no
+  bold weight and is barely legible at small sizes. The ground stays DARK despite the flyer's
+  cream paper: this is read on phones in a dim ballroom.
+- **`config.EVENT_FLYER` names a file that does not exist yet.** That's deliberate —
+  `utils.event_flyer_src()` returns "" and both call sites render nothing until the artwork is
+  dropped in. Don't "fix" it by pointing it at a placeholder.
 - **Everything in `assets/` is currently a generated PLACEHOLDER** (stamped
   "PLACEHOLDER"/"SAMPLE LOGO", with deliberately generic sponsor names). It ships on a public
   page, so if you add more stand-ins keep them unmistakably fake — never invent a plausible

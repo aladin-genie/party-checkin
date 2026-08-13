@@ -1628,6 +1628,16 @@ def resolve_image_src(src: str) -> str:
     return _asset_data_uri(src)
 
 
+def event_flyer_src() -> str:
+    """The event flyer image, ready for an <img src>, or "" if there isn't one.
+
+    Optional by design: config.EVENT_FLYER names a path that may not exist
+    yet, and every caller renders nothing for "". Dropping the artwork in at
+    that path is the whole install step.
+    """
+    return resolve_image_src(getattr(config, "EVENT_FLYER", "") or "")
+
+
 def gallery_photos() -> list:
     """config.PHOTOS, normalized and filtered down to photos that can render.
 

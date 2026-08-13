@@ -29,33 +29,47 @@ CHART_COLOR = "#D4AF37"
 
 _CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+/* Rye is the western display face — decorative, so it is used ONLY for the
+   two brand moments (hero title, brand bar). Bitter, a slab serif, carries
+   the headings: it reads as period-western without costing legibility. Body
+   copy stays Inter, because guests fill this form in on a phone. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Bitter:wght@600;700;800&family=Rye&display=swap');
 
 :root {
-    /* Color tokens */
-    --gold: #D4AF37;
+    /* ── Colour tokens: Texas Cowboys ──────────────────────────────────
+       Sampled from the event flyer — worn leather, saddle tan, brass rope,
+       branding-iron rust, and the turquoise that always turns up on a
+       western silver belt buckle. The palette stays DARK rather than
+       matching the flyer's cream paper: this is read on phones, at night,
+       in a ballroom, and a bright page in that room is a page nobody
+       reads. */
+    --gold: #D4AF37;           /* brass / rope */
     --gold-rgb: 212, 175, 55;
-    --gold-soft: #F4E4BC;
-    --gold-soft-rgb: 244, 228, 188;
-    --gold-dark: #B8860B;
-    --violet: #8A2BE2;
-    --violet-rgb: 138, 43, 226;
-    --cyan: #00C9FF;
-    --cyan-rgb: 0, 201, 255;
+    --gold-soft: #F0DCB4;      /* parchment */
+    --gold-soft-rgb: 240, 220, 180;
+    --gold-dark: #A9762A;
+    --leather: #8B5A2B;
+    --leather-rgb: 139, 90, 43;
+    --tan: #C08552;
+    --tan-rgb: 192, 133, 82;
+    --rust: #B3421E;           /* branding iron */
+    --rust-rgb: 179, 66, 30;
+    --turquoise: #3FA9A0;      /* belt-buckle turquoise */
+    --turquoise-rgb: 63, 169, 160;
     --mint: #92FE9D;
 
-    --ink: #0a0a0a;
-    --surface: #141414;
-    --surface-2: #1a0a1a;
-    --elevated: rgba(255, 255, 255, 0.04);
-    --elevated-strong: rgba(255, 255, 255, 0.08);
-    --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.15);
+    --ink: #140F0A;            /* dark tooled leather */
+    --surface: #241811;
+    --surface-2: #2E1C10;
+    --elevated: rgba(240, 220, 180, 0.05);
+    --elevated-strong: rgba(240, 220, 180, 0.10);
+    --border: rgba(240, 220, 180, 0.12);
+    --border-strong: rgba(240, 220, 180, 0.22);
 
-    --text: #F5F5F5;
-    --text-rgb: 245, 245, 245;
-    --text-dim: rgba(245, 245, 245, 0.65);
-    --text-dimmer: rgba(245, 245, 245, 0.45);
+    --text: #F7EEE0;           /* warm cream, not white */
+    --text-rgb: 247, 238, 224;
+    --text-dim: rgba(247, 238, 224, 0.68);
+    --text-dimmer: rgba(247, 238, 224, 0.48);
 
     --ok: #22C55E;
     --ok-rgb: 34, 197, 94;
@@ -106,13 +120,23 @@ html, body, [class*="css"] {
     font-family: 'Inter', sans-serif !important;
 }
 
+/* Tooled-leather ground: a warm gradient, plus two very faint radial pools
+   that suggest lamplight on hide without ever competing with the text on
+   top of it. Pure CSS — no image request, nothing extra to load on a phone
+   tethered to ballroom wifi. */
 .stApp {
-    background: linear-gradient(135deg, var(--ink) 0%, var(--surface) 50%, var(--surface-2) 100%) !important;
+    background:
+        radial-gradient(900px 500px at 12% -8%, rgba(var(--leather-rgb), 0.30) 0%, transparent 60%),
+        radial-gradient(800px 500px at 88% 6%, rgba(var(--rust-rgb), 0.18) 0%, transparent 62%),
+        linear-gradient(135deg, var(--ink) 0%, var(--surface) 55%, var(--surface-2) 100%) !important;
+    background-attachment: fixed !important;
 }
 
 h1, h2, h3 {
     color: var(--text) !important;
+    font-family: 'Bitter', Georgia, serif !important;
     font-weight: 700 !important;
+    letter-spacing: 0.2px;
 }
 /* Page titles come from st.title("<emoji> Text") — a single text node mixing
    a color-emoji glyph with plain text. Gradient text via background-clip:text
@@ -163,7 +187,7 @@ img, pre, code {
 
 /* ── Focus rings — keyboard accessibility ─────────────────────────────── */
 :focus-visible {
-    outline: 3px solid var(--cyan) !important;
+    outline: 3px solid var(--turquoise) !important;
     outline-offset: 2px !important;
     border-radius: 6px !important;
 }
@@ -176,7 +200,7 @@ select:focus-visible,
 [role="radio"]:focus-visible,
 [role="checkbox"]:focus-visible,
 [tabindex]:focus-visible {
-    outline: 3px solid var(--cyan) !important;
+    outline: 3px solid var(--turquoise) !important;
     outline-offset: 2px !important;
 }
 
@@ -203,21 +227,28 @@ select:focus-visible,
    and the sidebar collapse/expand toggle (data-testid="stBaseButton-headerNoPadding") —
    both are plain <button> elements that would otherwise pick up this gold treatment
    too. They get their own dedicated styling further down. */
+/* Branded brass: the gold gradient stays because dark-on-gold is the highest
+   contrast pairing available here and these are the buttons a guest has to
+   find on a phone in a dim ballroom. The western read comes from the slab
+   face and the darker tooled edge, not from dropping the contrast. */
 button:not([role="tab"]):not([data-testid="stBaseButton-headerNoPadding"]),
 .stButton > button {
     min-height: 48px !important;
+    font-family: 'Bitter', Georgia, serif !important;
     font-size: 1.05rem !important;
     font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
     border-radius: var(--radius-md) !important;
-    background: linear-gradient(90deg, var(--gold) 0%, var(--gold-dark) 100%) !important;
-    color: var(--ink) !important;
-    border: none !important;
+    background: linear-gradient(180deg, var(--gold) 0%, var(--gold-dark) 100%) !important;
+    color: #2A1A08 !important;
+    border: 1px solid rgba(90, 55, 15, 0.55) !important;
     box-shadow: var(--shadow-gold) !important;
 }
+/* Secondary buttons are worn leather rather than grey glass. */
 button[kind="secondary"], .stButton > button[kind="secondary"] {
-    background: var(--elevated-strong) !important;
-    color: var(--text) !important;
-    border: 1px solid var(--border-strong) !important;
+    background: linear-gradient(180deg, rgba(var(--leather-rgb), 0.45) 0%, rgba(var(--leather-rgb), 0.22) 100%) !important;
+    color: var(--gold-soft) !important;
+    border: 1px solid rgba(var(--tan-rgb), 0.45) !important;
     box-shadow: none !important;
 }
 /* Disabled buttons (e.g. the Danger Zone delete button before the RESET
@@ -249,11 +280,11 @@ input::placeholder, .stTextInput > div > div > input::placeholder {
     color: var(--text-dimmer) !important;
 }
 
-/* ── Cards / containers: glassmorphism ────────────────────────────────── */
+/* ── Cards / containers: tooled leather ───────────────────────────────── */
 div[data-testid="stContainer"] {
     border-radius: var(--radius-lg) !important;
-    background: var(--elevated) !important;
-    border: 1px solid var(--border) !important;
+    background: linear-gradient(180deg, rgba(var(--leather-rgb), 0.16) 0%, var(--elevated) 100%) !important;
+    border: 1px solid rgba(var(--tan-rgb), 0.22) !important;
     box-shadow: var(--shadow-md) !important;
 }
 
@@ -268,14 +299,18 @@ div[data-testid="stContainer"] {
     gap: var(--space-3);
     padding: 10px var(--space-4);
     margin: 0 0 var(--space-5) 0;
-    background: rgba(10, 10, 10, 0.92);
+    background: rgba(20, 15, 10, 0.94);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--border);
+    border: 1px solid rgba(var(--tan-rgb), 0.30);
+    /* Brass rail along the bottom edge — the saloon-sign detail that makes
+       the sticky bar read as part of the theme rather than browser chrome. */
+    border-bottom: 2px solid rgba(var(--gold-rgb), 0.55);
     border-radius: var(--radius-md);
 }
 .brand-bar-title {
-    font-weight: 800;
+    font-family: 'Rye', 'Bitter', Georgia, serif;
+    font-weight: 400;
     font-size: 0.95rem;
     color: var(--gold-soft);
     display: flex;
@@ -322,14 +357,17 @@ div[data-testid="stContainer"] {
 }
 
 /* ── Pills / badges ────────────────────────────────────────────────────── */
+/* Leather luggage tags: warm fill, tan edge, and a dashed inner rule that
+   reads as saddle stitching. */
 .pill, .badge {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(var(--gold-rgb), 0.5);
+    background: linear-gradient(180deg, rgba(var(--leather-rgb), 0.35) 0%, rgba(0, 0, 0, 0.45) 100%);
+    border: 1px solid rgba(var(--tan-rgb), 0.55);
     border-radius: var(--radius-pill);
-    padding: 6px 14px;
+    padding: 7px 15px;
     margin: 4px 4px 0 0;
     color: var(--text);
     font-size: 0.85rem;
@@ -337,40 +375,107 @@ div[data-testid="stContainer"] {
     white-space: nowrap;
     max-width: 100%;
 }
+.pill::after, .badge::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 1px dashed rgba(var(--tan-rgb), 0.40);
+    border-radius: var(--radius-pill);
+    pointer-events: none;
+}
 .badge-wide {
     white-space: normal;
 }
 .pill-countdown {
-    border-color: rgba(var(--cyan-rgb), 0.55);
+    border-color: rgba(var(--turquoise-rgb), 0.6);
     color: var(--gold-soft);
+}
+.pill-countdown::after {
+    border-color: rgba(var(--turquoise-rgb), 0.35);
 }
 
 /* ── Hero banner ───────────────────────────────────────────────────────── */
+/* The branded hide: leather wash, brass edge, and a stitched inner border. */
 .hero-banner {
-    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.15) 0%, rgba(var(--violet-rgb), 0.12) 100%);
-    border: 1px solid rgba(var(--gold-rgb), 0.35);
+    position: relative;
+    background:
+        radial-gradient(600px 220px at 50% 0%, rgba(var(--gold-rgb), 0.16) 0%, transparent 70%),
+        linear-gradient(135deg, rgba(var(--leather-rgb), 0.38) 0%, rgba(var(--rust-rgb), 0.20) 100%);
+    border: 2px solid rgba(var(--gold-rgb), 0.45);
     border-radius: var(--radius-xl);
     padding: var(--space-6) var(--space-5);
     text-align: center;
     box-shadow: var(--shadow-gold-lg);
     margin-bottom: var(--space-5);
+    overflow: hidden;
+}
+.hero-banner::before {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px dashed rgba(var(--tan-rgb), 0.45);
+    border-radius: calc(var(--radius-xl) - 4px);
+    pointer-events: none;
 }
 .hero-title {
-    font-size: 2.2rem;
-    font-weight: 800;
-    margin: 0 0 6px 0;
-    background: linear-gradient(90deg, var(--gold) 0%, var(--gold-soft) 50%, var(--gold) 100%);
+    font-family: 'Rye', 'Bitter', Georgia, serif;
+    font-size: 2.1rem;
+    font-weight: 400;
+    margin: 0 0 10px 0;
+    background: linear-gradient(180deg, var(--gold-soft) 0%, var(--gold) 55%, var(--gold-dark) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    letter-spacing: -0.5px;
-    line-height: 1.2;
+    letter-spacing: 0.5px;
+    line-height: 1.25;
+    /* Rye has no bold weight, so the "stamped into leather" depth comes from
+       a drop-shadow filter rather than a heavier face. filter (not
+       text-shadow) because the glyphs are painted with background-clip. */
+    filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
 }
 .hero-subtitle {
+    font-family: 'Bitter', Georgia, serif;
     font-size: 1.1rem;
     color: var(--gold-soft);
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+/* The Kannada line from the flyer. Kannada has taller stacked glyphs than
+   Latin, so it gets its own line-height and falls back to the system Kannada
+   face — Rye/Bitter have no Kannada coverage at all. */
+.hero-subtitle-local {
+    font-family: 'Noto Sans Kannada', 'Tunga', 'Inter', sans-serif;
+    font-size: 1rem;
+    color: var(--tan);
     font-weight: 600;
+    line-height: 1.9;
     margin-bottom: var(--space-3);
+}
+/* "Texas Cowboys Theme" — the loudest thing after the title, because it is
+   the one instruction a guest has to act on before they arrive. */
+.hero-theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 var(--space-3) 0;
+    padding: 7px 18px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(180deg, rgba(var(--rust-rgb), 0.55) 0%, rgba(var(--rust-rgb), 0.30) 100%);
+    border: 1px solid rgba(var(--tan-rgb), 0.65);
+    color: var(--text);
+    font-family: 'Bitter', Georgia, serif;
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.hero-theme small {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--gold-soft);
+    opacity: 0.9;
 }
 .hero-badges {
     display: flex;
@@ -384,13 +489,46 @@ div[data-testid="stContainer"] {
     .hero-subtitle { font-size: 0.95rem !important; }
 }
 
+/* ── Event strip (Register page) ───────────────────────────────────────── */
+/* Wraps to as many lines as it needs on a phone rather than shrinking the
+   text — a venue address that has to be squinted at is worse than one that
+   takes two lines. */
+.event-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    padding: 10px var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    background: linear-gradient(180deg, rgba(var(--leather-rgb), 0.22) 0%, var(--elevated) 100%);
+    border: 1px solid rgba(var(--tan-rgb), 0.28);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    color: var(--text-dim);
+}
+.event-strip-venue { min-width: 0; }
+.event-strip-theme {
+    font-family: 'Bitter', Georgia, serif;
+    font-weight: 800;
+    color: var(--gold-soft);
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+}
+
 /* ── Section header ────────────────────────────────────────────────────── */
+/* A short brass rule under each heading — the stitched seam that runs
+   through the whole theme, at section scale. */
 .section-header {
     margin: var(--space-6) 0 var(--space-3) 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(var(--tan-rgb), 0.22);
 }
 .section-header h3 {
     margin: 0 !important;
     font-size: 1.2rem !important;
+    color: var(--gold-soft) !important;
 }
 .section-subtitle {
     color: var(--text-dim);
@@ -436,8 +574,8 @@ div[data-testid="stContainer"] {
 .stat-tile.accent-warn::before { background: var(--warn); }
 .stat-tile.accent-err::before { background: var(--err); }
 .stat-tile.accent-info::before { background: var(--info); }
-.stat-tile.accent-violet::before { background: var(--violet); }
-.stat-tile.accent-cyan::before { background: var(--cyan); }
+.stat-tile.accent-rust::before { background: var(--rust); }
+.stat-tile.accent-turquoise::before { background: var(--turquoise); }
 
 .stat-label {
     display: flex;
@@ -472,8 +610,8 @@ div[data-testid="stContainer"] {
 .stat-tile.accent-warn .stat-icon { background: var(--warn-bg); }
 .stat-tile.accent-err .stat-icon { background: var(--err-bg); }
 .stat-tile.accent-info .stat-icon { background: var(--info-bg); }
-.stat-tile.accent-violet .stat-icon { background: rgba(var(--violet-rgb), 0.18); }
-.stat-tile.accent-cyan .stat-icon { background: rgba(var(--cyan-rgb), 0.18); }
+.stat-tile.accent-rust .stat-icon { background: rgba(var(--rust-rgb), 0.18); }
+.stat-tile.accent-turquoise .stat-icon { background: rgba(var(--turquoise-rgb), 0.18); }
 
 .stat-value {
     font-size: 1.8rem;
@@ -490,8 +628,8 @@ div[data-testid="stContainer"] {
 .stat-tile.accent-warn .stat-value { color: var(--warn); }
 .stat-tile.accent-err .stat-value { color: var(--err); }
 .stat-tile.accent-info .stat-value { color: var(--info); }
-.stat-tile.accent-violet .stat-value { color: var(--violet); }
-.stat-tile.accent-cyan .stat-value { color: var(--cyan); }
+.stat-tile.accent-rust .stat-value { color: var(--rust); }
+.stat-tile.accent-turquoise .stat-value { color: var(--turquoise); }
 
 .stat-caption {
     font-size: 0.78rem;
@@ -526,8 +664,8 @@ div[data-testid="stContainer"] {
 .stat-tile-hero.accent-warn { background: linear-gradient(135deg, rgba(var(--warn-rgb), 0.16) 0%, var(--elevated) 100%); }
 .stat-tile-hero.accent-err { background: linear-gradient(135deg, rgba(var(--err-rgb), 0.16) 0%, var(--elevated) 100%); }
 .stat-tile-hero.accent-info { background: linear-gradient(135deg, rgba(var(--info-rgb), 0.16) 0%, var(--elevated) 100%); }
-.stat-tile-hero.accent-violet { background: linear-gradient(135deg, rgba(var(--violet-rgb), 0.16) 0%, var(--elevated) 100%); }
-.stat-tile-hero.accent-cyan { background: linear-gradient(135deg, rgba(var(--cyan-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-rust { background: linear-gradient(135deg, rgba(var(--rust-rgb), 0.16) 0%, var(--elevated) 100%); }
+.stat-tile-hero.accent-turquoise { background: linear-gradient(135deg, rgba(var(--turquoise-rgb), 0.16) 0%, var(--elevated) 100%); }
 
 @media (max-width: 380px) {
     /* Even a 2-column layout gets tight under ~380px with tile padding —
@@ -698,6 +836,38 @@ div[data-testid="stContainer"] {
     font-size: 0.92rem !important;
 }
 
+/* ── Event flyer ───────────────────────────────────────────────────────── */
+/* Framed like something pinned to a board: brass edge, stitched inner rule,
+   and a height cap so a tall portrait poster stays a glance rather than a
+   wall you have to scroll past. */
+.flyer-card {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    padding: var(--space-4);
+    margin: 0 0 var(--space-5) 0;
+    background: linear-gradient(180deg, rgba(var(--leather-rgb), 0.22) 0%, var(--elevated) 100%);
+    border: 2px solid rgba(var(--gold-rgb), 0.40);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+}
+.flyer-card::before {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px dashed rgba(var(--tan-rgb), 0.35);
+    border-radius: calc(var(--radius-lg) - 4px);
+    pointer-events: none;
+}
+.flyer-card img {
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
 /* ── Photo gallery (Home) ──────────────────────────────────────────────── */
 /* A plain responsive grid of fixed-ratio tiles. Fixed ratio matters: the
    photos are dropped in by the organiser at whatever size their phone
@@ -864,9 +1034,10 @@ a.sponsor-card:hover {
 }
 
 /* ── Payment card ──────────────────────────────────────────────────────── */
+/* Nailed to the saloon wall: heavier board, brass tack line along the top. */
 .payment-card {
-    background: linear-gradient(135deg, var(--surface) 0%, #0d0d0d 100%);
-    border: 1px solid rgba(var(--gold-rgb), 0.4);
+    background: linear-gradient(160deg, rgba(var(--leather-rgb), 0.22) 0%, var(--surface) 45%, #150E08 100%);
+    border: 2px solid rgba(var(--gold-rgb), 0.45);
     border-radius: var(--radius-xl);
     padding: var(--space-6);
     box-shadow: var(--shadow-lg);
@@ -877,7 +1048,10 @@ a.sponsor-card:hover {
     content: "";
     position: absolute;
     top: 0; left: 0; right: 0; height: 4px;
-    background: linear-gradient(90deg, var(--gold), var(--violet), var(--cyan));
+    background: linear-gradient(90deg, var(--gold), var(--rust), var(--turquoise));
+}
+.payment-title {
+    font-family: 'Bitter', Georgia, serif;
 }
 .payment-card-head {
     display: flex;
@@ -998,7 +1172,7 @@ a.sponsor-card:hover {
 
 /* ── Total-to-pay card ─────────────────────────────────────────────────── */
 .total-card {
-    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.25) 0%, rgba(var(--violet-rgb), 0.15) 100%);
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.25) 0%, rgba(var(--rust-rgb), 0.15) 100%);
     border: 1px solid rgba(var(--gold-rgb), 0.35);
     color: var(--text);
     padding: var(--space-5);
@@ -1153,7 +1327,7 @@ a.sponsor-card:hover {
    streamlit_app._render_capacity_page(). */
 .capacity-page {
     text-align: center;
-    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14) 0%, rgba(var(--violet-rgb), 0.1) 100%);
+    background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14) 0%, rgba(var(--rust-rgb), 0.1) 100%);
     border: 1px solid rgba(var(--gold-rgb), 0.35);
     border-radius: var(--radius-xl);
     padding: var(--space-8) var(--space-5);
@@ -1401,23 +1575,43 @@ def brand_bar() -> str:
     """Slim sticky bar with the event name and a countdown pill. Renders once per page."""
     return (
         '<div class="brand-bar">'
-        f'<div class="brand-bar-title">🎉 {html.escape(config.EVENT_NAME)}</div>'
+        f'<div class="brand-bar-title">🤠 {html.escape(config.EVENT_NAME)}</div>'
         f'{countdown_pill()}'
         '</div>'
     )
 
 
 def hero() -> str:
-    """The homepage hero banner: title, tagline, and a date/time/venue badge row.
+    """The homepage hero banner: title, taglines, dress theme, and the
+    date/time/venue badge row.
+
+    Mirrors the printed flyer, because most guests arrive here straight from
+    it: same name, same "12th Year of Togetherness" line, the same Kannada
+    subtitle, and the dress theme called out as its own badge — that last one
+    is the only thing on this banner a guest has to *do* something about
+    before Oct 9, so it is not buried in the badge row.
 
     The countdown itself lives only in the sticky brand bar (always visible
     while scrolling) — it's intentionally not repeated here to avoid showing
     it twice on the same page.
     """
+    local = html.escape(getattr(config, "EVENT_TAGLINE_LOCAL", "") or "")
+    local_html = f'<div class="hero-subtitle-local">{local}</div>' if local else ""
+
+    theme_name = html.escape(getattr(config, "EVENT_THEME", "") or "")
+    theme_note = html.escape(getattr(config, "EVENT_THEME_NOTE", "") or "")
+    if theme_name:
+        note_html = f" <small>· {theme_note}</small>" if theme_note else ""
+        theme_html = f'<div class="hero-theme">🤠 {theme_name} Theme{note_html}</div>'
+    else:
+        theme_html = ""
+
     return f"""
     <div class="hero-banner">
-        <div class="hero-title">🎉 {html.escape(config.EVENT_NAME)}</div>
+        <div class="hero-title">{html.escape(config.EVENT_NAME)}</div>
         <div class="hero-subtitle">{html.escape(config.EVENT_TAGLINE)}</div>
+        {local_html}
+        {theme_html}
         <div class="hero-badges">
             <span class="badge">📅 {html.escape(config.EVENT_DATE_TEXT)}</span>
             <span class="badge">🕕 {html.escape(config.EVENT_TIME_TEXT)}</span>
@@ -1429,7 +1623,30 @@ def hero() -> str:
     """
 
 
-_STAT_ACCENTS = {"gold", "ok", "warn", "err", "info", "violet", "cyan"}
+def event_strip() -> str:
+    """A compact date / venue / dress-theme strip for the Register page.
+
+    Register is the landing page, so for most guests it is the *only* page
+    they see — and they arrive on it straight from the flyer, mid-decision,
+    about to send money. The three things they need confirmed before that
+    (is this the right party, where is it, what do I wear) live on Home's
+    hero, which they may never reach. This restates them in one line.
+    """
+    theme_name = html.escape(getattr(config, "EVENT_THEME", "") or "")
+    theme_html = (
+        f'<span class="event-strip-theme">🤠 {theme_name} Theme</span>' if theme_name else ""
+    )
+    return (
+        '<div class="event-strip">'
+        f'<span class="event-strip-date">📅 {html.escape(config.EVENT_DATE_SHORT)}'
+        f' · {html.escape(config.EVENT_TIME_TEXT)}</span>'
+        f'<span class="event-strip-venue">📍 {html.escape(config.VENUE_NAME)}</span>'
+        f'{theme_html}'
+        '</div>'
+    )
+
+
+_STAT_ACCENTS = {"gold", "ok", "warn", "err", "info", "rust", "turquoise"}
 
 
 def stat_tiles(items: list) -> str:
@@ -1446,7 +1663,7 @@ def stat_tiles(items: list) -> str:
         }
 
     `accent` is purely a styling hook onto the existing design tokens
-    (--ok/--warn/--err/--info/--gold/--violet/--cyan) — never a new raw
+    (--ok/--warn/--err/--info/--gold/--rust/--turquoise) — never a new raw
     color — and unrecognized values are dropped rather than interpolated, so
     a typo can't leak an arbitrary CSS class. A "hero" tile renders larger,
     with a tinted background, and spans two grid tracks so the operationally
@@ -1614,6 +1831,24 @@ def nav_card(icon: str, title: str, desc: str) -> str:
         f'<h3>{html.escape(icon)} {html.escape(title)}</h3>'
         f'<p>{html.escape(desc)}</p>'
         '</div>'
+    )
+
+
+def flyer_card(src: str, alt: str = "") -> str:
+    """The event flyer, framed, or "" when there isn't one configured.
+
+    Height-capped rather than width-capped: the flyer is a tall portrait
+    poster, and left to fill a desktop column it would push everything below
+    it off the screen. Capping the height keeps it a glance, not a wall.
+    """
+    src = (src or "").strip()
+    if not src:
+        return ""
+    alt = alt or f"{config.EVENT_NAME} event flyer"
+    return (
+        '<div class="flyer-card">'
+        f'<img src="{html.escape(src, quote=True)}" alt="{html.escape(alt, quote=True)}" loading="lazy">'
+        "</div>"
     )
 
 

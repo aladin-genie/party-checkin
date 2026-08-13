@@ -2230,6 +2230,73 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(last.count("step-done"), 2)
         self.assertIn("step-active", last)
 
+    # ── Texas Cowboys theme ─────────────────────────────────────────────
+
+    def test_hero_carries_the_flyer_details(self):
+        """Guests arrive here straight from the printed flyer, so the hero
+        has to say the same things it does."""
+        html_out = theme.hero()
+        self.assertIn(html.escape(config.EVENT_NAME), html_out)
+        self.assertIn(html.escape(config.EVENT_TAGLINE), html_out)
+        self.assertIn(config.EVENT_TAGLINE_LOCAL, html_out)
+        self.assertIn(config.EVENT_THEME, html_out)
+        self.assertIn(html.escape(config.VENUE_NAME), html_out)
+        self.assertIn(html.escape(config.EVENT_DATE_TEXT), html_out)
+
+    def test_hero_survives_the_optional_theme_fields_being_absent(self):
+        """EVENT_THEME / EVENT_TAGLINE_LOCAL are optional extras; dropping
+        them must degrade the banner, not break it."""
+        with patch.object(config, "EVENT_THEME", ""):
+            with patch.object(config, "EVENT_TAGLINE_LOCAL", ""):
+                html_out = theme.hero()
+        self.assertIn(html.escape(config.EVENT_NAME), html_out)
+        self.assertNotIn("hero-theme", html_out)
+        self.assertNotIn("hero-subtitle-local", html_out)
+
+    def test_event_strip_states_date_venue_and_dress_theme(self):
+        """Register is the landing page, so this strip is the only place
+        many guests will see the venue or the dress theme at all."""
+        html_out = theme.event_strip()
+        self.assertIn(html.escape(config.EVENT_DATE_SHORT), html_out)
+        self.assertIn(html.escape(config.VENUE_NAME), html_out)
+        self.assertIn(config.EVENT_THEME, html_out)
+
+    def test_flyer_card_renders_nothing_without_an_image(self):
+        """config.EVENT_FLYER names a path that may not exist yet, so every
+        caller has to tolerate "" — that is the shipped state."""
+        self.assertEqual(theme.flyer_card(""), "")
+        self.assertEqual(theme.flyer_card("   "), "")
+
+    def test_flyer_card_renders_and_escapes_its_source(self):
+        html_out = theme.flyer_card("https://example.com/f.png?a=1&b=2", alt='Ev"il')
+        self.assertIn("flyer-card", html_out)
+        self.assertIn("&amp;b=2", html_out)
+        self.assertNotIn('alt="Ev"il"', html_out)
+
+    def test_event_flyer_src_is_empty_until_the_artwork_is_added(self):
+        """Absent by design — asserting it so that dropping the real flyer
+        in (which flips this) is a deliberate, visible change."""
+        self.assertEqual(utils.event_flyer_src(), "")
+
+    def test_event_flyer_src_uses_the_same_allowlist_as_every_other_image(self):
+        with patch.object(config, "EVENT_FLYER", "javascript:alert(1)"):
+            self.assertEqual(utils.event_flyer_src(), "")
+        with patch.object(config, "EVENT_FLYER", "https://example.com/flyer.png"):
+            self.assertEqual(utils.event_flyer_src(), "https://example.com/flyer.png")
+
+    def test_stat_accents_match_the_themed_tokens(self):
+        """stat_tiles() drops any accent it doesn't recognise, so the set has
+        to track the CSS token names — a rename that misses one silently
+        turns those tiles grey."""
+        self.assertEqual(
+            theme._STAT_ACCENTS,
+            {"gold", "ok", "warn", "err", "info", "rust", "turquoise"},
+        )
+        for accent in theme._STAT_ACCENTS:
+            with self.subTest(accent=accent):
+                self.assertIn(f"--{accent}", theme._CSS)
+                self.assertIn(f"accent-{accent}", theme._CSS)
+
     def test_landing_page_is_a_real_page(self):
         """config.LANDING_PAGE feeds straight into the router's page list."""
         self.assertEqual(config.LANDING_PAGE, "Register")
@@ -2241,29 +2308,31 @@ class TestPartyCheckIn(unittest.TestCase):
     # ── Group discounts ─────────────────────────────────────────────────
 
     def test_group_discount_prices_at_every_boundary(self):
-        """$30 individual, $29 from 11 tickets, $28 from 22 — checked on
-        both sides of each boundary, since an off-by-one here charges the
-        wrong amount rather than failing loudly."""
+        """$30 individual, $29 from 10 tickets, $28 from 20 — matching what
+        the printed flyer advertises ("$29 for 10+, $28 for 20+"), checked on
+        both sides of each boundary. An off-by-one here charges the wrong
+        amount rather than failing loudly, and a guest who priced their group
+        off the flyer would Zelle a number the app disagrees with."""
         for tickets, expected_cents in [
-            (1, 3000), (2, 3000), (9, 3000), (10, 3000),   # below the first tier
-            (11, 2900), (12, 2900), (21, 2900),            # first tier
-            (22, 2800), (23, 2800), (30, 2800),            # second tier
+            (1, 3000), (2, 3000), (8, 3000), (9, 3000),    # below the first tier
+            (10, 2900), (11, 2900), (19, 2900),            # first tier, 10 INCLUSIVE
+            (20, 2800), (21, 2800), (50, 2800),            # second tier, 20 INCLUSIVE
         ]:
             with self.subTest(tickets=tickets):
                 self.assertEqual(config.ticket_price_cents_for(tickets), expected_cents)
 
     def test_group_discount_totals(self):
         self.assertEqual(config.booking_total_cents(1), 3000)      # $30.00
-        self.assertEqual(config.booking_total_cents(10), 30000)    # $300.00
-        self.assertEqual(config.booking_total_cents(11), 31900)    # $319.00
-        self.assertEqual(config.booking_total_cents(22), 61600)    # $616.00
-        self.assertEqual(config.booking_total_dollars(11), 319.0)
+        self.assertEqual(config.booking_total_cents(9), 27000)     # $270.00
+        self.assertEqual(config.booking_total_cents(10), 29000)    # $290.00
+        self.assertEqual(config.booking_total_cents(20), 56000)    # $560.00
+        self.assertEqual(config.booking_total_dollars(10), 290.0)
 
     def test_group_discount_savings_are_zero_below_the_first_tier(self):
         self.assertEqual(config.booking_savings_cents(1), 0)
-        self.assertEqual(config.booking_savings_cents(10), 0)
-        self.assertEqual(config.booking_savings_cents(11), 1100)   # 11 × $1
-        self.assertEqual(config.booking_savings_cents(22), 4400)   # 22 × $2
+        self.assertEqual(config.booking_savings_cents(9), 0)
+        self.assertEqual(config.booking_savings_cents(10), 1000)   # 10 × $1
+        self.assertEqual(config.booking_savings_cents(20), 4000)   # 20 × $2
 
     def test_group_discount_never_raises_on_a_garbage_ticket_count(self):
         """The selector is a client-side widget; a bad value must fall back
@@ -2280,8 +2349,8 @@ class TestPartyCheckIn(unittest.TestCase):
         must raise every tier — never turn a discount into a surcharge."""
         with patch.object(config, "ticket_price_cents", lambda: 5000):
             self.assertEqual(config.ticket_price_cents_for(1), 5000)
-            self.assertEqual(config.ticket_price_cents_for(11), 4900)
-            self.assertEqual(config.ticket_price_cents_for(22), 4800)
+            self.assertEqual(config.ticket_price_cents_for(10), 4900)
+            self.assertEqual(config.ticket_price_cents_for(20), 4800)
 
     def test_group_discount_never_produces_a_free_ticket(self):
         """A misconfigured tier bigger than the price must clamp at zero,
@@ -2302,23 +2371,23 @@ class TestPartyCheckIn(unittest.TestCase):
             )
 
     def test_price_tiers_are_sorted_even_if_the_config_is_not(self):
-        with patch.object(config, "GROUP_DISCOUNT_TIERS", ((22, 200), (11, 100))):
-            self.assertEqual(config.ticket_price_cents_for(11), 2900)
-            self.assertEqual(config.ticket_price_cents_for(22), 2800)
-            self.assertEqual([t["min"] for t in config.price_tiers()], [1, 11, 22])
+        with patch.object(config, "GROUP_DISCOUNT_TIERS", ((20, 200), (10, 100))):
+            self.assertEqual(config.ticket_price_cents_for(10), 2900)
+            self.assertEqual(config.ticket_price_cents_for(20), 2800)
+            self.assertEqual([t["min"] for t in config.price_tiers()], [1, 10, 20])
 
     def test_next_price_tier_points_at_the_next_cheaper_one(self):
-        self.assertEqual(config.next_price_tier(10)["min"], 11)
-        self.assertEqual(config.next_price_tier(1)["min"], 11)
-        self.assertEqual(config.next_price_tier(11)["min"], 22)
-        self.assertIsNone(config.next_price_tier(22), "already on the best tier")
-        self.assertIsNone(config.next_price_tier(30))
+        self.assertEqual(config.next_price_tier(9)["min"], 10)
+        self.assertEqual(config.next_price_tier(1)["min"], 10)
+        self.assertEqual(config.next_price_tier(10)["min"], 20)
+        self.assertIsNone(config.next_price_tier(20), "already on the best tier")
+        self.assertIsNone(config.next_price_tier(50))
 
     def test_next_price_tier_is_hidden_when_it_exceeds_the_booking_cap(self):
         """Never advertise a price the form won't let anyone buy."""
         with patch.object(config, "MAX_TICKETS_PER_REGISTRATION", 15):
-            self.assertEqual(config.next_price_tier(10)["min"], 11)
-            self.assertIsNone(config.next_price_tier(12), "22+ is past the cap of 15")
+            self.assertEqual(config.next_price_tier(9)["min"], 10)
+            self.assertIsNone(config.next_price_tier(12), "20+ is past the cap of 15")
 
     def test_top_discount_tier_is_actually_bookable(self):
         """The whole point of the 22+ tier is that someone can reach it —
@@ -2334,10 +2403,10 @@ class TestPartyCheckIn(unittest.TestCase):
 
     def test_price_tier_table_lists_every_tier_and_marks_the_current_one(self):
         for tickets, expected_price, expected_range in [
-            (1, "$30.00", "1–10"),
-            (10, "$30.00", "1–10"),
-            (11, "$29.00", "11–21"),
-            (22, "$28.00", "22+"),
+            (1, "$30.00", "1–9"),
+            (9, "$30.00", "1–9"),
+            (10, "$29.00", "10–19"),
+            (20, "$28.00", "20+"),
         ]:
             with self.subTest(tickets=tickets):
                 html_out = theme.price_tier_table(config.price_tiers(), ticket_count=tickets)
@@ -2364,10 +2433,10 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(theme.tier_range_label({"min": 5, "max": 5}), "5")
 
     def test_total_card_shows_the_discounted_price_and_savings(self):
-        html_out = theme.total_card(11, 29.0, savings=11.0)
-        self.assertIn("$319.00", html_out)
-        self.assertIn("11 tickets × $29.00", html_out)
-        self.assertIn("you save $11.00", html_out)
+        html_out = theme.total_card(10, 29.0, savings=10.0)
+        self.assertIn("$290.00", html_out)
+        self.assertIn("10 tickets × $29.00", html_out)
+        self.assertIn("you save $10.00", html_out)
 
     def test_total_card_hides_the_savings_line_when_there_is_no_discount(self):
         html_out = theme.total_card(1, 30.0, savings=0.0)
@@ -2375,13 +2444,13 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertNotIn("you save", html_out)
 
     def test_next_tier_nudge_states_the_new_price_and_renders_nothing_at_the_top(self):
-        tier = config.next_price_tier(10)
-        html_out = theme.next_tier_nudge(10, tier, config.ticket_price_cents_for(10))
+        tier = config.next_price_tier(9)
+        html_out = theme.next_tier_nudge(9, tier, config.ticket_price_cents_for(9))
         self.assertIn("$29.00", html_out)
-        self.assertIn("11", html_out)
+        self.assertIn("10", html_out)
 
-        self.assertEqual(theme.next_tier_nudge(22, None, 2800), "")
-        self.assertEqual(theme.next_tier_nudge(22, config.next_price_tier(22), 2800), "")
+        self.assertEqual(theme.next_tier_nudge(20, None, 2800), "")
+        self.assertEqual(theme.next_tier_nudge(20, config.next_price_tier(20), 2800), "")
 
     def test_expected_revenue_prices_each_booking_at_its_own_tier(self):
         """A flat tickets × base_price would over-report the take on every
@@ -2389,13 +2458,13 @@ class TestPartyCheckIn(unittest.TestCase):
         their Zelle history."""
         self._register(name="Solo Guest", email="solo.rev@example.com", ticket_count=1)
         self._register(
-            name="Group Guest", email="group.rev@example.com", ticket_count=11,
-            plus_one_name="\n".join(_guest_name(i) for i in range(10)),
+            name="Group Guest", email="group.rev@example.com", ticket_count=10,
+            plus_one_name="\n".join(_guest_name(i) for i in range(9)),
         )
         stats = get_stats()
-        self.assertEqual(stats["total_tickets"], 12)
-        # 1 × $30 + 11 × $29 = $349.00, NOT 12 × $30 = $360.00
-        self.assertEqual(stats["revenue"], 349.0)
+        self.assertEqual(stats["total_tickets"], 11)
+        # 1 × $30 + 10 × $29 = $320.00, NOT 11 × $30 = $330.00
+        self.assertEqual(stats["revenue"], 320.0)
 
 
 def run_tests():
