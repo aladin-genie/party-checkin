@@ -163,9 +163,11 @@ class TestPartyCheckIn(unittest.TestCase):
         session.close()
 
     def _register(self, name="Reg Guest", email="reg@test.com", phone="",
-                   ticket_count=1, plus_one_name="", zelle_ref="ZELLE-DEFAULT01"):
+                   ticket_count=1, plus_one_name="", zelle_ref="ZELLE-DEFAULT01",
+                   veg_count=0, non_veg_count=0):
         """Helper: create a guest via the service layer (returns the result dict)."""
-        return register_guest(name, email, phone, ticket_count, plus_one_name, zelle_ref)
+        return register_guest(name, email, phone, ticket_count, plus_one_name, zelle_ref,
+                               veg_count, non_veg_count)
 
     # ── Database Tests ──────────────────────────────────────────────────────
     
@@ -317,7 +319,26 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertAlmostEqual(stats["checkin_percentage"], 66.7, places=1)
         self.assertEqual(stats["revenue"], 180.0)  # 6 tickets * $30
         session.close()
-    
+
+    def test_get_stats_reports_meal_totals_across_guests(self):
+        session = get_db()
+        session.add(Guest(
+            name="Meal Guest A", email="mealstatsa@test.com", ticket_count=2,
+            zelle_ref="ZELLE-MEALSTATA", qr_code=generate_qr_code(),
+            veg_count=1, non_veg_count=1,
+        ))
+        session.add(Guest(
+            name="Meal Guest B", email="mealstatsb@test.com", ticket_count=3,
+            zelle_ref="ZELLE-MEALSTATB", qr_code=generate_qr_code(),
+            veg_count=3, non_veg_count=0,
+        ))
+        session.commit()
+        session.close()
+
+        stats = get_stats()
+        self.assertEqual(stats["veg_total"], 4)
+        self.assertEqual(stats["non_veg_total"], 1)
+
     def test_visit_stats(self):
         # Record a few visits from different tokens
         record_visit("token-abc", "Home")
@@ -469,7 +490,27 @@ class TestPartyCheckIn(unittest.TestCase):
         # into the cell and split the row.
         self.assertEqual(row["Additional Guest Names"], "Ann Lee, Bob Ray")
         self.assertEqual(len(rows), 1)
-    
+
+    def test_generate_csv_carries_the_meal_counts(self):
+        session = get_db()
+        session.add(Guest(
+            name="Meal CSV Guest",
+            email="mealcsv@test.com",
+            ticket_count=3,
+            plus_one_name="Ann Lee\nBob Ray",
+            zelle_ref="ZELLE-MEALCSV",
+            qr_code=generate_qr_code(),
+            veg_count=2,
+            non_veg_count=1,
+        ))
+        session.commit()
+        session.close()
+
+        rows = list(csv.DictReader(io.StringIO(generate_csv())))
+        row = next(r for r in rows if r["Email"] == "mealcsv@test.com")
+        self.assertEqual(row["Veg"], "2")
+        self.assertEqual(row["Non-Veg"], "1")
+
     # ── Email Tests ─────────────────────────────────────────────────────────
     
     def test_email_without_credentials(self):
@@ -566,6 +607,24 @@ class TestPartyCheckIn(unittest.TestCase):
                                  ticket_count=0, zelle_ref="ZELLE-ZEROTIX1")
         self.assertTrue(result["ok"])
         self.assertEqual(result["guest"]["ticket_count"], 1)
+
+    def test_register_guest_persists_meal_counts(self):
+        # register_guest doesn't re-validate (it trusts the caller), so this
+        # only checks the values it's given are saved and read back correctly.
+        result = self._register(
+            name="Meal Counter",
+            email="mealcounter@test.com",
+            phone="+1-555-000-2222",
+            ticket_count=4,
+            plus_one_name="Ann Lee\nBob Ray\nCal Vue",
+            zelle_ref="ZELLE-MEALCNT1",
+            veg_count=3,
+            non_veg_count=1,
+        )
+        self.assertTrue(result["ok"])
+        guest = result["guest"]
+        self.assertEqual(guest["veg_count"], 3)
+        self.assertEqual(guest["non_veg_count"], 1)
 
     def test_register_guest_ticket_count_coercion_numeric_string(self):
         result = self._register(name="Str Tix", email="strtix@test.com",
@@ -1036,6 +1095,8 @@ class TestPartyCheckIn(unittest.TestCase):
             zelle_ref="ZELLE12345678",
             agree_terms=True,
             ticket_count=2,
+            veg_count=1,
+            non_veg_count=1,
         )
         self.assertEqual(errors, {})
         self.assertEqual(cleaned["name"], "Jane Doe")
@@ -1046,6 +1107,8 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(cleaned["additional_guest_count"], 1)
         self.assertEqual(cleaned["zelle_ref"], "ZELLE12345678")
         self.assertTrue(cleaned["terms"])
+        self.assertEqual(cleaned["veg_count"], 1)
+        self.assertEqual(cleaned["non_veg_count"], 1)
 
     def test_validate_registration_invalid_name(self):
         cleaned, errors = validate_registration(
@@ -1550,16 +1613,18 @@ class TestPartyCheckIn(unittest.TestCase):
     # ── Guest names must match the ticket count ─────────────────────────────
     # One ticket per person: N tickets is the booker plus N-1 named guests.
 
-    def _names_check(self, ticket_count, plus_one_name, email):
+    def _names_check(self, ticket_count, plus_one_name, email, veg_count=0, non_veg_count=0):
         """validate_registration with everything but the names/tickets valid."""
         return validate_registration(
             "Jane Doe", email, "555-123-4567", plus_one_name, "ZELLE12345678", True,
             ticket_count=ticket_count,
+            veg_count=veg_count, non_veg_count=non_veg_count,
         )
 
     def test_validate_registration_exact_name_count_accepted(self):
         cleaned, errors = self._names_check(
-            4, "Ann Lee\nBob Ray\nCal Vue", "exactnames@example.com"
+            4, "Ann Lee\nBob Ray\nCal Vue", "exactnames@example.com",
+            veg_count=2, non_veg_count=2,
         )
         self.assertEqual(errors, {})
         self.assertEqual(cleaned["additional_guest_count"], 3)
@@ -1621,11 +1686,48 @@ class TestPartyCheckIn(unittest.TestCase):
 
     def test_validate_registration_comma_separated_names_count_correctly(self):
         cleaned, errors = self._names_check(
-            3, "Ann Lee, Bob Ray", "commanames@example.com"
+            3, "Ann Lee, Bob Ray", "commanames@example.com",
+            veg_count=2, non_veg_count=1,
         )
         self.assertEqual(errors, {})
         self.assertEqual(cleaned["plus_one_name"], "Ann Lee\nBob Ray")
         self.assertEqual(cleaned["additional_guest_count"], 2)
+
+    # ── Meal counts must match the ticket count ─────────────────────────────
+    # Veg + non-veg doubles as the catering headcount, so it must sum to
+    # exactly ticket_count — same reasoning as the guest-names check above.
+
+    def _food_check(self, ticket_count, veg_count, non_veg_count, email):
+        """validate_registration with everything but the food count valid."""
+        expected_names = utils.additional_guests_expected(ticket_count)
+        names = "\n".join(_guest_name(i) for i in range(expected_names))
+        return validate_registration(
+            "Jane Doe", email, "555-123-4567", names, "ZELLE12345678", True,
+            ticket_count=ticket_count, veg_count=veg_count, non_veg_count=non_veg_count,
+        )
+
+    def test_validate_registration_exact_food_count_accepted(self):
+        cleaned, errors = self._food_check(4, 2, 2, "exactfood@example.com")
+        self.assertNotIn("food_count", errors)
+        self.assertEqual(cleaned["veg_count"], 2)
+        self.assertEqual(cleaned["non_veg_count"], 2)
+
+    def test_validate_registration_too_few_meals_rejected(self):
+        cleaned, errors = self._food_check(4, 1, 1, "toofewmeals@example.com")
+        self.assertIn("food_count", errors)
+        self.assertIn("4", errors["food_count"])
+
+    def test_validate_registration_too_many_meals_rejected(self):
+        cleaned, errors = self._food_check(2, 2, 2, "toomanymeals@example.com")
+        self.assertIn("food_count", errors)
+
+    def test_validate_registration_negative_veg_count_rejected(self):
+        cleaned, errors = self._food_check(2, -1, 3, "negveg@example.com")
+        self.assertIn("food_count", errors)
+
+    def test_validate_registration_negative_non_veg_count_rejected(self):
+        cleaned, errors = self._food_check(2, 3, -1, "negnonveg@example.com")
+        self.assertIn("food_count", errors)
 
     # ── Head-count helpers ──────────────────────────────────────────────────
 

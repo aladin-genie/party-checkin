@@ -1968,7 +1968,10 @@ def sponsor_wall(sponsors: list) -> str:
     return f'<div class="sponsor-wall">{"".join(sections)}</div>'
 
 
-def registration_confirmation(name: str, email: str, tickets: int, guest_names: list) -> str:
+def registration_confirmation(
+    name: str, email: str, tickets: int, guest_names: list,
+    veg_count: int = 0, non_veg_count: int = 0,
+) -> str:
     """The "you're in" card shown at the top of Home right after a submit.
 
     Registration redirects to Home so the guest lands on the photos,
@@ -1987,7 +1990,20 @@ def registration_confirmation(name: str, email: str, tickets: int, guest_names: 
     guest_names = [str(n).strip() for n in (guest_names or []) if str(n).strip()]
     plural = "s" if tickets != 1 else ""
 
-    rows = [("Tickets", f"{tickets} ticket{plural}"), ("QR code emailed to", email or "—")]
+    try:
+        veg_count = int(veg_count)
+    except (TypeError, ValueError):
+        veg_count = 0
+    try:
+        non_veg_count = int(non_veg_count)
+    except (TypeError, ValueError):
+        non_veg_count = 0
+
+    rows = [
+        ("Tickets", f"{tickets} ticket{plural}"),
+        ("Meals", f"{veg_count} veg, {non_veg_count} non-veg"),
+        ("QR code emailed to", email or "—"),
+    ]
     if guest_names:
         rows.append((f"Additional guests ({len(guest_names)})", ", ".join(guest_names)))
         rows.append(("On this booking", f"{len(guest_names) + 1} people, including you"))
@@ -2207,6 +2223,52 @@ def guest_names_requirement(ticket_count: int, provided: int = 0) -> str:
         f"<span>{tickets} tickets covers <strong>you plus "
         f'<span class="guest-req-count">{needed}</span> other {people_word}</strong> — '
         f"please enter their {name_word} below, one per line.{html.escape(progress)}</span>"
+        "</div>"
+    )
+
+
+def food_count_requirement(ticket_count: int, veg_count: int = 0, non_veg_count: int = 0) -> str:
+    """The live note telling the guest whether their meal counts match their tickets.
+
+    Meal counts double as a per-person catering tally, so veg + non-veg must
+    equal ticket_count exactly — same reasoning, and the same visual
+    treatment, as guest_names_requirement() above. `ticket_count`,
+    `veg_count`, and `non_veg_count` are all the current widget values (the
+    counters live outside the form, so this re-renders live as they change).
+    """
+    tickets = int(ticket_count)
+    veg = int(veg_count)
+    non_veg = int(non_veg_count)
+    total = veg + non_veg
+
+    if total == tickets:
+        return (
+            '<div class="guest-req is-solo">'
+            '<span class="guest-req-icon">🍽️</span>'
+            f"<span>{veg} veg, {non_veg} non-veg — matches your {tickets} "
+            f"ticket{'s' if tickets != 1 else ''}.</span>"
+            "</div>"
+        )
+
+    meals_word = "meal" if tickets == 1 else "meals"
+    if total < tickets:
+        missing = tickets - total
+        detail = (
+            f"you're {missing} {'meal' if missing == 1 else 'meals'} short — please add "
+            f"{'it' if missing == 1 else 'them'}."
+        )
+    else:
+        excess = total - tickets
+        detail = (
+            f"that's {excess} {'meal' if excess == 1 else 'meals'} too many — please remove "
+            f"{'it' if excess == 1 else 'them'}."
+        )
+    return (
+        '<div class="guest-req">'
+        '<span class="guest-req-icon">🍽️</span>'
+        f"<span>{tickets} tickets needs <strong>{tickets} {meals_word} total</strong> — "
+        f"you've entered <span class=\"guest-req-count\">{total}</span> "
+        f"({veg} veg + {non_veg} non-veg), so {html.escape(detail)}</span>"
         "</div>"
     )
 

@@ -51,13 +51,27 @@ def goto(page: Page, base_url: str, page_name: str | None = None, settle_ms: int
     page.wait_for_timeout(settle_ms)
 
 
-def fill_and_blur(page: Page, label: str, value: str) -> None:
+def fill_and_blur(page: Page, label: str, value: str, exact: bool = False) -> None:
     """Fill a standalone (non-form) text/number input and blur it so
     Streamlit commits the value to session_state before any follow-up
-    button click."""
-    loc = page.get_by_label(label)
+    button click.
+
+    `exact` forces a full-string label match rather than get_by_label's
+    default substring match — needed for "Veg Meals *" / "Non-Veg Meals *",
+    where the first is a literal substring of the second.
+
+    The Tab keypress only dispatches the browser-side blur event; it does
+    not wait for the resulting Streamlit rerun to reach the frontend. Two
+    outside-form fills back-to-back (e.g. tickets, then veg, then non-veg)
+    can otherwise race: a later rerun response can land after a caller has
+    already started filling an unrelated field, and Streamlit's DOM
+    reconciliation clobbers that in-flight edit back to its pre-fill value.
+    A short settle (same idiom as goto()'s settle_ms) closes that window.
+    """
+    loc = page.get_by_label(label, exact=exact)
     loc.fill(value)
     loc.press("Tab")
+    page.wait_for_timeout(400)
 
 
 def open_terms_expander(page: Page) -> None:
@@ -85,11 +99,14 @@ def fill_registration_form(
     guest_names: str = "",
     zelle_ref: str = "",
     tickets: int | None = None,
+    veg: int | None = None,
+    non_veg: int | None = None,
     agree: bool = True,
     open_expander: bool = True,
 ) -> None:
-    """Fill the Register page form. `tickets` lives outside the form (it's
-    the live-updating ticket count), everything else is inside it.
+    """Fill the Register page form. `tickets`, `veg`, and `non_veg` all live
+    outside the form (they're the live-updating ticket/meal counters),
+    everything else is inside it.
 
     `guest_names` fills the "Additional Guest Names" multi-line `st.text_area`
     (one per line or comma-separated). That field's label carries the
@@ -100,12 +117,23 @@ def fill_registration_form(
     tickets > 1 must pass matching `guest_names` or the submit will fail
     validation — see utils.validate_registration.
 
+    Veg + non-veg meal counts must add up to `tickets` exactly (same
+    validation shape as guest names — see utils.validate_registration's
+    food_count check). When a caller passes `tickets` but leaves `veg`/
+    `non_veg` unset, this defaults to `veg=tickets, non_veg=0` so tests that
+    aren't specifically exercising the meal-count validation don't have to
+    think about it — same default the Register page itself seeds.
+
     `phone` defaults to a valid US number because the field is mandatory —
     tests exercising one deliberately-invalid field would otherwise trip the
     phone error too. Pass phone="" to leave it blank on purpose.
     """
     if tickets is not None:
         fill_and_blur(page, "Number of Tickets *", str(tickets))
+        if veg is None and non_veg is None:
+            veg, non_veg = tickets, 0
+        fill_and_blur(page, "Veg Meals *", str(veg if veg is not None else 0), exact=True)
+        fill_and_blur(page, "Non-Veg Meals *", str(non_veg if non_veg is not None else 0), exact=True)
 
     page.get_by_label("Full Name *").fill(name)
     page.get_by_label("Email Address *").fill(email)

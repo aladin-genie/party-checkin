@@ -243,12 +243,6 @@ def page_home():
     except Exception:
         pass
 
-    # ── Tickets left ────────────────────────────────────────────────────────
-    # Directly under the hero: the one number a visitor most needs before
-    # deciding whether to register now or later. Renders nothing when the cap
-    # is disabled (see theme.tickets_remaining).
-    st.markdown(theme.tickets_remaining(_cached_availability()), unsafe_allow_html=True)
-
     # ── The flyer ───────────────────────────────────────────────────────────
     # Renders nothing until the artwork exists at config.EVENT_FLYER.
     st.markdown(theme.flyer_card(utils.event_flyer_src()), unsafe_allow_html=True)
@@ -414,6 +408,8 @@ def _render_registration_confirmation() -> None:
             guest["email"],
             guest["ticket_count"],
             utils.guest_names_list(guest.get("plus_one_name")),
+            guest.get("veg_count", 0),
+            guest.get("non_veg_count", 0),
         ),
         unsafe_allow_html=True,
     )
@@ -474,7 +470,8 @@ def page_register():
     # Reset form fields at the very top, before any widgets are instantiated,
     # so stale values don't appear when re-entering the page or clicking "Register Another".
     if st.session_state.get("reset_register_form"):
-        for _key in ("reg_name", "reg_email", "reg_phone", "reg_plus_one", "reg_zelle", "ticket_count"):
+        for _key in ("reg_name", "reg_email", "reg_phone", "reg_plus_one", "reg_zelle", "ticket_count",
+                     "reg_veg_count", "reg_non_veg_count"):
             st.session_state.pop(_key, None)
         st.session_state["reg_agree"] = False
         st.session_state["reg_errors"] = {}
@@ -519,8 +516,6 @@ def page_register():
     if flyer_src:
         with st.expander("📜 See the party flyer", expanded=False):
             st.markdown(theme.flyer_card(flyer_src), unsafe_allow_html=True)
-
-    st.markdown(theme.tickets_remaining(availability), unsafe_allow_html=True)
 
     # ── Zelle Payment Info Card ────────────────────────────────────────────
     # Carries the whole group-discount table, with the row for the current
@@ -585,6 +580,51 @@ def page_register():
     reg_errors = st.session_state.get("reg_errors", {})
     if "ticket_count" in reg_errors:
         st.markdown(theme.field_error(reg_errors["ticket_count"]), unsafe_allow_html=True)
+
+    # ── Meal count (outside the form, same reasoning as ticket_count: needs
+    # to update live as the ticket count changes) ─────────────────────────
+    # Streamlit raises if a widget's stored value sits outside its min/max at
+    # instantiation time, so an existing selection has to be clamped BEFORE
+    # the widgets below are instantiated — same pattern as the ticket_count
+    # clamp above, needed when the ticket count just got lowered.
+    if st.session_state.get("reg_veg_count", 0) > ticket_count:
+        st.session_state["reg_veg_count"] = ticket_count
+    if st.session_state.get("reg_non_veg_count", 0) > ticket_count:
+        st.session_state["reg_non_veg_count"] = ticket_count
+    # A fresh solo booking defaults to 1 veg / 0 non-veg, which is already a
+    # valid meal count and needs no action from the guest.
+    st.session_state.setdefault("reg_veg_count", ticket_count)
+    st.session_state.setdefault("reg_non_veg_count", 0)
+
+    st.markdown(
+        theme.section_header(
+            "Meal Count", "Veg + non-veg must add up to your ticket count — this is our catering headcount."
+        ),
+        unsafe_allow_html=True,
+    )
+    veg_col, non_veg_col = st.columns(2)
+    with veg_col:
+        veg_count = st.number_input(
+            "Veg Meals *",
+            min_value=0,
+            max_value=ticket_count,
+            step=1,
+            key="reg_veg_count",
+        )
+    with non_veg_col:
+        non_veg_count = st.number_input(
+            "Non-Veg Meals *",
+            min_value=0,
+            max_value=ticket_count,
+            step=1,
+            key="reg_non_veg_count",
+        )
+    st.markdown(
+        theme.food_count_requirement(ticket_count, veg_count, non_veg_count),
+        unsafe_allow_html=True,
+    )
+    if "food_count" in reg_errors:
+        st.markdown(theme.field_error(reg_errors["food_count"]), unsafe_allow_html=True)
 
     # How many other people this booking has to name, stated before the field
     # rather than after a rejected submit. Lives outside the form alongside
@@ -744,6 +784,7 @@ def page_register():
         cleaned, errors = utils.validate_registration(
             name, email, phone, plus_one_name, zelle_ref, agree_terms,
             ticket_count=ticket_count,
+            veg_count=veg_count, non_veg_count=non_veg_count,
         )
 
         if errors:
@@ -757,6 +798,7 @@ def page_register():
                 zelle_ref=cleaned["zelle_ref"] or zelle_ref,
                 status="validation_error",
                 errors="; ".join(errors.values()),
+                veg_count=veg_count, non_veg_count=non_veg_count,
             )
             st.rerun()
 
@@ -768,6 +810,8 @@ def page_register():
             cleaned["ticket_count"],
             cleaned["plus_one_name"],
             cleaned["zelle_ref"],
+            cleaned["veg_count"],
+            cleaned["non_veg_count"],
         )
 
         if result["ok"]:
@@ -786,6 +830,7 @@ def page_register():
                 zelle_ref=cleaned["zelle_ref"],
                 status="registered",
                 guest_id=guest["id"],
+                veg_count=veg_count, non_veg_count=non_veg_count,
             )
             _cached_stats.clear()
             _cached_site_stats.clear()
@@ -803,6 +848,7 @@ def page_register():
                 zelle_ref=cleaned["zelle_ref"],
                 status=reason,
                 errors=result["message"],
+                veg_count=veg_count, non_veg_count=non_veg_count,
             )
             if reason == "duplicate_email":
                 st.session_state["reg_errors"] = {"email": result["message"]}
@@ -1603,6 +1649,8 @@ def _admin_overview_tab():
                     {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "rust"},
                     {"label": "Named Guests", "value": stats["named_guests"], "icon": "👥", "accent": "rust"},
                     {"label": "Unnamed Tickets", "value": stats["unnamed_tickets"], "icon": "❓", "accent": "warn"},
+                    {"label": "Veg Meals", "value": stats["veg_total"], "icon": "🥦", "accent": "ok"},
+                    {"label": "Non-Veg Meals", "value": stats["non_veg_total"], "icon": "🍗", "accent": "turquoise"},
                 ]
             ),
             unsafe_allow_html=True,
@@ -1718,6 +1766,8 @@ def _admin_guests_tab():
                 "Party Size": utils.party_size(g),
                 "Names": utils.guest_name_count(g["plus_one_name"]),
                 "Additional Guests": (g["plus_one_name"] or "").replace("\n", ", ") or "—",
+                "Veg": g["veg_count"],
+                "Non-Veg": g["non_veg_count"],
                 "Checked In": bool(g["checked_in"]),
                 "Band Given": bool(g["band_given"]),
                 "Delete": False,
@@ -1747,11 +1797,13 @@ def _admin_guests_tab():
                      "number means the booking predates mandatory guest names.",
             ),
             "Additional Guests": st.column_config.TextColumn("Additional Guests"),
+            "Veg": st.column_config.NumberColumn("Veg", help="Veg meal count, entered at registration."),
+            "Non-Veg": st.column_config.NumberColumn("Non-Veg", help="Non-veg meal count, entered at registration."),
             "Checked In": st.column_config.CheckboxColumn("Checked In", help="Tick to check this guest in."),
             "Band Given": st.column_config.CheckboxColumn("Band Given", help="Tick once their wristband is on."),
             "Delete": st.column_config.CheckboxColumn("Delete", help="Tick then Save changes — a confirmation step follows."),
         },
-        disabled=["id", "Name", "Email", "Phone", "Tickets", "Party Size", "Names", "Additional Guests"],
+        disabled=["id", "Name", "Email", "Phone", "Tickets", "Party Size", "Names", "Additional Guests", "Veg", "Non-Veg"],
     )
 
     if st.button("💾 Save changes", type="primary", use_container_width=True, key="admin_save_changes"):

@@ -103,6 +103,8 @@ class Guest(Base):
     band_given = Column(Boolean, default=False)
     checkin_time = Column(DateTime)
     created_at = Column(DateTime, default=_utc_now, index=True)
+    veg_count = Column(Integer, default=0)
+    non_veg_count = Column(Integer, default=0)
 
     def to_dict(self):
         return {
@@ -118,6 +120,8 @@ class Guest(Base):
             "band_given": self.band_given,
             "checkin_time": self.checkin_time.isoformat() if self.checkin_time else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "veg_count": self.veg_count,
+            "non_veg_count": self.non_veg_count,
         }
 
 
@@ -161,6 +165,8 @@ class SubmissionLog(Base):
     errors = Column(String(500), default="")
     guest_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=_utc_now)
+    veg_count = Column(Integer, default=0)
+    non_veg_count = Column(Integer, default=0)
 
 
 class AppSetting(Base):
@@ -394,6 +400,31 @@ def init_db():
             from sqlalchemy import text
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE guests ADD COLUMN plus_one_name VARCHAR(100) DEFAULT ''"))
+                conn.commit()
+        if "veg_count" not in cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE guests ADD COLUMN veg_count INTEGER DEFAULT 0"))
+                conn.commit()
+        if "non_veg_count" not in cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE guests ADD COLUMN non_veg_count INTEGER DEFAULT 0"))
+                conn.commit()
+
+    # Migration for existing submission_logs tables that pre-date the meal
+    # count columns — mirrors the guests-table blocks above.
+    if "submission_logs" in existing:
+        sub_cols = [c["name"] for c in inspector.get_columns("submission_logs")]
+        if "veg_count" not in sub_cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE submission_logs ADD COLUMN veg_count INTEGER DEFAULT 0"))
+                conn.commit()
+        if "non_veg_count" not in sub_cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE submission_logs ADD COLUMN non_veg_count INTEGER DEFAULT 0"))
                 conn.commit()
 
     # Widen plus_one_name to fit a full bulk guest-name list. The target width
@@ -777,6 +808,8 @@ def get_stats() -> dict:
             ),
             func.coalesce(func.sum(case((Guest.plus_one_name != "", 1), else_=0)), 0),
             func.coalesce(func.sum(_named_guests_expr()), 0),
+            func.coalesce(func.sum(Guest.veg_count), 0),
+            func.coalesce(func.sum(Guest.non_veg_count), 0),
         ).one()
 
         total = int(row[0])
@@ -786,6 +819,8 @@ def get_stats() -> dict:
         admitted_tickets = int(row[4])
         plus_one_count = int(row[5])
         named_guests = int(row[6])
+        veg_total = int(row[7])
+        non_veg_total = int(row[8])
         # Clamped: a row hand-edited to name more people than it has tickets
         # would otherwise report a negative gap.
         unnamed_tickets = max(tickets - total - named_guests, 0)
@@ -817,6 +852,8 @@ def get_stats() -> dict:
             "avg_tickets_per_guest": avg_tickets,
             "checkin_percentage": checkin_pct,
             "revenue": revenue,
+            "veg_total": veg_total,
+            "non_veg_total": non_veg_total,
         }
     finally:
         session.close()
@@ -1117,6 +1154,8 @@ def record_submission(
     status: str = "attempted",
     errors: str = "",
     guest_id: int = None,
+    veg_count: int = 0,
+    non_veg_count: int = 0,
 ) -> None:
     """Persist a registration submission attempt to Supabase/Postgres.
 
@@ -1135,6 +1174,8 @@ def record_submission(
             status=status,
             errors=errors[:500],
             guest_id=guest_id,
+            veg_count=veg_count,
+            non_veg_count=non_veg_count,
         )
         session.add(log)
         session.commit()
@@ -1314,6 +1355,8 @@ def _build_qr_email_message(
     ticket_count,
     plus_one_name: str,
     qr_code: str,
+    veg_count=0,
+    non_veg_count=0,
 ) -> MIMEMultipart:
     """Build the multipart QR-code email (HTML + plain-text + inline image).
 
@@ -1358,6 +1401,8 @@ def _build_qr_email_message(
     my_qr_url = f"{config.APP_URL}/?page=My%20QR&guest_id={guest_id}"
     safe_my_qr_url = html.escape(my_qr_url)
 
+    meals_line = f"🍽️ Meals: {int(veg_count or 0)} veg, {int(non_veg_count or 0)} non-veg"
+
     # HTML body with inline QR image and a plain-text fallback
     html_body = f"""\
 <html>
@@ -1365,6 +1410,7 @@ def _build_qr_email_message(
     <h2>Hi {safe_name}!</h2>
     <p>You're registered for <strong>{html.escape(event_title)} — {html.escape(config.EVENT_TAGLINE)}!</strong></p>
     <p>🎫 Tickets: {ticket_count}</p>
+    <p>{html.escape(meals_line)}</p>
     {plus_one_line}
     <p>📅 Date: {html.escape(config.EVENT_DATE_TEXT)}<br>
        🕕 Time: {html.escape(config.EVENT_TIME_TEXT)}<br>
@@ -1386,6 +1432,7 @@ def _build_qr_email_message(
 You're registered for {event_title} — {config.EVENT_TAGLINE}!
 
 🎫 Tickets: {ticket_count}
+{meals_line}
 {plus_one_text}
 📅 Date: {config.EVENT_DATE_TEXT}
 🕕 Time: {config.EVENT_TIME_TEXT}
@@ -1461,6 +1508,8 @@ def send_qr_email(guest) -> bool:
         guest.ticket_count,
         guest.plus_one_name,
         guest.qr_code,
+        guest.veg_count,
+        guest.non_veg_count,
     )
     return _smtp_send(secrets["mail_server"], secrets["mail_port"], secrets["mail_username"], secrets["mail_password"], msg)
 
@@ -1494,6 +1543,8 @@ def send_qr_email_async(guest: dict) -> None:
     qr_code = guest.get("qr_code", "")
     phone = guest.get("phone", "")
     zelle_ref = guest.get("zelle_ref", "")
+    veg_count = guest.get("veg_count", 0)
+    non_veg_count = guest.get("non_veg_count", 0)
 
     def _worker():
         error_text = ""
@@ -1501,6 +1552,7 @@ def send_qr_email_async(guest: dict) -> None:
             msg = _build_qr_email_message(
                 secrets["mail_sender"], guest_id, guest_name, guest_email,
                 ticket_count, plus_one_name, qr_code,
+                veg_count, non_veg_count,
             )
             sent = _smtp_send(
                 secrets["mail_server"], secrets["mail_port"],
@@ -1754,7 +1806,7 @@ def generate_csv() -> str:
         writer = csv.writer(output)
         writer.writerow([
             "Name", "Email", "Phone", "Tickets", "Additional Guests",
-            "Additional Guest Names", "Zelle Ref",
+            "Additional Guest Names", "Zelle Ref", "Veg", "Non-Veg",
             "Checked In", "Band Given", "Check-in Time", "QR Code"
         ])
         for g in guests:
@@ -1770,6 +1822,8 @@ def generate_csv() -> str:
                 # (export_backup) still writes the column verbatim.
                 _sanitize_csv_field(", ".join(guest_names_list(g.plus_one_name))),
                 _sanitize_csv_field(g.zelle_ref),
+                g.veg_count,
+                g.non_veg_count,
                 "Yes" if g.checked_in else "No",
                 "Yes" if g.band_given else "No",
                 format_dt(g.checkin_time, "%Y-%m-%d %H:%M:%S", ""),
@@ -2214,14 +2268,17 @@ def validate_registration(
     zelle_ref: str,
     agree_terms: bool,
     ticket_count=1,
+    veg_count=0,
+    non_veg_count=0,
 ) -> tuple:
     """Validate and sanitize registration form fields.
 
     Returns (cleaned, errors): two dicts keyed by "name", "email", "phone",
-    "ticket_count", "plus_one_name", "zelle_ref", "terms". `cleaned` holds
-    the sanitized value for every field (empty string/False if invalid or not
-    provided) plus "additional_guest_count", the number of guests actually
-    named. `errors` holds a user-facing message only for fields that failed
+    "ticket_count", "plus_one_name", "zelle_ref", "terms", "food_count".
+    `cleaned` holds the sanitized value for every field (empty string/False
+    if invalid or not provided) plus "additional_guest_count", the number of
+    guests actually named, and "veg_count"/"non_veg_count", the cleaned meal
+    counts. `errors` holds a user-facing message only for fields that failed
     validation (fields that passed are simply absent from `errors`).
 
     Guest names are validated AGAINST the ticket count: a booking of N
@@ -2232,6 +2289,12 @@ def validate_registration(
     five people were, and the door had no list to check against. Requiring
     them here is the only point in the flow where the guest is still present
     to answer.
+
+    Meal counts are validated the same way, under "food_count": veg_count +
+    non_veg_count must equal ticket_count exactly, so the booking doubles as
+    a per-person meal tally for catering and a mismatch (too few or too many
+    meals for the tickets bought) is caught here rather than discovered at
+    the buffet.
 
     This replaces the validation that used to be duplicated twice in
     streamlit_app.page_register (once inside the st.form block, once after
@@ -2275,6 +2338,41 @@ def validate_registration(
     if tickets_clean < 1 or tickets_clean > max_tickets:
         errors["ticket_count"] = f"Please choose between 1 and {max_tickets} tickets."
         tickets_clean = min(max(tickets_clean, 1), max_tickets)
+
+    # Meal counts double as a per-person catering tally, so they must add up
+    # to exactly the number of tickets bought — not more, not fewer. Garbage
+    # input coerces to 0, same style as ticket_count above: a fixable
+    # message, not a traceback out of int().
+    try:
+        veg_clean = int(veg_count)
+    except (TypeError, ValueError):
+        veg_clean = 0
+    try:
+        non_veg_clean = int(non_veg_count)
+    except (TypeError, ValueError):
+        non_veg_clean = 0
+    if veg_clean < 0 or non_veg_clean < 0:
+        errors["food_count"] = "Meal counts can't be negative — enter 0 or more for each."
+        veg_clean = max(veg_clean, 0)
+        non_veg_clean = max(non_veg_clean, 0)
+
+    food_total = veg_clean + non_veg_clean
+    if "food_count" not in errors and food_total != tickets_clean:
+        meals_word = "meal" if tickets_clean == 1 else "meals"
+        if food_total < tickets_clean:
+            missing = tickets_clean - food_total
+            errors["food_count"] = (
+                f"{tickets_clean} tickets needs {tickets_clean} {meals_word} total, but you "
+                f"entered {food_total} ({veg_clean} veg + {non_veg_clean} non-veg). "
+                f"Please add {missing} more {'meal' if missing == 1 else 'meals'}."
+            )
+        else:
+            excess = food_total - tickets_clean
+            errors["food_count"] = (
+                f"{tickets_clean} tickets needs {tickets_clean} {meals_word} total, but you "
+                f"entered {food_total} ({veg_clean} veg + {non_veg_clean} non-veg). "
+                f"Please remove {excess} {'meal' if excess == 1 else 'meals'}."
+            )
 
     names, names_reason = parse_guest_names(plus_one_name or "")
     expected = additional_guests_expected(tickets_clean)
@@ -2338,6 +2436,8 @@ def validate_registration(
         "additional_guest_count": len(names) if not errors.get("plus_one_name") else 0,
         "zelle_ref": zelle_clean,
         "terms": bool(agree_terms),
+        "veg_count": veg_clean,
+        "non_veg_count": non_veg_clean,
     }
     return cleaned, errors
 
@@ -2349,6 +2449,8 @@ def register_guest(
     ticket_count: int,
     plus_one_name: str,
     zelle_ref: str,
+    veg_count: int = 0,
+    non_veg_count: int = 0,
 ) -> dict:
     """Create a new guest registration.
 
@@ -2408,6 +2510,8 @@ def register_guest(
             plus_one_name=plus_one_name,
             zelle_ref=zelle_ref,
             qr_code=generate_qr_code(),
+            veg_count=veg_count,
+            non_veg_count=non_veg_count,
         )
         session.add(guest)
         session.commit()
@@ -2908,7 +3012,8 @@ _BACKUP_SPECS = (
         "guests",
         Guest,
         ("id", "name", "email", "phone", "ticket_count", "plus_one_name",
-         "zelle_ref", "qr_code", "checked_in", "band_given", "checkin_time", "created_at"),
+         "zelle_ref", "qr_code", "checked_in", "band_given", "checkin_time", "created_at",
+         "veg_count", "non_veg_count"),
         "id",
         "One row per registration — contact details, tickets, QR code, check-in state.",
     ),
@@ -2930,7 +3035,8 @@ _BACKUP_SPECS = (
         "submission_logs",
         SubmissionLog,
         ("id", "name", "email", "phone", "ticket_count", "plus_one_name",
-         "zelle_ref", "status", "errors", "guest_id", "created_at"),
+         "zelle_ref", "status", "errors", "guest_id", "created_at",
+         "veg_count", "non_veg_count"),
         "id",
         "Every registration attempt — successful or not — with its failure reason.",
     ),
