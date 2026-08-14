@@ -1615,6 +1615,20 @@ _PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 @lru_cache(maxsize=64)
+def _read_asset_data_uri(full_path: str, mtime_ns: int, mime: str) -> str:
+    """Base64-encode the file at `full_path` into a `data:` URI.
+
+    Cached on (path, mtime) rather than path alone: a host that replaces
+    the file on disk without restarting the process — e.g. a Streamlit
+    Cloud redeploy that reruns the script in the same long-lived worker —
+    would otherwise keep serving the old image's bytes forever, since the
+    cache key never changed. `mtime_ns` makes a replaced file a cache miss.
+    """
+    with open(full_path, "rb") as fh:
+        encoded = base64.b64encode(fh.read()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def _asset_data_uri(path: str) -> str:
     """Read a local image into a `data:` URI, or "" if it can't be used.
 
@@ -1623,9 +1637,6 @@ def _asset_data_uri(path: str) -> str:
     the project directory, NOT the cwd: the app is deliberately run from a
     different working directory in development and testing (see AGENTS.md),
     so a cwd-relative lookup would silently find nothing there.
-
-    Cached because the base64 encode would otherwise repeat on every single
-    Streamlit rerun for every photo on the page.
     """
     ext = os.path.splitext(path)[1].lower()
     mime = _IMAGE_MIME_TYPES.get(ext)
@@ -1635,18 +1646,17 @@ def _asset_data_uri(path: str) -> str:
 
     full_path = path if os.path.isabs(path) else os.path.join(_PROJECT_DIR, path)
     try:
-        if os.path.getsize(full_path) > MAX_INLINE_IMAGE_BYTES:
+        stat = os.stat(full_path)
+        if stat.st_size > MAX_INLINE_IMAGE_BYTES:
             print(
                 f"skipping oversized image (>{MAX_INLINE_IMAGE_BYTES // (1024 * 1024)}MB), "
                 f"please resize it first: {path}"
             )
             return ""
-        with open(full_path, "rb") as fh:
-            encoded = base64.b64encode(fh.read()).decode("ascii")
+        return _read_asset_data_uri(full_path, stat.st_mtime_ns, mime)
     except OSError as e:
         print(f"skipping unreadable image {path}: {e}")
         return ""
-    return f"data:{mime};base64,{encoded}"
 
 
 # Any "scheme:" prefix, e.g. https:, javascript:, DATA:, vbscript:. Matched

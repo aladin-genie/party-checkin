@@ -10,6 +10,7 @@ import html
 import io
 import csv
 import threading
+import time
 import zipfile
 
 # Add project root to path
@@ -2061,10 +2062,10 @@ class TestPartyCheckIn(unittest.TestCase):
         with open(path, "wb") as fh:
             fh.write(png)
         self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
-        # The resolver caches by path, and these files are created and
-        # deleted per-test, so a stale hit would leak between tests.
-        self.addCleanup(utils._asset_data_uri.cache_clear)
-        utils._asset_data_uri.cache_clear()
+        # The resolver caches by (path, mtime), and these files are created
+        # and deleted per-test, so a stale hit would leak between tests.
+        self.addCleanup(utils._read_asset_data_uri.cache_clear)
+        utils._read_asset_data_uri.cache_clear()
         return name
 
     def test_resolve_image_src_passes_through_https_and_data_uris(self):
@@ -2117,6 +2118,29 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(resolve_image_src("assets/photos/definitely-not-here.jpg"), "")
         self.assertEqual(resolve_image_src("assets/photos/notes.txt"), "")
 
+    def test_resolve_image_src_picks_up_a_replaced_file_without_a_restart(self):
+        """A deploy that reruns the script in the same long-lived process
+        (e.g. Streamlit Cloud, which doesn't always restart on push) must
+        not keep serving a since-replaced file's old bytes forever."""
+        name = self._photo_uri()
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+        first = resolve_image_src(name)
+
+        # Same path, different content — mimics dropping in a new flyer.
+        # Bump the mtime explicitly: back-to-back writes in a fast test run
+        # can otherwise land on the same filesystem-clock tick.
+        with open(path, "wb") as fh:
+            fh.write(
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+                b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+                b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+            )
+        os.utime(path, ns=(time.time_ns() + 1_000_000_000, time.time_ns() + 1_000_000_000))
+
+        second = resolve_image_src(name)
+        self.assertTrue(second.startswith("data:image/png;base64,"))
+        self.assertNotEqual(first, second)
+
     def test_resolve_image_src_skips_an_oversized_file(self):
         """Local images are base64'd into the page on every rerun, so an
         unresized photo has to be refused rather than shipped."""
@@ -2124,7 +2148,7 @@ class TestPartyCheckIn(unittest.TestCase):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
         with open(path, "wb") as fh:
             fh.write(b"\x00" * (utils.MAX_INLINE_IMAGE_BYTES + 1))
-        utils._asset_data_uri.cache_clear()
+        utils._read_asset_data_uri.cache_clear()
         self.assertEqual(resolve_image_src(name), "")
 
     def test_gallery_photos_returns_nothing_when_none_are_configured(self):
