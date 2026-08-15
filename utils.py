@@ -1114,9 +1114,9 @@ def get_site_stats() -> dict:
             .where(func.date(PageVisit.visited_at) == today)
             .scalar_subquery()
         )
-        total_regs_sq = select(func.count(Guest.id)).scalar_subquery()
+        total_regs_sq = select(func.coalesce(func.sum(Guest.ticket_count), 0)).scalar_subquery()
         today_regs_sq = (
-            select(func.count(Guest.id))
+            select(func.coalesce(func.sum(Guest.ticket_count), 0))
             .where(func.date(Guest.created_at) == today)
             .scalar_subquery()
         )
