@@ -60,6 +60,14 @@ _ensure_state("registered_guest_id", None)
 # confirmation card, since registration redirects there rather than
 # confirming in place (see _finish_registration).
 _ensure_state("just_registered", False)
+# Set once page_my_qr()'s email/phone lookup finds a guest, so the guest
+# card (and its Resend/Download buttons) survives the rerun a later button
+# click on that same card triggers — st.form_submit_button only reports
+# True on the one rerun immediately after the form submit itself, so
+# without this the lookup result would vanish the instant any button
+# inside the card (e.g. "Resend QR Email") was clicked, silently dropping
+# that click before it ever reached utils.send_qr_email().
+_ensure_state("my_qr_found_guest_id", None)
 _ensure_state("confirmation_celebrated", False)
 _ensure_state("scanner_result", None)
 # The guest a door search pulled up, awaiting staff confirmation. Holding a
@@ -918,6 +926,8 @@ def page_my_qr():
         pass
     if not guest_id and st.session_state.get("registered_guest_id"):
         guest_id = st.session_state["registered_guest_id"]
+    if not guest_id and st.session_state.get("my_qr_found_guest_id"):
+        guest_id = st.session_state["my_qr_found_guest_id"]
 
     if guest_id:
         guest = utils.get_guest(guest_id)
@@ -946,6 +956,7 @@ def page_my_qr():
     if lookup_submitted and lookup_contact:
         guest, lookup_error = utils.find_guest_by_contact(lookup_contact)
         if guest:
+            st.session_state["my_qr_found_guest_id"] = guest["id"]
             _display_guest_qr(guest)
             found = True
         else:
