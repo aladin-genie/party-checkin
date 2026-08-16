@@ -1635,17 +1635,25 @@ def send_qr_email_async(guest: dict) -> None:
             error_text = str(e)
 
         if error_text:
-            record_submission(
-                name=guest_name,
-                email=guest_email,
-                phone=phone,
-                ticket_count=ticket_count,
-                plus_one_name=plus_one_name,
-                zelle_ref=zelle_ref,
-                status="email_failed",
-                errors=error_text,
-                guest_id=guest_id,
-            )
+            # Outside the try/except above on purpose, but still guarded of
+            # its own accord: this call is what makes a send failure visible
+            # in the admin dashboard, so if IT throws too (e.g. a transient
+            # DB blip), that must not vanish as an uncaught exception in a
+            # daemon thread with nothing to show for it anywhere.
+            try:
+                record_submission(
+                    name=guest_name,
+                    email=guest_email,
+                    phone=phone,
+                    ticket_count=ticket_count,
+                    plus_one_name=plus_one_name,
+                    zelle_ref=zelle_ref,
+                    status="email_failed",
+                    errors=error_text,
+                    guest_id=guest_id,
+                )
+            except Exception as e:
+                print(f"send_qr_email_async: failed to record email_failed log: {e}")
 
     threading.Thread(target=_worker, daemon=True).start()
 
