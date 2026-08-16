@@ -561,7 +561,10 @@ Normal on the free tier — it was asleep. Open it a few minutes before guests a
 and reboot the app.
 
 **Supabase project paused**
-supabase.com → your project → Restore (~30 seconds). Happens after 7 days idle.
+supabase.com → your project → Restore (~30 seconds). Happens after 7 days idle. A scheduled
+GitHub Actions job (`.github/workflows/keep-supabase-alive.yml`) now pings the database twice a
+week to prevent this — restoring is only needed if that job's `SUPABASE_DB_URL` secret is missing
+or the DB password rotated. Check **Actions** tab on GitHub for job run history.
 
 **Guest registered but got no QR email**
 Confirm the registration in **Admin**, ask them to check spam, then use the **Resend QR Email**
