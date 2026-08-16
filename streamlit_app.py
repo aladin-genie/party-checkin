@@ -1942,21 +1942,38 @@ def main():
     # Streamlit mints a brand-new session on every full page reload or
     # dropped/reconnected WebSocket (screen lock, backgrounding, a network
     # blip — all common on mobile), which was counting the same returning
-    # person as a fresh "unique visitor" every time. So prefer the token the
-    # browser already carries as a cookie from a prior visit; only mint (and
-    # cookie-set) a new one when there isn't one yet.
+    # person as a fresh "unique visitor" every time.
+    #
+    # ?v= in the URL (st.query_params, the same mechanism _sync_page_query_
+    # param already relies on for ?page=) is the primary recovery path: it's
+    # proven to round-trip through Streamlit Community Cloud's reverse proxy
+    # in production. A cookie was tried first but confirmed NOT to survive a
+    # plain refresh once actually deployed there (worked in local testing,
+    # not on Cloud — most likely lost in the proxy's WebSocket-upgrade
+    # handshake before it ever reaches st.context.cookies) — kept only as a
+    # harmless best-effort second attempt.
     if "visitor_token" not in st.session_state:
+        token = ""
         try:
-            cookie_token = st.context.cookies.get(utils.VISITOR_COOKIE_NAME, "") or ""
+            token = st.query_params.get(utils.VISITOR_QUERY_PARAM, "") or ""
         except Exception:
-            cookie_token = ""
+            pass
 
-        if cookie_token:
-            st.session_state["visitor_token"] = cookie_token
-        else:
-            new_token = base64.urlsafe_b64encode(os.urandom(12)).decode()
-            st.session_state["visitor_token"] = new_token
-            st.components.v1.html(utils.visitor_cookie_js(new_token), height=0)
+        if not token:
+            try:
+                token = st.context.cookies.get(utils.VISITOR_COOKIE_NAME, "") or ""
+            except Exception:
+                token = ""
+
+        if not token:
+            token = base64.urlsafe_b64encode(os.urandom(12)).decode()
+            st.components.v1.html(utils.visitor_cookie_js(token), height=0)
+
+        st.session_state["visitor_token"] = token
+        try:
+            st.query_params[utils.VISITOR_QUERY_PARAM] = token
+        except Exception:
+            pass
 
         try:
             user_agent = st.context.headers.get("User-Agent", "") or ""

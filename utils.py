@@ -961,6 +961,16 @@ def _not_enough_tickets_message(requested: int, remaining: int) -> str:
 _VISIT_BUFFER_FLUSH_THRESHOLD = 25   # flush once this many rows are buffered
 _VISIT_BUFFER_FLUSH_INTERVAL_SECONDS = 30  # ...or this long since the last flush
 
+# URL query param that lets a returning browser recover its visitor_token
+# instead of streamlit_app.main() minting a fresh one on every reload. This
+# is the primary recovery path — it rides the same st.query_params
+# mechanism _sync_page_query_param() already uses for ?page=, which is
+# proven to survive Streamlit Community Cloud's reverse proxy in
+# production. VISITOR_COOKIE_NAME below is a secondary, best-effort attempt
+# only — confirmed NOT to survive a plain refresh once actually deployed
+# there, despite working in local testing.
+VISITOR_QUERY_PARAM = "v"
+
 # Cookie that lets a returning browser recover its visitor_token instead of
 # streamlit_app.main() minting a fresh one — see visitor_cookie_js().
 VISITOR_COOKIE_NAME = "pc_visitor_token"
