@@ -2917,7 +2917,7 @@ def get_registration_daily_counts() -> list:
             if not g.created_at:
                 continue
             day = g.created_at.date()
-            counts[day] = counts.get(day, 0) + 1
+            counts[day] = counts.get(day, 0) + (g.ticket_count or 0)
         return sorted(counts.items())
     finally:
         session.close()
