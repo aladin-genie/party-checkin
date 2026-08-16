@@ -26,10 +26,11 @@ cd /tmp/pc-sandbox && python -m streamlit run /path/to/party-checkin/streamlit_a
 The `tests/e2e` suite does exactly this automatically.
 
 ## Live App
-- **Streamlit Cloud:** `https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/`
+- **Streamlit Cloud:** see Streamlit Cloud dashboard (URL kept out of this public repo — it was getting hit by
+  crawler/bot traffic every few minutes after being indexed from here, inflating the visitor stats)
 - **GitHub repo:** `git@github.com:aladin-genie/party-checkin.git` (branch `main`, entry `streamlit_app.py`)
-- **Streamlit Cloud account:** `aladin-genie` (yvh1225@gmail.com Chrome session)
-- **Supabase project:** `zqpdpbyxohqthoikzotv`
+- **Streamlit Cloud account:** `aladin-genie`
+- **Supabase project:** see Streamlit Cloud secrets (`DATABASE_URL`)
 - **Python version:** 3.12 (set in Streamlit Cloud → Advanced settings)
 
 ## Required Streamlit Cloud Secrets

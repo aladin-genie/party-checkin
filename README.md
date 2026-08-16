@@ -5,7 +5,7 @@ Event registration and check-in for **Dallas Boys Party 2026**, built with **Str
 - **Event:** Friday, October 9, 2026 · 5:30 PM onwards
 - **Venue:** Elegance Ballroom & Event Center, 8740 Ohio Dr A1, Plano, TX 75024
 - **Theme:** 12th Year of Togetherness · dress theme **Texas Cowboys**
-- **Live app:** https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/
+- **Live app:** see Streamlit Cloud dashboard (URL kept out of this public repo to avoid crawler/bot traffic)
 - **Repo:** `aladin-genie/party-checkin` (branch `main`)
 - **Database:** Supabase PostgreSQL
 - **Payment:** Zelle → `dallashudugaru@gmail.com` · $30 per ticket, $29 for 10+, $28 for 20+ · 225 tickets total
@@ -218,7 +218,7 @@ confirmation step. Identity columns are read-only so they can't be edited by acc
 
 | Page | Who uses it | URL |
 |------|-------------|-----|
-| **Register** ← *the link you send* | Guests | https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app/ |
+| **Register** ← *the link you send* | Guests | (bare app URL — see Streamlit Cloud dashboard) |
 | **Home** | Everyone | …/?page=Home |
 | **My QR** | Guests | …/?page=My%20QR |
 | **Scanner** | Check-in staff | …/?page=Scanner |
@@ -281,7 +281,7 @@ MAIL_DEFAULT_SENDER = "your-sender@gmail.com"
 ADMIN_PASSWORD = "choose-a-strong-password"
 MAX_TOTAL_TICKETS = "225"                    # hard ticket cap; "0" disables it
 ZELLE_INFO = "dallashudugaru@gmail.com"
-APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"
+APP_URL = "https://your-app-name.streamlit.app"
 ```
 
 > ⚠️ **`ADMIN_PASSWORD` is mandatory.** The admin dashboard exposes guest PII and can delete
