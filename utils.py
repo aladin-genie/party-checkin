@@ -961,6 +961,66 @@ def _not_enough_tickets_message(requested: int, remaining: int) -> str:
 _VISIT_BUFFER_FLUSH_THRESHOLD = 25   # flush once this many rows are buffered
 _VISIT_BUFFER_FLUSH_INTERVAL_SECONDS = 30  # ...or this long since the last flush
 
+# Cookie that lets a returning browser recover its visitor_token instead of
+# streamlit_app.main() minting a fresh one — see visitor_cookie_js().
+VISITOR_COOKIE_NAME = "pc_visitor_token"
+VISITOR_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60  # ~13 months, the cap browsers enforce on JS-set cookies
+
+# Named crawlers, link-unfurlers, and scripted HTTP clients — deliberately
+# NOT a generic "bot" or "headless" match, both of which would also catch
+# Playwright's own Chromium (UA contains "HeadlessChrome") and silently
+# zero out every e2e test's recorded traffic.
+_BOT_USER_AGENT_RE = re.compile(
+    r"googlebot|bingbot|baiduspider|yandexbot|duckduckbot|applebot|"
+    r"facebookexternalhit|facebot|linkedinbot|twitterbot|telegrambot|"
+    r"whatsapp|slackbot|discordbot|redditbot|pinterest|skypeuripreview|"
+    r"ahrefsbot|semrushbot|mj12bot|dotbot|petalbot|bytespider|gptbot|"
+    r"claudebot|anthropic-ai|ccbot|ia_archiver|archive\.org_bot|"
+    r"curl/|wget/|python-requests|go-http-client|postmanruntime|"
+    r"node-fetch|axios/|scrapy|phantomjs",
+    re.IGNORECASE,
+)
+
+
+def is_bot_user_agent(user_agent: str) -> bool:
+    """True when `user_agent` identifies a crawler, link-unfurler, or
+    scripted HTTP client rather than a person's browser — see
+    _BOT_USER_AGENT_RE for why this is a narrow, named-bot allowlist
+    rather than a broad "bot"/"headless" substring match.
+    """
+    return bool(user_agent) and bool(_BOT_USER_AGENT_RE.search(user_agent))
+
+
+def visitor_cookie_js(token: str) -> str:
+    """Return an HTML/JS snippet that persists `token` as a long-lived
+    first-party cookie, reaching out of the component iframe into the
+    parent document the same way phone_input_mask_js() does.
+
+    Streamlit mints a brand-new session — and streamlit_app.main() would
+    otherwise mint a brand-new random visitor_token right along with it —
+    on every full page reload or dropped/reconnected WebSocket (a common
+    mobile occurrence: screen lock, backgrounding, a network blip). That
+    was counting the same person as an extra "unique visitor" every time.
+    Setting this cookie lets the next session recover the same token via
+    st.context.cookies instead of minting a new one.
+    """
+    import json as _json
+
+    js_name = _json.dumps(VISITOR_COOKIE_NAME).replace("</", "<\\/")
+    js_token = _json.dumps(token).replace("</", "<\\/")
+
+    return f"""
+    <script>
+        (function () {{
+            try {{
+                var doc = window.parent.document;
+                doc.cookie = {js_name} + "=" + {js_token} +
+                    "; max-age={VISITOR_COOKIE_MAX_AGE_SECONDS}; path=/; SameSite=Lax";
+            }} catch (e) {{}}
+        }})();
+    </script>
+    """
+
 
 @st.cache_resource(show_spinner=False)
 def _visit_buffer_state() -> dict:

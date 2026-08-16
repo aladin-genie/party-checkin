@@ -1938,8 +1938,31 @@ def main():
     # Session identity: created once per browser session and reused both by
     # the capacity guard (below) and page-visit tracking (further down) —
     # previously two separate tokens were minted in two different places.
+    #
+    # Streamlit mints a brand-new session on every full page reload or
+    # dropped/reconnected WebSocket (screen lock, backgrounding, a network
+    # blip — all common on mobile), which was counting the same returning
+    # person as a fresh "unique visitor" every time. So prefer the token the
+    # browser already carries as a cookie from a prior visit; only mint (and
+    # cookie-set) a new one when there isn't one yet.
     if "visitor_token" not in st.session_state:
-        st.session_state["visitor_token"] = base64.urlsafe_b64encode(os.urandom(12)).decode()
+        try:
+            cookie_token = st.context.cookies.get(utils.VISITOR_COOKIE_NAME, "") or ""
+        except Exception:
+            cookie_token = ""
+
+        if cookie_token:
+            st.session_state["visitor_token"] = cookie_token
+        else:
+            new_token = base64.urlsafe_b64encode(os.urandom(12)).decode()
+            st.session_state["visitor_token"] = new_token
+            st.components.v1.html(utils.visitor_cookie_js(new_token), height=0)
+
+        try:
+            user_agent = st.context.headers.get("User-Agent", "") or ""
+        except Exception:
+            user_agent = ""
+        st.session_state["is_bot_visit"] = utils.is_bot_user_agent(user_agent)
 
     # ── Capacity guard ───────────────────────────────────────────────────
     # Registers this session as active and gets back the current
@@ -2023,10 +2046,15 @@ def main():
     # the "Flash messages" section above / PART 6.
     _render_flash()
 
-    # Record page visit once per navigation / refresh for traffic stats
+    # Record page visit once per navigation / refresh for traffic stats.
+    # Skipped for known crawlers/link-unfurlers (is_bot_visit) so a shared
+    # invite link being fetched for a chat preview doesn't inflate the count.
     try:
         current_page = st.session_state.get("page", config.LANDING_PAGE)
-        if st.session_state.get("last_recorded_page") != current_page:
+        if (
+            not st.session_state.get("is_bot_visit")
+            and st.session_state.get("last_recorded_page") != current_page
+        ):
             utils.record_visit(st.session_state["visitor_token"], current_page)
             st.session_state["last_recorded_page"] = current_page
     except Exception:
