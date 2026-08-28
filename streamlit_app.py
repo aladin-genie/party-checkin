@@ -285,8 +285,6 @@ def page_home():
         st.markdown(
             theme.stat_tiles(
                 [
-                    {"label": "Unique Visitors", "value": site_stats["unique_visitors"], "caption": "All time", "icon": "👀", "accent": "info"},
-                    {"label": "Page Views", "value": site_stats["total_visits"], "caption": "All time", "icon": "📈", "accent": "turquoise"},
                     {"label": "Registered Guests", "value": site_stats["total_regs"], "caption": f"+{site_stats['today_regs']} today", "icon": "📝", "accent": "gold"},
                     {"label": "Visitors Today", "value": site_stats["today_unique"], "caption": f"{site_stats['today_visits']} views", "icon": "🔥", "accent": "warn"},
                 ]

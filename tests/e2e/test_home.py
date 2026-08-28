@@ -23,8 +23,6 @@ NAV_CARDS = [
 ]
 
 PARTY_BUZZ_STAT_LABELS = [
-    "Unique Visitors",
-    "Page Views",
     "Registered Guests",
     "Visitors Today",
 ]
