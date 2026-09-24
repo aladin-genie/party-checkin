@@ -667,12 +667,17 @@ div[data-testid="stElementContainer"]:has(> iframe[height="0"]),
 .stat-tile.accent-rust .stat-icon { background: rgba(var(--rust-rgb), 0.18); }
 .stat-tile.accent-turquoise .stat-icon { background: rgba(var(--turquoise-rgb), 0.18); }
 
+/* A number must never break across lines — "$1,220.0" / "0" reads as two
+   figures. Long values (stat_tiles() tags them .stat-value-long) instead
+   shrink with their tile — cqi is 1% of the tile's width, via the
+   container-type below — while short counts keep the full size. */
+.stat-tile { container-type: inline-size; }
 .stat-value {
     font-size: 1.8rem;
     font-weight: 800;
     color: var(--gold-soft);
     line-height: 1.15;
-    overflow-wrap: break-word;
+    white-space: nowrap;
     /* Bottom-align the value (and caption, if any) within the tile so every
        value in a row sits on the same baseline even when tiles are
        grid-stretched to the row's tallest neighbor. */
@@ -713,6 +718,8 @@ div[data-testid="stElementContainer"]:has(> iframe[height="0"]),
 .stat-tile-hero .stat-value {
     font-size: 2.5rem;
 }
+.stat-tile .stat-value-long { font-size: min(1.8rem, 13cqi); }
+.stat-tile-hero .stat-value-long { font-size: min(2.5rem, 13cqi); }
 .stat-tile-hero.accent-gold { background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.16) 0%, var(--elevated) 100%); }
 .stat-tile-hero.accent-ok { background: linear-gradient(135deg, rgba(var(--ok-rgb), 0.16) 0%, var(--elevated) 100%); }
 .stat-tile-hero.accent-warn { background: linear-gradient(135deg, rgba(var(--warn-rgb), 0.16) 0%, var(--elevated) 100%); }
@@ -1733,6 +1740,9 @@ def stat_tiles(items: list) -> str:
     for item in items:
         label = item.get("label", "")
         value = item.get("value", "")
+        # Past ~5 characters ("$1,178.00", "12,345") a value no longer fits a
+        # narrow tile at full size; see .stat-value-long.
+        value_class = "stat-value stat-value-long" if len(str(value)) > 5 else "stat-value"
         caption = item.get("caption") or ""
         icon = item.get("icon") or ""
         emphasis = item.get("emphasis") or "normal"
@@ -1753,7 +1763,7 @@ def stat_tiles(items: list) -> str:
         tiles.append(
             f'<div class="{" ".join(classes)}">'
             f'<div class="stat-label">{icon_html}<span>{html.escape(str(label))}</span></div>'
-            f'<div class="stat-value">{html.escape(str(value))}</div>'
+            f'<div class="{value_class}">{html.escape(str(value))}</div>'
             f'{cap_html}'
             f'</div>'
         )
