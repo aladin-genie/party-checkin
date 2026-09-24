@@ -356,6 +356,50 @@ div[data-testid="stContainer"] {
     transform: none !important;
 }
 
+/* Zero-height helper iframes (the visitor-cookie writer, the phone-number
+   mask) are still flex children of the page, so each one added a full
+   row-gap above the content — on a guest's very first visit the whole page
+   started ~40px lower than on every later one. Take them out of flow; they
+   stay mounted, so their scripts still run. */
+div[data-testid="stElementContainer"]:has(> iframe[height="0"]),
+.element-container:has(> iframe[height="0"]) {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Page-header utility buttons (🏠 Home on every page, 🔒 Logout on Admin).
+   They are navigation, not calls to action, so they get the ghost look —
+   and on a phone, where the header columns stack, they stay a compact pill
+   instead of a full-width gold bar sitting above the page's real content. */
+[class*="st-key-home_"] button,
+.st-key-admin_logout button {
+    background: transparent !important;
+    color: var(--gold-soft) !important;
+    border: 1px solid rgba(var(--tan-rgb), 0.40) !important;
+    box-shadow: none !important;
+}
+[class*="st-key-home_"] button:hover,
+.st-key-admin_logout button:hover {
+    background: var(--elevated) !important;
+    border-color: rgba(var(--gold-rgb), 0.55) !important;
+    transform: none !important;
+}
+@media (max-width: 640px) {
+    [class*="st-key-home_"] button,
+    .st-key-admin_logout button {
+        width: auto !important;
+        min-height: 38px !important;
+        padding: 4px 16px !important;
+    }
+    /* Line the collapsed-sidebar chevron up with the brand bar's left
+       padding (reserved for it above) instead of straddling its top edge. */
+    [data-testid="stSidebarCollapsedControl"] {
+        top: 2.6rem !important;
+    }
+}
+
 /* ── Pills / badges ────────────────────────────────────────────────────── */
 /* Leather luggage tags: warm fill, tan edge, and a dashed inner rule that
    reads as saddle stitching. */
@@ -484,9 +528,19 @@ div[data-testid="stContainer"] {
     gap: 0;
 }
 
+/* On a phone the name and the dress note don't fit on one line, and letting
+   them wrap mid-phrase split the pill into two ragged columns. Stack them
+   instead: the theme name on top, the note underneath, no separator dot. */
 @media (max-width: 640px) {
     .hero-title { font-size: 1.7rem !important; }
     .hero-subtitle { font-size: 0.95rem !important; }
+    .hero-theme {
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px 20px;
+        border-radius: var(--radius-lg);
+    }
+    .hero-theme-sep { display: none; }
 }
 
 /* ── Event strip (Register page) ───────────────────────────────────────── */
@@ -875,7 +929,9 @@ div[data-testid="stContainer"] {
    next to it. */
 .photo-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    /* 150px keeps two tiles per row on a phone — at 200px every photo got
+       a full-width row and the gallery ran several screens long. */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     /* Size each card to its own content instead of stretching it to the
        tallest in the row: captions are optional, and a stretched card with
        no caption shows an empty strip that reads as a missing one. */
@@ -1601,7 +1657,9 @@ def hero() -> str:
     theme_name = html.escape(getattr(config, "EVENT_THEME", "") or "")
     theme_note = html.escape(getattr(config, "EVENT_THEME_NOTE", "") or "")
     if theme_name:
-        note_html = f" <small>· {theme_note}</small>" if theme_note else ""
+        note_html = (
+            f'<span class="hero-theme-sep">·</span><small>{theme_note}</small>' if theme_note else ""
+        )
         theme_html = f'<div class="hero-theme">🤠 {theme_name} Theme{note_html}</div>'
     else:
         theme_html = ""

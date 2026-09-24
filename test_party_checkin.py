@@ -283,8 +283,30 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(stats["pending"], 3)
         self.assertEqual(stats["total_tickets"], 15)  # 1+2+3+4+5
         self.assertEqual(stats["admitted_tickets"], 3)  # 1+2
+        self.assertEqual(stats["people_pending"], 12)  # 3+4+5
         session.close()
-    
+
+    def test_door_stats_count_people_not_bookings(self):
+        # The organiser's "Total Guests" is heads through the door: a single
+        # booking of 10 is 10 guests, and banding it hands out 10 wristbands.
+        session = get_db()
+        for i, (tickets, checked, banded) in enumerate([(10, True, True), (1, False, False), (4, True, False)]):
+            session.add(Guest(
+                name=f"Door{i}", email=f"door{i}@test.com", ticket_count=tickets,
+                zelle_ref=f"ZELLE-D{i}", qr_code=generate_qr_code(),
+                checked_in=checked, band_given=banded,
+            ))
+        session.commit()
+        session.close()
+
+        stats = get_stats()
+        self.assertEqual(stats["total_guests"], 3)        # bookings
+        self.assertEqual(stats["total_tickets"], 15)      # people
+        self.assertEqual(stats["admitted_tickets"], 14)
+        self.assertEqual(stats["people_pending"], 1)
+        self.assertEqual(stats["banded_people"], 10)
+        self.assertEqual(stats["bands_distributed"], 1)   # bookings banded
+
     def test_stats_extended(self):
         session = get_db()
         guests_data = [

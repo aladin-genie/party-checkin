@@ -295,10 +295,10 @@ def page_home():
     daily_counts = _cached_registration_daily_counts()
     if daily_counts:
         reg_df = pd.DataFrame(
-            {"Registrations": [c for _, c in daily_counts]},
+            {"Guests": [c for _, c in daily_counts]},
             index=[d.strftime("%b %d") for d, _ in daily_counts],
         )
-        st.caption("📈 Registrations by day — how quickly folks have been signing up.")
+        st.caption("📈 Guests registered by day — how quickly folks have been signing up.")
         _render_bar_chart(reg_df)
     else:
         st.info("No registrations yet — be the first to sign up!")
@@ -1044,8 +1044,8 @@ def page_scanner():
         st.markdown(
             theme.stat_tiles(
                 [
-                    {"label": "Checked In", "value": stats["checked_in"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
-                    {"label": "Total Guests", "value": stats["total_guests"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
+                    {"label": "Checked In", "value": stats["admitted_tickets"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
+                    {"label": "Total Guests", "value": stats["total_tickets"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
                 ]
             ),
             unsafe_allow_html=True,
@@ -1406,7 +1406,7 @@ def page_admin():
                     st.error(f"Incorrect password. ({fail_count}/{ADMIN_MAX_ATTEMPTS} attempts)")
         return
 
-    if st.button("🔒 Logout", type="secondary"):
+    if st.button("🔒 Logout", type="secondary", key="admin_logout"):
         st.session_state["admin_authenticated"] = False
         st.rerun()
 
@@ -1648,12 +1648,13 @@ def _admin_overview_tab():
         st.markdown(
             theme.stat_tiles(
                 [
-                    {"label": "Total Guests", "value": stats["total_guests"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
-                    {"label": "Checked In", "value": stats["checked_in"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
-                    {"label": "Pending", "value": stats["pending"], "icon": "⏳", "accent": "warn"},
-                    {"label": "Bands Given", "value": stats["bands_distributed"], "icon": "🏷️", "accent": "turquoise"},
-                    {"label": "Total Tickets", "value": stats["total_tickets"], "icon": "🎫"},
-                    {"label": "Admitted Tickets", "value": stats["admitted_tickets"], "icon": "🚪", "accent": "info"},
+                    # People, not bookings: one booking of 10 tickets is 10
+                    # guests at the door. Bookings get their own tile below.
+                    {"label": "Total Guests", "value": stats["total_tickets"], "caption": f"across {stats['total_guests']} booking{'s' if stats['total_guests'] != 1 else ''}", "icon": "👥", "accent": "gold", "emphasis": "hero"},
+                    {"label": "Checked In", "value": stats["admitted_tickets"], "caption": f"{stats['checked_in']} of {stats['total_guests']} bookings", "icon": "✅", "accent": "ok", "emphasis": "hero"},
+                    {"label": "Still to Arrive", "value": stats["people_pending"], "caption": f"{stats['pending']} booking{'s' if stats['pending'] != 1 else ''}", "icon": "⏳", "accent": "warn"},
+                    {"label": "Wristbands Given", "value": stats["banded_people"], "caption": f"{stats['bands_distributed']} booking{'s' if stats['bands_distributed'] != 1 else ''}", "icon": "🏷️", "accent": "turquoise"},
+                    {"label": "Bookings", "value": stats["total_guests"], "caption": f"avg {stats['avg_tickets_per_guest']:g} guests each", "icon": "📝"},
                     {"label": "Revenue (est.)", "value": f"${stats['revenue']:,.2f}", "icon": "💰", "accent": "gold"},
                     {"label": "Plus Ones", "value": stats["plus_one_count"], "icon": "➕", "accent": "rust"},
                     {"label": "Named Guests", "value": stats["named_guests"], "icon": "👥", "accent": "rust"},
@@ -1665,7 +1666,7 @@ def _admin_overview_tab():
             unsafe_allow_html=True,
         )
         st.markdown(
-            theme.checkin_progress_meter(stats["checked_in"], stats["total_guests"]),
+            theme.checkin_progress_meter(stats["admitted_tickets"], stats["total_tickets"]),
             unsafe_allow_html=True,
         )
 
@@ -1759,8 +1760,12 @@ def _admin_guests_tab():
         st.warning(f"No guests match “{search_term}”.")
         return
 
+    # Each row is a booking, which may cover many people — say both, so
+    # "5 shown" is never mistaken for the head count.
+    shown_people = sum(utils.wristband_count(g) for g in filtered)
     st.caption(
-        f"{len(filtered)} of {len(guests)} guest{'s' if len(guests) != 1 else ''} shown. "
+        f"{len(filtered)} of {len(guests)} booking{'s' if len(guests) != 1 else ''} shown "
+        f"({shown_people} guest{'s' if shown_people != 1 else ''}). "
         "Tick boxes below, then Save changes."
     )
 

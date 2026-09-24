@@ -194,7 +194,7 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
     # exposes no hidden accessibility mirror, so cell TEXT is simply not in the
     # DOM and cannot be asserted on. The app's own row-count caption is real
     # DOM text, so use that as the observable proxy for editor contents.
-    expect(page.get_by_text("2 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("2 of 2 bookings shown", exact=False)).to_be_visible(timeout=10000)
 
     save_button = page.get_by_role("button", name="Save changes", exact=False)
     expect(save_button).to_be_visible(timeout=8000)
@@ -202,16 +202,16 @@ def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, ba
     # ── search filters the editor's row count ───────────────────────────
     search_label = "🔍 Search by name, email, phone, or Zelle ref"
     fill_and_blur(page, search_label, "Grid Alpha")
-    expect(page.get_by_text("1 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("1 of 2 bookings shown", exact=False)).to_be_visible(timeout=10000)
 
     # Phone search matches on digits, so an organiser can type the number the
     # way the guest reads it out. Each step below changes the expected count,
     # so the assertion can't pass on the previous step's stale caption.
     fill_and_blur(page, search_label, "555-311")
-    expect(page.get_by_text("2 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("2 of 2 bookings shown", exact=False)).to_be_visible(timeout=10000)
 
     fill_and_blur(page, search_label, "5553110002")
-    expect(page.get_by_text("1 of 2 guests shown", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("1 of 2 bookings shown", exact=False)).to_be_visible(timeout=10000)
 
     fill_and_blur(page, search_label, "")
     page.wait_for_timeout(700)

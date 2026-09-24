@@ -791,7 +791,10 @@ def get_stats() -> dict:
 
     Head counts, all of which differ and all of which an organiser asks for:
     total_guests is bookings (rows), total_tickets is people paid for,
-    named_guests is the additional people actually named on those bookings,
+    admitted_tickets / people_pending / banded_people are the people-level
+    door numbers (a 10-ticket booking checking in is 10 people through the
+    door, not 1), named_guests is the additional people actually named on
+    those bookings,
     and unnamed_tickets is the gap between the two — non-zero only for
     bookings made before guest names were required, since
     validate_registration() now refuses a mismatch.
@@ -810,6 +813,9 @@ def get_stats() -> dict:
             func.coalesce(func.sum(_named_guests_expr()), 0),
             func.coalesce(func.sum(Guest.veg_count), 0),
             func.coalesce(func.sum(Guest.non_veg_count), 0),
+            func.coalesce(
+                func.sum(case((Guest.band_given == True, Guest.ticket_count), else_=0)), 0
+            ),
         ).one()
 
         total = int(row[0])
@@ -821,6 +827,7 @@ def get_stats() -> dict:
         named_guests = int(row[6])
         veg_total = int(row[7])
         non_veg_total = int(row[8])
+        banded_people = int(row[9])
         # Clamped: a row hand-edited to name more people than it has tickets
         # would otherwise report a negative gap.
         unnamed_tickets = max(tickets - total - named_guests, 0)
@@ -846,6 +853,8 @@ def get_stats() -> dict:
             "pending": total - checked_in,
             "total_tickets": tickets,
             "admitted_tickets": admitted_tickets,
+            "people_pending": tickets - admitted_tickets,
+            "banded_people": banded_people,
             "plus_one_count": plus_one_count,
             "named_guests": named_guests,
             "unnamed_tickets": unnamed_tickets,

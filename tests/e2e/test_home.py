@@ -64,7 +64,7 @@ def test_home_party_buzz_registrations_chart_renders_once_there_are_registration
 
     goto(page, base_url, "Home")
 
-    expect(page.get_by_text("Registrations by day", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("Guests registered by day", exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_text("No registrations yet", exact=False)).to_have_count(0)
     expect(page.locator("[data-testid='stVegaLiteChart']").first).to_be_visible(timeout=10000)
 

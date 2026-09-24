@@ -87,9 +87,14 @@ locks everyone out of the admin dashboard rather than letting everyone in.
   bar), Bitter carries headings, Inter carries body — don't put Rye on body copy, it has no
   bold weight and is barely legible at small sizes. The ground stays DARK despite the flyer's
   cream paper: this is read on phones in a dim ballroom.
-- **`config.EVENT_FLYER` names a file that does not exist yet.** That's deliberate —
-  `utils.event_flyer_src()` returns "" and both call sites render nothing until the artwork is
-  dropped in. Don't "fix" it by pointing it at a placeholder.
+- **`config.EVENT_FLYER` is optional.** The real flyer is at `assets/flyer.jpg`; if that file
+  is ever missing, `utils.event_flyer_src()` returns "" and both call sites render nothing.
+  Don't "fix" a missing flyer by pointing it at a placeholder.
+- **"Guests" means people, "bookings" means rows.** `get_stats()["total_guests"]` is the
+  number of *bookings* (one per submitter); every guest-facing or organiser-facing "Total
+  Guests" / "Checked In" figure must use the people counts — `total_tickets`,
+  `admitted_tickets`, `people_pending`, `banded_people`. The booking counts only appear as
+  captions or on the "Bookings" tile.
 - **Everything in `assets/` is currently a generated PLACEHOLDER** (stamped
   "PLACEHOLDER"/"SAMPLE LOGO", with deliberately generic sponsor names). It ships on a public
   page, so if you add more stand-ins keep them unmistakably fake — never invent a plausible
@@ -122,7 +127,7 @@ locks everyone out of the admin dashboard rather than letting everyone in.
   them, and `utils.party_size()` tolerates them, so don't assume names == tickets-1 when
   *reading*.
 - **`st.data_editor` paints cells on a canvas** with no accessibility mirror, so E2E tests
-  cannot read cell text. Assert on the app's own "N of M guests shown" caption instead, and
+  cannot read cell text. Assert on the app's own "N of M bookings shown" caption instead, and
   cover mutations through `utils.apply_guest_changes()` at the service level.
 - **Never call `st.success()` immediately before `st.rerun()`** — the rerun discards the frame
   and the message is never painted. Use `_set_flash()` / `_render_flash()`.
