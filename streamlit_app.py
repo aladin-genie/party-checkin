@@ -256,63 +256,8 @@ def page_home():
     st.markdown(theme.flyer_card(utils.event_flyer_src()), unsafe_allow_html=True)
 
     # ── Photos & sponsors ───────────────────────────────────────────────────
-    # Ahead of Party Buzz on purpose: a guest arriving here straight off the
-    # registration form came to see the party, not the analytics.
     _home_photos_section()
     _home_sponsors_section()
-
-    # ── Party Buzz ──────────────────────────────────────────────────────────
-    # Public, aggregate-only site activity — no guest names/emails/phones/
-    # Zelle refs ever appear here. Moved from the admin dashboard: the owner
-    # doesn't consider it sensitive and would rather show it off than bury it.
-    site_stats = _cached_site_stats()
-    st.markdown(
-        theme.section_header(
-            "🎉 Party Buzz", "A live pulse of the site so far — nothing guest-specific, just the vibe."
-        ),
-        unsafe_allow_html=True,
-    )
-    if site_stats["total_visits"] == 0 and site_stats["total_regs"] == 0:
-        st.markdown(
-            theme.empty_state(
-                "🌱", "The buzz starts here",
-                "Nobody's visited yet — traffic and registration numbers will start moving "
-                "the moment the first guest opens this site.",
-            ),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            theme.stat_tiles(
-                [
-                    {"label": "Registered Guests", "value": site_stats["total_regs"], "caption": f"+{site_stats['today_regs']} today", "icon": "📝", "accent": "gold"},
-                    {"label": "Visitors Today", "value": site_stats["today_unique"], "caption": f"{site_stats['today_visits']} views", "icon": "🔥", "accent": "warn"},
-                ]
-            ),
-            unsafe_allow_html=True,
-        )
-
-    daily_counts = _cached_registration_daily_counts()
-    if daily_counts:
-        reg_df = pd.DataFrame(
-            {"Guests": [c for _, c in daily_counts]},
-            index=[d.strftime("%b %d") for d, _ in daily_counts],
-        )
-        st.caption("📈 Guests registered by day — how quickly folks have been signing up.")
-        _render_bar_chart(reg_df)
-    else:
-        st.info("No registrations yet — be the first to sign up!")
-
-    hourly = _cached_event_day_hourly_checkins()
-    if any(hourly):
-        checkin_df = pd.DataFrame(
-            {"Check-ins": hourly},
-            index=[f"{h:02d}:00" for h in range(24)],
-        )
-        st.caption(f"🚪 Check-ins by hour on {config.EVENT_DATE_SHORT} — the flow through the door.")
-        _render_bar_chart(checkin_df)
-    else:
-        st.info(f"Check-ins will show up here live once doors open on {config.EVENT_DATE_SHORT}.")
 
     st.markdown(theme.section_header("Get Started"), unsafe_allow_html=True)
 
@@ -1706,6 +1651,59 @@ def _admin_overview_tab():
         utils.set_checkin_mode(chosen_mode)
         _set_flash("success", f"Check-in mode set to “{chosen_label}”.")
         st.rerun()
+
+    # ── Party Buzz ──────────────────────────────────────────────────────────
+    # Public, aggregate-only site activity — no guest names/emails/phones/
+    # Zelle refs ever appear here. Moved off Home: guests coming from the
+    # registration link don't need site analytics, but the organiser does.
+    site_stats = _cached_site_stats()
+    st.markdown(
+        theme.section_header(
+            "🎉 Party Buzz", "A live pulse of the site so far — nothing guest-specific, just the vibe."
+        ),
+        unsafe_allow_html=True,
+    )
+    if site_stats["total_visits"] == 0 and site_stats["total_regs"] == 0:
+        st.markdown(
+            theme.empty_state(
+                "🌱", "The buzz starts here",
+                "Nobody's visited yet — traffic and registration numbers will start moving "
+                "the moment the first guest opens this site.",
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            theme.stat_tiles(
+                [
+                    {"label": "Registered Guests", "value": site_stats["total_regs"], "caption": f"+{site_stats['today_regs']} today", "icon": "📝", "accent": "gold"},
+                    {"label": "Visitors Today", "value": site_stats["today_unique"], "caption": f"{site_stats['today_visits']} views", "icon": "🔥", "accent": "warn"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+
+    daily_counts = _cached_registration_daily_counts()
+    if daily_counts:
+        reg_df = pd.DataFrame(
+            {"Guests": [c for _, c in daily_counts]},
+            index=[d.strftime("%b %d") for d, _ in daily_counts],
+        )
+        st.caption("📈 Guests registered by day — how quickly folks have been signing up.")
+        _render_bar_chart(reg_df)
+    else:
+        st.info("No registrations yet — be the first to sign up!")
+
+    hourly = _cached_event_day_hourly_checkins()
+    if any(hourly):
+        checkin_df = pd.DataFrame(
+            {"Check-ins": hourly},
+            index=[f"{h:02d}:00" for h in range(24)],
+        )
+        st.caption(f"🚪 Check-ins by hour on {config.EVENT_DATE_SHORT} — the flow through the door.")
+        _render_bar_chart(checkin_df)
+    else:
+        st.info(f"Check-ins will show up here live once doors open on {config.EVENT_DATE_SHORT}.")
 
 
 def _admin_guests_tab():
