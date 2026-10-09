@@ -1003,6 +1003,39 @@ class TestPartyCheckIn(unittest.TestCase):
         result = mark_band_given(999999)
         self.assertFalse(result["ok"])
 
+    # ── Camera scan: QR decoding + bringing the card into view ──────────────
+
+    def _qr_photo(self, code, size=260, mirror=False, contrast=1.0, canvas=(640, 480)):
+        from PIL import Image, ImageEnhance, ImageOps
+        qr = Image.open(io.BytesIO(generate_qr_image(code))).convert("RGB").resize((size, size), Image.NEAREST)
+        if mirror:
+            qr = ImageOps.mirror(qr)
+        photo = Image.new("RGB", canvas, (60, 60, 60))
+        photo.paste(qr, ((canvas[0] - size) // 2, (canvas[1] - size) // 2))
+        return ImageEnhance.Contrast(photo).enhance(contrast)
+
+    def test_decode_qr_image_reads_a_clean_photo(self):
+        self.assertEqual(utils.decode_qr_image(self._qr_photo("PARTY2026-ABC123")), "PARTY2026-ABC123")
+
+    def test_decode_qr_image_reads_mirrored_and_awkward_photos(self):
+        """A mirrored front camera, or a small, washed-out code."""
+        self.assertEqual(utils.decode_qr_image(self._qr_photo("PARTY2026-MIRROR", mirror=True)), "PARTY2026-MIRROR")
+        self.assertEqual(
+            utils.decode_qr_image(self._qr_photo("PARTY2026-SMALL", size=120, contrast=0.45)),
+            "PARTY2026-SMALL",
+        )
+
+    def test_decode_qr_image_returns_empty_without_a_code(self):
+        from PIL import Image
+        self.assertEqual(utils.decode_qr_image(Image.new("RGB", (640, 480), (90, 90, 90))), "")
+
+    def test_scroll_to_selector_js_targets_the_parent_page(self):
+        js = utils.scroll_to_selector_js(".guest-result-card", nonce="42")
+        self.assertIn("window.parent.document", js)
+        self.assertIn('querySelector(".guest-result-card")', js)
+        self.assertIn('"42"', js)
+        self.assertNotIn("</script>\"", utils.scroll_to_selector_js("</script>"))
+
     # ── Times shown in venue-local time ─────────────────────────────────────
 
     def test_to_event_local_converts_stored_utc_to_dallas_time(self):

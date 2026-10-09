@@ -2074,6 +2074,69 @@ def audio_announcement_js(text: str) -> str:
     """
 
 
+def scroll_to_selector_js(selector: str, nonce: str = "") -> str:
+    """HTML/JS that scrolls the parent page to the first element matching
+    `selector` — e.g. the guest card a scan just opened below the camera, out
+    of sight on an iPad. Retries briefly in case the element is still being
+    painted. `nonce` makes each call's HTML unique so Streamlit re-runs it
+    rather than reusing the previous (identical) component."""
+    import json as _json
+    js_selector = _json.dumps(selector).replace("</", "<\\/")
+    js_nonce = _json.dumps(str(nonce)).replace("</", "<\\/")
+    return f"""
+    <script>
+        (function () {{
+            var nonce = {js_nonce};
+            var tries = 0;
+            function go() {{
+                var doc;
+                try {{ doc = window.parent.document; }} catch (e) {{ return; }}
+                var el = doc.querySelector({js_selector});
+                if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); return; }}
+                if (++tries < 30) {{ setTimeout(go, 100); }}
+            }}
+            go();
+        }})();
+    </script>
+    """
+
+
+def decode_qr_image(pil_img) -> str:
+    """Read the QR code in a camera photo; "" if there isn't a readable one.
+
+    A clean photo decodes on the first try. Real door photos — a phone
+    screen held up to an iPad, with glare, the code small in frame or low
+    contrast — are missed by OpenCV's detector far more often, so on a miss
+    this retries on a few cheap variants (grayscale, contrast-equalised, 2×
+    upscaled, mirrored) and with OpenCV's ArUco-based detector where it
+    exists. First success wins.
+    """
+    import cv2
+    import numpy as np
+
+    bgr = cv2.cvtColor(np.array(pil_img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    variants = (
+        bgr,
+        gray,
+        cv2.equalizeHist(gray),
+        cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC),
+        cv2.flip(gray, 1),
+    )
+    detectors = [cv2.QRCodeDetector()]
+    if hasattr(cv2, "QRCodeDetectorAruco"):
+        detectors.append(cv2.QRCodeDetectorAruco())
+    for detector in detectors:
+        for image in variants:
+            try:
+                data, _points, _straight = detector.detectAndDecode(image)
+            except cv2.error:
+                continue
+            if data:
+                return data
+    return ""
+
+
 # ── Phone Input Mask (JavaScript) ───────────────────────────────────────────────
 
 US_PHONE_PREFIX = "+1-"

@@ -1007,17 +1007,20 @@ def page_scanner():
 
     if camera_image is not None:
         try:
-            import cv2
-            import numpy as np
             from PIL import Image
 
-            pil_img = Image.open(camera_image)
-            cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            detector = cv2.QRCodeDetector()
-            data, bbox, _ = detector.detectAndDecode(cv_img)
+            # Decoded once per photo: the camera keeps returning the same
+            # photo on every rerun, and a hard-to-read one can take a moment
+            # (decode_qr_image retries on a miss).
+            decoded = st.session_state.get("scanner_decoded")
+            if decoded and decoded[0] == camera_image.file_id:
+                data = decoded[1]
+            else:
+                data = utils.decode_qr_image(Image.open(camera_image))
+                st.session_state["scanner_decoded"] = (camera_image.file_id, data)
 
             if data:
-                st.success(f"QR Code detected: `{data[:50]}`")
+                st.success(f"QR Code detected: `{data[:50]}` — ticket below ⬇")
                 # Pull the ticket up straight away — a lookup only puts the
                 # guest's card on screen; checking in is still a separate,
                 # deliberate step there. Once per photo: the camera keeps
@@ -1028,7 +1031,11 @@ def page_scanner():
                     st.session_state["scanner_photo_looked_up"] = camera_image.file_id
                     _lookup_guest(data)
             else:
-                st.warning("No QR code detected in the photo. Try again or use manual entry below.")
+                st.warning(
+                    "Couldn't read a QR code in that photo. Tap ✕ Clear photo and try again — "
+                    "hold the phone steady, screen bright, code filling more of the frame — "
+                    "or use ⌨️ Find a Guest at the bottom."
+                )
         except Exception as e:
             st.error(f"Camera scan unavailable: {e}")
             st.info("Please use the manual entry option below.")
@@ -1044,6 +1051,15 @@ def page_scanner():
     elif st.session_state.get("scanner_result"):
         result = st.session_state["scanner_result"]
         _show_scanner_result(result)
+
+    # A scan opens the card below the camera — off-screen on an iPad, where
+    # it looked like nothing had happened. Bring it into view, once per
+    # new card (the flag is set wherever a new card is opened).
+    if st.session_state.pop("scanner_scroll", False):
+        st.components.v1.html(
+            utils.scroll_to_selector_js(".guest-result-card", nonce=str(time.time_ns())),
+            height=0,
+        )
 
     # ── Manual Lookup ────────────────────────────────────────────────────────
     # Only needed when the camera can't read a code, so it sits at the
@@ -1085,6 +1101,7 @@ def _lookup_guest(code: str):
     itself needs a second, deliberate press.
     """
     result = utils.find_guest_by_code(code)
+    st.session_state["scanner_scroll"] = True
 
     if result["status"] == "found":
         st.session_state["scanner_lookup"] = result["guest"]
@@ -1252,6 +1269,7 @@ def _render_waiver_form(guest: dict, bands: int, already: bool):
             return
         _cached_waiver_stats.clear()
         st.session_state["scanner_lookup"] = None
+        st.session_state["scanner_scroll"] = True
         st.session_state["scanner_result"] = {
             "type": "declined",
             "guest": guest,
@@ -1336,6 +1354,7 @@ def _show_admitted(guest: dict, message: str):
     whose wristbands are being handed over now, then rerun."""
     _cached_stats.clear()
     _cached_event_day_hourly_checkins.clear()
+    st.session_state["scanner_scroll"] = True
     announcement = utils.generate_welcome_announcement(guest["name"], guest["ticket_count"])
     st.session_state["scanner_result"] = {
         "type": "success",

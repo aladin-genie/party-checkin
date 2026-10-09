@@ -104,6 +104,8 @@ def test_scanner_lookup_by_phone_shows_details_and_checks_nobody_in(
 
     # .first: the identity card's heading — the name is also in the waiver's party list.
     expect(page.get_by_text("Phone Door Guest", exact=True).first).to_be_visible(timeout=10000)
+    # ...and scrolled into view, not left below the fold.
+    expect(page.get_by_text("Not checked in yet", exact=False)).to_be_in_viewport(timeout=10000)
     expect(page.get_by_text("phonedoor@example.com", exact=True)).to_be_visible(timeout=10000)
     expect(page.get_by_text("+1-555-707-1234", exact=True)).to_be_visible(timeout=10000)
     expect(page.get_by_text("Not checked in yet", exact=False)).to_be_visible(timeout=10000)
