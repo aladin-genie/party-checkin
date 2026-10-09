@@ -144,6 +144,12 @@ locks everyone out of the admin dashboard rather than letting everyone in.
   zero-width). Click the visible `<label>` and assert on `aria-checked`.
 
 ## Known Pitfalls
+- **A push can land in the already-running process.** Streamlit Cloud applies new code without
+  restarting, so `@st.cache_resource` values survive the deploy. `ensure_db_ready()` is keyed
+  on `utils.schema_signature()` for that reason — a new model's table gets created on the next
+  run. Before that key existed, the waiver deploy (2026-10-09) went live with no
+  `waiver_signatures` table until the app was rebooted. After any deploy that adds a table or
+  column, still check Admin loads (or Reboot app) before relying on it.
 - **Streamlit re-runs the whole script on every interaction.** Anything expensive at module
   scope runs on every click. `init_db()` is therefore wrapped in `ensure_db_ready()`
   (`@st.cache_resource`), and stats reads are wrapped in `@st.cache_data(ttl=10)` in

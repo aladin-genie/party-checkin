@@ -39,7 +39,7 @@ if startup_error:
 
 # ── Initialize DB ─────────────────────────────────────────────────────────────
 try:
-    utils.ensure_db_ready()
+    utils.ensure_db_ready(utils.schema_signature())
 except Exception:
     st.error("🚨 The app failed to start. Please share this error with the developer:")
     st.code(traceback.format_exc())

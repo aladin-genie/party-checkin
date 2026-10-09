@@ -996,6 +996,26 @@ class TestPartyCheckIn(unittest.TestCase):
         result = mark_band_given(999999)
         self.assertFalse(result["ok"])
 
+    # ── DB init across a same-process redeploy ──────────────────────────────
+
+    def test_schema_signature_covers_every_model_table(self):
+        tables = {name for name, _columns in utils.schema_signature()}
+        self.assertEqual(tables, set(utils.Base.metadata.tables))
+        self.assertIn("waiver_signatures", tables)
+
+    def test_ensure_db_ready_reruns_init_db_when_the_schema_changes(self):
+        """A push applied to the running process must still create new tables."""
+        utils.ensure_db_ready.clear()
+        try:
+            with patch("utils.init_db") as init_db_mock:
+                utils.ensure_db_ready(("guests",))
+                utils.ensure_db_ready(("guests",))
+                self.assertEqual(init_db_mock.call_count, 1)
+                utils.ensure_db_ready(("guests", "waiver_signatures"))
+                self.assertEqual(init_db_mock.call_count, 2)
+        finally:
+            utils.ensure_db_ready.clear()
+
     # ── Door waiver ─────────────────────────────────────────────────────────
 
     def _waiver_guest(self, ticket_count=1, plus_one_name="", email="waiver@test.com"):

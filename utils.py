@@ -504,9 +504,20 @@ def init_db():
             print(f"Postgres view creation skipped: {e}")
 
 
+def schema_signature() -> tuple:
+    """Every table and column the models declare, as a hashable tuple.
+
+    Changes whenever the code adds a table or a column — see ensure_db_ready().
+    """
+    return tuple(
+        (table.name, tuple(column.name for column in table.columns))
+        for table in Base.metadata.sorted_tables
+    )
+
+
 @st.cache_resource(show_spinner=False)
-def ensure_db_ready() -> None:
-    """Run init_db() exactly once per process.
+def ensure_db_ready(schema: tuple = ()) -> None:
+    """Run init_db() once per process — and again whenever `schema` changes.
 
     streamlit_app.py calls this at module top level instead of init_db()
     directly. Streamlit re-executes the whole script on every user
@@ -515,6 +526,15 @@ def ensure_db_ready() -> None:
     CREATE OR REPLACE VIEW statements against the remote database on every
     single click. @st.cache_resource makes sure the real work happens once
     per process. Tests call init_db() directly and are unaffected.
+
+    Callers pass schema_signature() as `schema`, which is part of the cache
+    key. Streamlit Cloud can apply a push to the process that's already
+    running (see _asset_data_uri()'s mtime key for the same effect on
+    images): the new code loads but cached resources survive, so a once-per-
+    process init_db() never sees a model the push added. That's how the
+    waiver_signatures table went missing in production on 2026-10-09 and
+    took the Admin page and the door waiver down until a reboot. A new table
+    or column changes the signature, so the next run creates it.
     """
     init_db()
 
