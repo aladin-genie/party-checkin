@@ -488,6 +488,19 @@ def _event_start_local_aware() -> datetime:
     return EVENT_START_LOCAL.replace(tzinfo=ZoneInfo(EVENT_TIMEZONE))
 
 
+def to_event_local(dt_utc: datetime) -> datetime:
+    """A stored timestamp (naive UTC — see utils._utc_now) as naive local time
+    at the venue, for display. Falls back to the same fixed offset as
+    event_start_utc() if the tz database is unavailable."""
+    try:
+        if ZoneInfo is None:
+            raise RuntimeError("zoneinfo module unavailable")
+        local = dt_utc.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(EVENT_TIMEZONE))
+        return local.replace(tzinfo=None)
+    except Exception:
+        return dt_utc - timedelta(hours=_FALLBACK_UTC_OFFSET_HOURS)
+
+
 def event_start_utc() -> datetime:
     """Return the event start time as a naive UTC datetime.
 

@@ -1003,6 +1003,33 @@ class TestPartyCheckIn(unittest.TestCase):
         result = mark_band_given(999999)
         self.assertFalse(result["ok"])
 
+    # ── Times shown in venue-local time ─────────────────────────────────────
+
+    def test_to_event_local_converts_stored_utc_to_dallas_time(self):
+        # 22:05 UTC on Oct 9, 2026 is 5:05 PM in Plano (CDT, UTC-5).
+        local = config.to_event_local(datetime(2026, 10, 9, 22, 5))
+        self.assertEqual((local.hour, local.minute), (17, 5))
+        self.assertEqual(utils.format_local_dt(datetime(2026, 10, 9, 22, 5)), "05:05 PM")
+        self.assertEqual(utils.format_local_dt(None), "—")
+
+    def test_already_checked_in_message_uses_local_time(self):
+        gid = self._register(name="Local Time", email="localtime@test.com",
+                             zelle_ref="ZELLE-LOCALT01")["guest"]["id"]
+        session = get_db()
+        try:
+            g = session.query(Guest).filter_by(id=gid).first()
+            g.checked_in, g.checkin_time = True, datetime(2026, 10, 9, 22, 5)
+            session.commit()
+        finally:
+            session.close()
+        self.assertIn("at 05:05 PM", check_in_guest(gid)["message"])
+
+    def test_guest_identity_card_flags_wristbands_already_given(self):
+        guest = {"name": "Card Guest", "email": "c@test.com", "phone": "", "ticket_count": 3, "band_given": True}
+        self.assertIn("3 — already given", theme.guest_identity_card(guest, 3, "status"))
+        guest["band_given"] = False
+        self.assertNotIn("already given", theme.guest_identity_card(guest, 3, "status"))
+
     # ── DB init across a same-process redeploy ──────────────────────────────
 
     def test_schema_signature_covers_every_model_table(self):

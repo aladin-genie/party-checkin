@@ -173,6 +173,14 @@ def test_wristband_mark_band_given_after_checkin(page, base_url, reset_db, seed_
 
     assert reset_db.get_guest(guest["id"])["band_given"] is True
 
+    # The same QR code comes through again: a plain "don't give any more",
+    # and nothing to press that would check in or hand out bands twice.
+    scanner_find(page, guest["qr_code"])
+    expect(page.get_by_text("Don't give any more", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("1 — already given", exact=True)).to_be_visible(timeout=10000)
+    expect(page.get_by_role("button", name="✓ Mark 1 Wristband Given")).to_have_count(0)
+    expect(page.get_by_role("button", name=WAIVER_ACCEPT_AND_CHECKIN)).to_have_count(0)
+
 
 # ── Door waiver ─────────────────────────────────────────────────────────
 

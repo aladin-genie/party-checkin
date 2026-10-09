@@ -2581,7 +2581,7 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
         ("Email", guest.get("email") or "—", False),
         ("Phone", guest.get("phone") or "— (registered before phone was required)", False),
         ("Tickets", str(tickets), True),
-        ("Wristbands", str(bands), True),
+        ("Wristbands", f"{bands} — already given" if guest.get("band_given") else str(bands), True),
     ]
 
     # Names are collected at registration, one per ticket beyond the booker

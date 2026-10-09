@@ -181,7 +181,7 @@ def _fmt_checkin_iso(iso_str, fmt="%I:%M %p"):
         dt = datetime.fromisoformat(iso_str)
     except Exception:
         return "—"
-    return utils.format_dt(dt, fmt)
+    return utils.format_local_dt(dt, fmt)
 
 
 # ── Flash messages ────────────────────────────────────────────────────────────
@@ -1136,7 +1136,7 @@ def _show_guest_confirmation(guest: dict):
 
     if needs_waiver:
         if already and guest.get("band_given"):
-            st.caption("✓ Wristbands already handed over.")
+            st.warning("Wristbands were already handed over for this booking — only the waiver is missing.")
         _render_waiver_form(guest, bands, already)
         if st.button("🔍 Search for Someone Else", use_container_width=True):
             st.session_state["scanner_lookup"] = None
@@ -1146,17 +1146,24 @@ def _show_guest_confirmation(guest: dict):
     band_label = f"✓ Mark {bands} Wristband{'s' if bands != 1 else ''} Given"
 
     if already:
-        st.warning(
-            f"{guest['name']} has already been checked in. Only hand over wristbands "
-            "if they haven't collected them yet."
-        )
-        # Bands are offered here only because this guest is already through
-        # the door — someone admitted from the admin grid, or back at the
-        # desk for the wristbands they didn't take the first time.
         if guest.get("band_given"):
-            st.caption("✓ Wristbands already handed over.")
-        elif st.button(band_label, use_container_width=True):
-            _mark_band_given(guest["id"])
+            # The same QR code coming through twice: say so plainly.
+            st.error(
+                f"🚫 {guest['name']} is already checked in and their {bands} "
+                f"wristband{'s' if bands != 1 else ''} {'were' if bands != 1 else 'was'} already handed over. "
+                "Don't give any more — if someone else is using this QR code, call the organiser."
+            )
+        else:
+            # Bands are offered here only because this guest is already
+            # through the door — someone admitted from the admin grid, or
+            # back at the desk for the wristbands they didn't take the
+            # first time.
+            st.warning(
+                f"{guest['name']} is already checked in, but their wristbands haven't been "
+                "handed over yet."
+            )
+            if st.button(band_label, use_container_width=True):
+                _mark_band_given(guest["id"])
     else:
         st.info(
             f"Confirm this is the right person, then check them in and hand over "

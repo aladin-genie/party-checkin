@@ -1930,6 +1930,18 @@ def sponsor_list() -> list:
 
 # ── Formatting Helpers ────────────────────────────────────────────────────────
 
+def format_local_dt(dt, fmt: str = "%I:%M %p", fallback: str = "—") -> str:
+    """format_dt() for anything shown to people: stored times are naive UTC,
+    so convert to the venue's local time first (a 5:05 PM check-in in Plano
+    otherwise reads "10:05 PM"). Exports keep raw UTC via format_dt()."""
+    if dt is None:
+        return fallback
+    try:
+        return format_dt(config.to_event_local(dt), fmt, fallback)
+    except Exception:
+        return fallback
+
+
 def format_dt(dt, fmt: str = "%I:%M %p", fallback: str = "—") -> str:
     """Format a datetime, tolerating None.
 
@@ -2847,7 +2859,7 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
             }
 
         if guest.checked_in:
-            time_str = format_dt(guest.checkin_time, "%H:%M")
+            time_str = format_local_dt(guest.checkin_time)
             return {
                 "status": "already",
                 "guest": guest.to_dict(),
@@ -2903,7 +2915,7 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
             return {"status": "not_found", "guest": None, "message": GUEST_NOT_FOUND_MESSAGE}
 
         if guest.checked_in:
-            time_str = format_dt(guest.checkin_time, "%H:%M")
+            time_str = format_local_dt(guest.checkin_time)
             return {
                 "status": "already",
                 "guest": guest.to_dict(),
