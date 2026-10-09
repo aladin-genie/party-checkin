@@ -1731,10 +1731,11 @@ def send_qr_email_async(guest: dict) -> None:
 # ── Welcome Announcement ──────────────────────────────────────────────────────
 
 def generate_welcome_announcement(name: str, ticket_count: int) -> str:
-    """Generate welcome announcement text for speech synthesis."""
-    if ticket_count == 1:
-        return f"Welcome {name}! You have 1 ticket. Enjoy the party!"
-    return f"Welcome {name}! You have {ticket_count} tickets. Enjoy the party!"
+    """Welcome text spoken at the door: the guest's name, then how many
+    wristbands to collect (one per ticket — see wristband_count())."""
+    bands = wristband_count({"ticket_count": ticket_count})
+    plural = "" if bands == 1 else "s"
+    return f"Welcome, {name}! Please collect {bands} wristband{plural}. Enjoy the party!"
 
 
 # ── Home Page Content: Photos & Sponsors ──────────────────────────────────────
@@ -2040,15 +2041,22 @@ def audio_announcement_js(text: str) -> str:
     # Prevent </script> from closing the outer HTML script tag
     js_text = js_text.replace("</script>", "<\\/script>")
     js_text = js_text.replace("</SCRIPT>", "<\\/SCRIPT>")
+    # Spoken through the parent page, not this component's own iframe: the
+    # iframe is torn down on the next rerun (e.g. staff tapping "Mark
+    # Wristbands Given" straight away), which cut the welcome off after its
+    # first word. The parent page outlives reruns, so the sentence finishes.
     return f"""
     <script>
         (function() {{
-            if ('speechSynthesis' in window) {{
-                var u = new SpeechSynthesisUtterance({js_text});
-                u.rate = 0.9;
-                u.pitch = 1.0;
-                window.speechSynthesis.speak(u);
-            }}
+            var w = window;
+            try {{
+                if (window.parent && window.parent.speechSynthesis) {{ w = window.parent; }}
+            }} catch (e) {{}}
+            if (!('speechSynthesis' in w)) {{ return; }}
+            var u = new w.SpeechSynthesisUtterance({js_text});
+            u.rate = 0.9;
+            u.pitch = 1.0;
+            w.speechSynthesis.speak(u);
         }})();
     </script>
     """

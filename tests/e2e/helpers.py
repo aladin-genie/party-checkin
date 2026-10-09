@@ -169,11 +169,20 @@ def select_checkin_mode(page: Page, label: str) -> None:
 
 
 SCANNER_LOOKUP_FIELD = "Phone / Email / Ticket ID / QR Code"
+SCANNER_FIND_EXPANDER = "⌨️ Find a Guest"
 
 
 def scanner_find(page: Page, code: str) -> None:
     """Search the Scanner for a guest. Checks nobody in — the door flow puts
-    the guest's details on screen first and waits for staff to confirm."""
+    the guest's details on screen first and waits for staff to confirm.
+
+    The search lives in a collapsed expander at the bottom of the page, so
+    open it first if it's closed (clicking an open one would close it)."""
+    field = page.get_by_label(SCANNER_LOOKUP_FIELD)
+    page.get_by_text(SCANNER_FIND_EXPANDER, exact=False).wait_for(timeout=10000)
+    if not field.is_visible():
+        page.get_by_text(SCANNER_FIND_EXPANDER, exact=False).click()
+        field.wait_for(state="visible", timeout=10000)
     fill_and_blur(page, SCANNER_LOOKUP_FIELD, code)
     page.get_by_role("button", name="🔍 Find Guest").click()
 

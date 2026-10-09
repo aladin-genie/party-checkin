@@ -550,13 +550,20 @@ class TestPartyCheckIn(unittest.TestCase):
     
     def test_welcome_announcement_singular(self):
         text = generate_welcome_announcement("Alice", 1)
-        self.assertIn("Alice", text)
-        self.assertIn("1 ticket", text)
+        self.assertIn("Welcome, Alice!", text)
+        self.assertIn("collect 1 wristband.", text)
     
     def test_welcome_announcement_plural(self):
         text = generate_welcome_announcement("Bob", 3)
-        self.assertIn("Bob", text)
-        self.assertIn("3 tickets", text)
+        self.assertIn("Welcome, Bob!", text)
+        self.assertIn("collect 3 wristbands.", text)
+
+    def test_audio_announcement_speaks_through_the_parent_page(self):
+        """So a rerun tearing down the component iframe doesn't cut it off."""
+        js = audio_announcement_js("Welcome, Alice!")
+        self.assertIn("window.parent.speechSynthesis", js)
+        self.assertIn("new w.SpeechSynthesisUtterance", js)
+        self.assertIn('"Welcome, Alice!"', js)
 
     # ── Submission Log Tests ──────────────────────────────────────────────
 

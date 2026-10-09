@@ -16,6 +16,7 @@ whenever this suite runs)."""
 from playwright.sync_api import expect
 
 from .helpers import (
+    SCANNER_FIND_EXPANDER,
     SCANNER_LOOKUP_FIELD,
     WAIVER_ACCEPT_AND_CHECKIN,
     WAIVER_AGREE_TEXT,
@@ -48,7 +49,9 @@ def test_scanner_checkin_by_qr_code_then_already_checked_in(page, base_url, rese
     # Scan the same guest again -> "already checked in" path, no state
     # change, and no confirm button to press a second time.
     page.get_by_role("button", name="🔄 Scan Next Guest").click()
-    expect(page.get_by_label(SCANNER_LOOKUP_FIELD)).to_be_visible(timeout=8000)
+    # Let that rerun land before searching: it re-collapses Find a Guest.
+    expect(page.get_by_role("button", name="🔄 Scan Next Guest")).to_have_count(0, timeout=10000)
+    expect(page.get_by_text(SCANNER_FIND_EXPANDER, exact=False)).to_be_visible(timeout=8000)
     scanner_find(page, guest["qr_code"])
 
     expect(page.get_by_text("Already checked in at", exact=False)).to_be_visible(timeout=10000)
@@ -65,6 +68,9 @@ def test_scanner_checkin_by_email(page, base_url, reset_db, seed_guest, force_ch
                         zelle_ref="ZELLE-SCANEML1")
 
     goto(page, base_url, "Scanner")
+    # The manual search is a fallback: collapsed until someone opens it.
+    expect(page.get_by_text(SCANNER_FIND_EXPANDER, exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_label(SCANNER_LOOKUP_FIELD)).to_be_hidden()
     scanner_checkin(page, guest["email"])
 
     expect(page.get_by_text("Scan Email Guest", exact=True)).to_be_visible(timeout=10000)
@@ -132,7 +138,7 @@ def test_scanner_search_for_someone_else_discards_the_match(
     page.get_by_role("button", name="🔍 Search for Someone Else").click()
 
     expect(page.get_by_text("Wrong Match Guest", exact=True)).to_have_count(0, timeout=10000)
-    expect(page.get_by_label(SCANNER_LOOKUP_FIELD)).to_be_visible(timeout=8000)
+    expect(page.get_by_text(SCANNER_FIND_EXPANDER, exact=False)).to_be_visible(timeout=8000)
     assert reset_db.get_guest(guest["id"])["checked_in"] is False
 
 
@@ -235,6 +241,8 @@ def test_waiver_decline_blocks_checkin_and_can_be_reversed(
 
     # Changed their mind: scan again, the card says so, and accepting works.
     page.get_by_role("button", name="🔄 Scan Next Guest").click()
+    # Let that rerun land before searching: it re-collapses Find a Guest.
+    expect(page.get_by_role("button", name="🔄 Scan Next Guest")).to_have_count(0, timeout=10000)
     scanner_find(page, guest["qr_code"])
     expect(page.get_by_text("Declined earlier", exact=False)).to_be_visible(timeout=10000)
     scanner_sign_waiver(page)

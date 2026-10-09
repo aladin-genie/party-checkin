@@ -1019,7 +1019,7 @@ def page_scanner():
 
     # ── Camera Scan ──────────────────────────────────────────────────────────
     st.subheader("📸 Camera Scan")
-    st.write("Hold your QR code up to the camera and tap 'Take Photo of QR Code'")
+    st.write("Hold your QR code up to the camera and tap 'Take Photo of QR Code' — your ticket opens automatically.")
 
     camera_image = st.camera_input("Capture QR code")
 
@@ -1036,10 +1036,14 @@ def page_scanner():
 
             if data:
                 st.success(f"QR Code detected: `{data[:50]}`")
-                # Same rule as manual entry: pull the person up first and let
-                # staff confirm them, rather than checking in whoever the
-                # code happened to resolve to.
-                if st.button("🔍 Look Up This Ticket", type="primary", use_container_width=True):
+                # Pull the ticket up straight away — a lookup only puts the
+                # guest's card on screen; checking in is still a separate,
+                # deliberate step there. Once per photo: the camera keeps
+                # returning the same photo on every rerun until it's cleared,
+                # and without this the guest would pop straight back up after
+                # "Scan Next Guest" or "Search for Someone Else".
+                if st.session_state.get("scanner_photo_looked_up") != camera_image.file_id:
+                    st.session_state["scanner_photo_looked_up"] = camera_image.file_id
                     _lookup_guest(data)
             else:
                 st.warning("No QR code detected in the photo. Try again or use manual entry below.")
@@ -1049,40 +1053,43 @@ def page_scanner():
 
     st.divider()
 
-    # ── Manual Lookup ────────────────────────────────────────────────────────
-    st.subheader("⌨️ Find a Guest")
-    st.write("Search by phone number, email, ticket ID, or QR code if the camera scan fails")
-    # Wrapped in a form so the typed code is committed atomically with the
-    # button press. Outside a form, Streamlit handles the text edit and the
-    # click as two separate reruns, so someone who types a code and clicks
-    # straight away can submit an empty value — a nasty failure mode on a
-    # door queue. The form also lets staff just hit Enter after scanning.
-    with st.form("manual_checkin_form"):
-        manual_code = st.text_input(
-            "Phone / Email / Ticket ID / QR Code",
-            placeholder="e.g. 555-123-4567",
-            max_chars=200,
-            help="Phone works in any format. Nobody is checked in until you confirm "
-                 "their details on the next screen.",
-        )
-        manual_submitted = st.form_submit_button(
-            "🔍 Find Guest", type="primary", use_container_width=True
-        )
-
-    if manual_submitted:
-        if manual_code.strip():
-            _lookup_guest(manual_code.strip())
-        else:
-            st.error("Please enter a phone number, email, ticket ID, or QR code.")
-
     # ── Display Result ─────────────────────────────────────────────────────
-    # A pending lookup (nobody checked in yet) takes precedence over the
-    # result of the last completed check-in.
+    # Straight under the camera, so the card a scan pulls up is the next
+    # thing on screen. A pending lookup (nobody checked in yet) takes
+    # precedence over the result of the last completed check-in.
     if st.session_state.get("scanner_lookup"):
         _show_guest_confirmation(st.session_state["scanner_lookup"])
     elif st.session_state.get("scanner_result"):
         result = st.session_state["scanner_result"]
         _show_scanner_result(result)
+
+    # ── Manual Lookup ────────────────────────────────────────────────────────
+    # Only needed when the camera can't read a code, so it sits at the
+    # bottom, collapsed.
+    with st.expander("⌨️ Find a Guest — by phone, email or ticket ID"):
+        st.caption("Use this if the camera scan fails.")
+        # Wrapped in a form so the typed code is committed atomically with the
+        # button press. Outside a form, Streamlit handles the text edit and the
+        # click as two separate reruns, so someone who types a code and clicks
+        # straight away can submit an empty value — a nasty failure mode on a
+        # door queue. The form also lets staff just hit Enter after scanning.
+        with st.form("manual_checkin_form"):
+            manual_code = st.text_input(
+                "Phone / Email / Ticket ID / QR Code",
+                placeholder="e.g. 555-123-4567",
+                max_chars=200,
+                help="Phone works in any format. Nobody is checked in until you confirm "
+                     "their details on the next screen.",
+            )
+            manual_submitted = st.form_submit_button(
+                "🔍 Find Guest", type="primary", use_container_width=True
+            )
+
+        if manual_submitted:
+            if manual_code.strip():
+                _lookup_guest(manual_code.strip())
+            else:
+                st.error("Please enter a phone number, email, ticket ID, or QR code.")
 
 
 def _lookup_guest(code: str):
