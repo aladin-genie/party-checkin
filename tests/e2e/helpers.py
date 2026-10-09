@@ -178,19 +178,36 @@ def scanner_find(page: Page, code: str) -> None:
     page.get_by_role("button", name="🔍 Find Guest").click()
 
 
+WAIVER_SIGNATURE_FIELD = "Type your full name to sign"
+WAIVER_AGREE_TEXT = "I have read this waiver and accept it"
+WAIVER_ACCEPT_AND_CHECKIN = "✅ I Accept & Check In"
+
+
+def scanner_sign_waiver(page: Page, signer: str = "Door Signer", button: str = WAIVER_ACCEPT_AND_CHECKIN) -> None:
+    """Fill in the door waiver on the guest card and press `button`.
+
+    The tick goes through the checkbox's visible label (see the module
+    docstring on Streamlit checkboxes). It's an st.form, so the typed name
+    commits with the button press — no blur needed."""
+    accept = page.get_by_role("button", name=button)
+    accept.wait_for(timeout=10000)
+    page.get_by_text(WAIVER_AGREE_TEXT, exact=False).click()
+    page.get_by_label(WAIVER_SIGNATURE_FIELD).fill(signer)
+    accept.click()
+
+
 def scanner_confirm_checkin(page: Page) -> None:
-    """Press confirm on the guest card a search just produced, and wait for
-    the check-in to actually land.
+    """Accept the door waiver on the guest card a search just produced —
+    which is what checks the booking in while the waiver is on (the default)
+    — and wait for the check-in to actually land.
 
     The write happens server-side on that click, so a caller that asserts on
     the DB straight afterwards can beat the rerun that records it. The
     guest's name is on screen either side of the confirmation and the
-    confirm button can unmount mid-rerun (i.e. before the write commits), so
+    accept button can unmount mid-rerun (i.e. before the write commits), so
     neither is a usable marker — the success card's status label only
     renders after the check-in is recorded, so wait on that."""
-    confirm = page.get_by_role("button", name="✅ Confirm & Check In")
-    confirm.wait_for(timeout=10000)
-    confirm.click()
+    scanner_sign_waiver(page)
     page.get_by_text("✅ Checked In", exact=False).first.wait_for(timeout=15000)
 
 

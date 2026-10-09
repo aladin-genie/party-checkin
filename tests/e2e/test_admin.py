@@ -168,6 +168,35 @@ def test_admin_checkin_window_control_open_now_persists_and_enables_scanner(
     assert reset_db.get_guest(guest["id"])["checked_in"] is True
 
 
+def test_admin_door_waiver_switch_persists_and_shows_counts(page, base_url, reset_db, seed_guest):
+    """The organiser's no-redeploy off switch for the door waiver, plus the
+    signed-count tile it sits above."""
+    guest = seed_guest(name="Signed Guest", email="signedguest@example.com",
+                        ticket_count=2, plus_one_name="Pat Doe", zelle_ref="ZELLE-SIGNED001")
+    assert reset_db.record_waiver(guest["id"], accepted=True, signed_name="Pat Doe")["ok"]
+    assert reset_db.waiver_required() is True
+
+    goto(page, base_url, "Admin")
+    login_admin(page, ADMIN_PASSWORD)
+    expect(page.get_by_text("📜 Door Waiver", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("Waivers Signed", exact=True)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("ON", exact=True)).to_be_visible(timeout=10000)
+
+    page.get_by_text("Off", exact=True).click()
+    expect(page.get_by_text("OFF", exact=True)).to_be_visible(timeout=10000)
+    assert reset_db.waiver_required() is False
+
+    # Switched back on from somewhere else: this tab's radio still shows
+    # "Off", and its next rerun must not quietly switch it off again.
+    reset_db.set_waiver_required(True)
+    # Streamlit's "r" rerun hotkey is ignored while the radio has focus.
+    page.get_by_role("heading", name="📊 Admin Dashboard").click()
+    page.keyboard.press("r")
+    expect(page.get_by_text("ON", exact=True)).to_be_visible(timeout=10000)
+    page.wait_for_timeout(1000)
+    assert reset_db.waiver_required() is True
+
+
 # ── Flow 10c: Guests tab data_editor -- UI-level coverage only ──────────
 
 def test_admin_guests_tab_editor_renders_columns_search_and_save_button(page, base_url, reset_db):

@@ -111,6 +111,15 @@ locks everyone out of the admin dashboard rather than letting everyone in.
   `utils.set_checkin_mode(utils.CHECKIN_MODE_OPEN)` in `setUp` — otherwise every check-in test
   fails, because the real window doesn't open until Oct 9, 2026. Admin-initiated check-ins pass
   `bypass_window=True`.
+- **The door waiver gates check-in and wristbands on the Scanner.** While
+  `config.WAIVER_SECTIONS` is non-empty and the Admin → Overview "Waiver step" switch is
+  on (`app_settings.waiver_mode`, default on), a booking with no acceptance on file gets the
+  waiver (tick + typed full name) instead of the Confirm/Wristband buttons; accepting checks
+  them in. Decisions go to the append-only `waiver_signatures` table (latest row wins; no FK,
+  party snapshot + `WAIVER_VERSION` copied in) — a new table, so the rollout never ALTERs
+  `guests`. The Scanner passes `require_waiver=True` to `check_in_guest()` /
+  `mark_band_given()`; admin paths don't, so the organiser can always admit someone. Bump
+  `WAIVER_VERSION` when the wording changes. E2E: `scanner_confirm_checkin()` signs the waiver.
 - **Registration email is fire-and-forget** (`utils.send_qr_email_async`). It snapshots the SMTP
   secrets on the calling thread; the worker must never touch `st.*`. Don't assume a synchronous
   result. `send_qr_email()` stays synchronous for the Resend buttons.

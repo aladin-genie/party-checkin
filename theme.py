@@ -1500,6 +1500,41 @@ a.sponsor-card:hover {
 }
 .guest-identity-value.is-strong { font-size: 1.05rem; color: var(--gold); }
 
+/* ── Door waiver (scanner) ─────────────────────────────────────────────── */
+/* Read by the guest on the door iPad: body-size type (Inter, not Rye), and
+   the whole text on the page — no inner scroll box hiding the last section. */
+.waiver-panel {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--elevated);
+    padding: var(--space-5);
+    margin: var(--space-4) 0;
+}
+.waiver-title {
+    font-family: 'Bitter', Georgia, serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--gold-soft);
+    margin-bottom: var(--space-3);
+}
+.waiver-text {
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.55;
+}
+.waiver-text p { margin: 0 0 0.8em 0; }
+.waiver-intro { color: var(--text-dim); font-size: 0.95rem; margin: -4px 0 var(--space-3) 0; }
+.waiver-heading { font-weight: 700; color: var(--gold-soft); font-size: 0.95rem; margin-bottom: 2px; }
+.waiver-party-label {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.95rem;
+}
+.waiver-party { margin: 6px 0 0 0; padding-left: 1.2em; color: var(--text); font-weight: 600; }
+.waiver-party li.is-unnamed { color: var(--warn); font-weight: 500; }
+
 /* ── Footer ────────────────────────────────────────────────────────────── */
 .app-footer {
     text-align: center;
@@ -2397,16 +2432,21 @@ def closed_notice(message: str) -> str:
     """
 
 
-def checkin_window_banner(is_open: bool, detail: str = "") -> str:
-    """A prominent banner showing the current check-in gate status (admin)."""
+def checkin_window_banner(is_open: bool, detail: str = "", subject: str = "Check-in",
+                          open_label: str = "OPEN", closed_label: str = "CLOSED") -> str:
+    """A prominent banner showing the current check-in gate status (admin).
+
+    `subject`/`open_label`/`closed_label` let the door-waiver switch reuse
+    it ("Waiver step is ON").
+    """
     css_class = "status-ok" if is_open else "status-warn"
     icon = "🟢" if is_open else "🔒"
-    label = "OPEN" if is_open else "CLOSED"
+    label = open_label if is_open else closed_label
     detail_html = f" — {html.escape(detail)}" if detail else ""
     return (
         f'<div class="checkin-window-banner {css_class}">'
         f'<span class="checkin-window-icon">{icon}</span>'
-        f'<span>Check-in is <strong>{label}</strong>{detail_html}</span>'
+        f'<span>{html.escape(subject)} is <strong>{html.escape(label)}</strong>{detail_html}</span>'
         '</div>'
     )
 
@@ -2466,13 +2506,15 @@ def footer() -> str:
 def guest_result_card(name: str, tickets, status: str, message: str = "") -> str:
     """A result card for scanner check-ins.
 
-    `status` is one of "success", "already", "error" — mapped to ok/warn/err
-    styling and a status label. `tickets` may be None when no guest was found.
+    `status` is one of "success", "already", "error", "declined" — mapped to
+    ok/warn/err styling and a status label. `tickets` may be None when no
+    guest was found.
     """
     status_map = {
         "success": ("status-ok", "✅ Checked In"),
         "already": ("status-warn", "⚠ Already Checked In"),
         "error": ("status-err", "❌ Not Found"),
+        "declined": ("status-err", "✖ Waiver Declined"),
     }
     css_class, label = status_map.get(status, ("status-ok", html.escape(status)))
 
@@ -2494,7 +2536,8 @@ def guest_result_card(name: str, tickets, status: str, message: str = "") -> str
     return "".join(parts)
 
 
-def guest_identity_card(guest: dict, bands: int, status_label: str, status: str = "found") -> str:
+def guest_identity_card(guest: dict, bands: int, status_label: str, status: str = "found",
+                        waiver_label: str = "") -> str:
     """The "is this you?" card the Scanner shows before anyone is checked in.
 
     Door staff search by phone (guests often can't remember which email
@@ -2505,6 +2548,7 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
 
     `status` styles the card ("found" / "already" / "done") and
     `status_label` is the line staff read, e.g. "Not checked in yet".
+    `waiver_label`, when given, adds a Waiver row (e.g. "✅ Signed by …").
     """
     status_map = {
         "found": "status-ok",
@@ -2537,6 +2581,9 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
         value = ", ".join(extra_names) if extra_names else "— none on file"
         rows.append((label, value, False))
 
+    if waiver_label:
+        rows.append(("Waiver", waiver_label, True))
+
     # Concatenated for the same reason as guest_result_card() above: a blank
     # line inside the HTML block would end it and dump the rest as text.
     parts = [f'<div class="guest-result-card {css_class}">']
@@ -2552,4 +2599,47 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
             "</div>"
         )
     parts.append("</div></div>")
+    return "".join(parts)
+
+
+def waiver_panel(title: str, sections, party_names: list, ticket_count: int, intro: str = "") -> str:
+    """The door waiver as the guest reads it on the iPad, before accepting.
+
+    `sections` is a sequence of (heading, body) pairs (config.WAIVER_SECTIONS);
+    a blank heading renders the body alone, a blank body is skipped. Lists
+    everyone the acceptance covers — the booker plus every named guest — so
+    whoever signs can see exactly who they're signing for, and says so
+    plainly when a booking has fewer names on file than tickets.
+    """
+    try:
+        tickets = max(int(ticket_count or 1), 1)
+    except (TypeError, ValueError):
+        tickets = 1
+    names = [n for n in (party_names or []) if (n or "").strip()]
+
+    # Concatenated, not a multi-line f-string — a blank line inside the HTML
+    # block would end it (see guest_result_card()).
+    parts = ['<div class="waiver-panel">']
+    parts.append(f'<div class="waiver-title">📜 {html.escape(title)}</div>')
+    if intro:
+        parts.append(f'<div class="waiver-intro">{html.escape(intro)}</div>')
+    parts.append('<div class="waiver-text">')
+    for heading, body in sections or ():
+        if not (body or "").strip():
+            continue
+        if (heading or "").strip():
+            parts.append(f'<div class="waiver-heading">{html.escape(heading.strip())}</div>')
+        parts.append(f"<p>{html.escape(body.strip())}</p>")
+    parts.append("</div>")
+    people = "person" if tickets == 1 else "people"
+    parts.append(
+        f'<div class="waiver-party-label">This covers everyone in the booking — {tickets} {people}:</div>'
+    )
+    parts.append('<ul class="waiver-party">')
+    for name in names:
+        parts.append(f"<li>{html.escape(name.strip())}</li>")
+    unnamed = tickets - len(names)
+    if unnamed > 0:
+        parts.append(f'<li class="is-unnamed">+ {unnamed} guest{"s" if unnamed != 1 else ""} not named on the booking</li>')
+    parts.append("</ul></div>")
     return "".join(parts)

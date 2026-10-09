@@ -224,6 +224,7 @@ def reset_db(db):
         session.query(db.SubmissionLog).delete()
         session.query(db.PageVisit).delete()
         session.query(db.Guest).delete()
+        session.query(db.WaiverSignature).delete()
         session.query(db.AppSetting).delete()
         session.commit()
     finally:

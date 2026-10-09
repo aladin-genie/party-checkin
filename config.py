@@ -74,6 +74,59 @@ APP_VERSION = "3.0"
 _DEFAULT_APP_URL = "https://party-checkin-hqedxmr3wfmtsdfxr9zjlq.streamlit.app"
 APP_URL = get_secret("APP_URL", _DEFAULT_APP_URL).rstrip("/")
 
+# ── Door waiver (mechanical bull ride) ───────────────────────────────────────
+# Shown on the Scanner page when a guest is pulled up at the door: the guest
+# reads it on the door iPad and accepts it — tick + typed full name as the
+# signature — before they're checked in and handed wristbands. One acceptance
+# covers the whole booking (the accept box says so and the party is listed
+# under the text), as with the Terms & Conditions guests agreed to at
+# registration.
+#
+# The four sections are the organisers' own wording, verbatim. The paper
+# form's blanks are covered by the booking and the signature record instead:
+# event/date come from WAIVER_INTRO, the typed name is the printed name and
+# signature, and the time it was signed is stored with it.
+#
+# Organisers can switch the step off from Admin → Overview without a redeploy
+# (utils.waiver_required()); emptying WAIVER_SECTIONS switches it off for
+# good. WAIVER_VERSION is saved with every signature so it's always possible
+# to tell which wording a guest agreed to — bump it whenever the text changes
+# in substance.
+WAIVER_TITLE = "Mechanical Bull Riding — Participant Waiver & Release of Liability"
+WAIVER_VERSION = "2026-10-09-bull-v1"
+WAIVER_INTRO = f"Event: Kannada {EVENT_NAME} · {EVENT_DATE_TEXT} · {VENUE_NAME}"
+# (heading, body) pairs, rendered in order.
+WAIVER_SECTIONS = (
+    (
+        "1. ASSUMPTION OF RISK",
+        "I understand that mechanical bull riding involves inherent risks, including falls, "
+        "bruises, sprains, fractures, head, neck or back injuries, permanent disability, or "
+        "death. I voluntarily choose to participate and knowingly accept all associated risks.",
+    ),
+    (
+        "2. HEALTH & SAFETY",
+        "I confirm that I am physically fit to participate and will follow all safety rules and "
+        "operator instructions. I will not ride if under the influence of alcohol or drugs, "
+        "pregnant, injured, or affected by a medical condition that makes riding unsafe. The "
+        "operator may refuse or stop my participation at any time for safety reasons.",
+    ),
+    (
+        "3. RELEASE OF LIABILITY",
+        "To the extent permitted by applicable law, I release and hold harmless the event "
+        "organizers, hosts, sponsors, venue owners, representatives, and volunteers from claims "
+        "for injury, loss, or damage arising from my voluntary participation, including ordinary "
+        "negligence where legally enforceable. This release does not cover liability that cannot "
+        "legally be waived.",
+    ),
+    (
+        "4. ACKNOWLEDGMENT & AGREEMENT",
+        "I have read and understood this waiver, had the opportunity to ask questions, and sign "
+        "voluntarily. I accept responsibility for my decision to participate and agree to follow "
+        "all safety instructions.",
+    ),
+)
+
+
 # ── Landing page ─────────────────────────────────────────────────────────────
 # The bare app URL is the link the organiser sends out, so it opens on the
 # thing that link is *for*: registration. Home is where a guest is sent after

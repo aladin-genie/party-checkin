@@ -25,7 +25,7 @@ from hmac import compare_digest
 import qrcode
 
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey,
+    create_engine, Column, Integer, String, Text, Boolean, DateTime, ForeignKey,
     func, inspect, or_, case, select, insert, text,
 )
 from sqlalchemy.exc import IntegrityError
@@ -181,6 +181,47 @@ class AppSetting(Base):
     key = Column(String(50), primary_key=True)
     value = Column(String(200), default="")
     updated_at = Column(DateTime, default=_utc_now)
+
+
+class WaiverSignature(Base):
+    """One row per waiver decision made at the door — accepted or declined.
+
+    Append-only: a guest who declines and then changes their mind gets a
+    second row, and the latest row is their current answer. A new table
+    rather than new columns on `guests`, so rolling it out never ALTERs the
+    live guest list — create_all() just adds it on the next boot.
+
+    guest_id is deliberately not a foreign key, and the booker's name and
+    the whole party are copied in at signing time: this is the record of who
+    agreed to what, and it has to survive the booking being edited or
+    deleted afterwards.
+    """
+    __tablename__ = "waiver_signatures"
+
+    id = Column(Integer, primary_key=True)
+    guest_id = Column(Integer, nullable=False, index=True)
+    guest_name = Column(String(100), default="")
+    party_names = Column(Text, default="")  # everyone the decision covers, newline-joined, booker first
+    ticket_count = Column(Integer, default=1)
+    decision = Column(String(20), nullable=False)  # 'accepted' | 'declined'
+    signed_name = Column(String(100), default="")  # typed full name = the signature
+    waiver_version = Column(String(50), default="")
+    signed_at = Column(DateTime, default=_utc_now)
+    device_info = Column(String(200), default="")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "guest_id": self.guest_id,
+            "guest_name": self.guest_name,
+            "party_names": self.party_names,
+            "ticket_count": self.ticket_count,
+            "decision": self.decision,
+            "signed_name": self.signed_name,
+            "waiver_version": self.waiver_version,
+            "signed_at": self.signed_at.isoformat() if self.signed_at else None,
+            "device_info": self.device_info,
+        }
 
 
 # ── Database Engine & Session ─────────────────────────────────────────────────
@@ -1899,14 +1940,17 @@ def generate_csv() -> str:
     session = get_db()
     try:
         guests = session.query(Guest).all()
+        waivers = _latest_waivers(session)
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
             "Name", "Email", "Phone", "Tickets", "Additional Guests",
             "Additional Guest Names", "Zelle Ref", "Veg", "Non-Veg",
-            "Checked In", "Band Given", "Check-in Time", "QR Code"
+            "Checked In", "Band Given", "Check-in Time", "QR Code",
+            "Waiver", "Waiver Signed By", "Waiver Time",
         ])
         for g in guests:
+            waiver = waivers.get(g.id)
             writer.writerow([
                 _sanitize_csv_field(g.name),
                 _sanitize_csv_field(g.email),
@@ -1925,6 +1969,11 @@ def generate_csv() -> str:
                 "Yes" if g.band_given else "No",
                 format_dt(g.checkin_time, "%Y-%m-%d %H:%M:%S", ""),
                 g.qr_code,
+                # The booking's latest decision; the full history, declines
+                # included, is in the backup's waiver_signatures.csv.
+                waiver.decision.capitalize() if waiver is not None else "Not signed",
+                _sanitize_csv_field(waiver.signed_name) if waiver is not None else "",
+                format_dt(waiver.signed_at, "%Y-%m-%d %H:%M:%S", "") if waiver is not None else "",
             ])
         return output.getvalue()
     finally:
@@ -2792,7 +2841,7 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
         session.close()
 
 
-def check_in_guest(guest_id: int, bypass_window: bool = False) -> dict:
+def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: bool = False) -> dict:
     """Check in one specific, already-identified guest.
 
     The second half of the door flow (see find_guest_by_code): staff have
@@ -2802,9 +2851,14 @@ def check_in_guest(guest_id: int, bypass_window: bool = False) -> dict:
     search at confirm time could admit a different person than the one whose
     details staff just read back.
 
+    require_waiver: the Scanner passes True so that, while the door waiver
+    is switched on (waiver_required()), nobody is checked in until their
+    booking has accepted it — status "waiver_required", nothing written.
+    Admin paths leave it False: the organiser can always admit someone.
+
     Same contract as check_in_by_code(): {"status": "success"|"already"|
-    "not_found"|"not_open"|"db_unavailable", "guest": dict|None,
-    "message": str}.
+    "not_found"|"not_open"|"waiver_required"|"db_unavailable", "guest":
+    dict|None, "message": str}.
     """
     if db_degraded():
         return {"status": "db_unavailable", "guest": None, "message": DB_DEGRADED_MESSAGE}
@@ -2828,6 +2882,9 @@ def check_in_guest(guest_id: int, bypass_window: bool = False) -> dict:
                 "message": f"{guest.name} already checked in at {time_str}",
             }
 
+        if require_waiver and waiver_required() and not _has_accepted_waiver(session, guest.id):
+            return {"status": "waiver_required", "guest": guest.to_dict(), "message": WAIVER_REQUIRED_MESSAGE}
+
         guest.checked_in = True
         guest.checkin_time = _utc_now()
         log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner")
@@ -2843,12 +2900,16 @@ def check_in_guest(guest_id: int, bypass_window: bool = False) -> dict:
         session.close()
 
 
-def mark_band_given(guest_id: int) -> dict:
+def mark_band_given(guest_id: int, require_waiver: bool = False) -> dict:
     """Mark a guest's wristband as given.
 
     Returns {"ok": bool, "message": str}, distinguishing "not found" from
     "already given" (the old streamlit_app._mark_band_given silently did
     nothing — and showed no message — in both of those cases).
+
+    require_waiver: same as check_in_guest() — the Scanner passes True so
+    wristbands can't be recorded against a booking that hasn't accepted the
+    door waiver while it's switched on. Admin paths leave it False.
     """
     session = get_db()
     try:
@@ -2857,6 +2918,8 @@ def mark_band_given(guest_id: int) -> dict:
             return {"ok": False, "message": "Guest not found."}
         if guest.band_given:
             return {"ok": False, "message": f"Band was already given to {guest.name}."}
+        if require_waiver and waiver_required() and not _has_accepted_waiver(session, guest.id):
+            return {"ok": False, "message": WAIVER_REQUIRED_MESSAGE}
 
         guest.band_given = True
         log = CheckInLog(guest_id=guest.id, action="band_given", device_info="Streamlit Scanner")
@@ -2865,6 +2928,203 @@ def mark_band_given(guest_id: int) -> dict:
         return {"ok": True, "message": f"Band marked as given for {guest.name}."}
     finally:
         session.close()
+
+
+# ── Door Waiver ──────────────────────────────────────────────────────────────
+# The waiver guests accept at the door before wristbands (text and version in
+# config.WAIVER_*). Decisions live in the append-only waiver_signatures table;
+# a booking's current answer is its latest row.
+
+WAIVER_ACCEPTED = "accepted"
+WAIVER_DECLINED = "declined"
+
+_WAIVER_SETTING_KEY = "waiver_mode"
+WAIVER_MODE_ON = "on"
+WAIVER_MODE_OFF = "off"
+
+WAIVER_REQUIRED_MESSAGE = (
+    "This booking hasn't accepted the waiver yet — it has to be accepted before "
+    "check-in and wristbands."
+)
+
+# A typed signature: letters (any script) with the spaces, hyphens, periods
+# and apostrophes real names carry — including the curly ’ an iPad keyboard
+# substitutes for '. Laxer than sanitize_name() on purpose: whoever signs at
+# the door may not be the booker, and a door queue is no place to argue
+# with "O’Brien".
+_SIGNATURE_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ .'’\-])*")
+
+
+def waiver_configured() -> bool:
+    """True when config carries waiver text to show at all."""
+    return any((body or "").strip() for _heading, body in config.WAIVER_SECTIONS)
+
+
+def waiver_required() -> bool:
+    """True when the door must collect the waiver before check-in/wristbands.
+
+    On by default whenever waiver text is configured; the organiser can flip
+    it off from Admin (set_waiver_required) without a redeploy — e.g. if it's
+    slowing the queue. An unreadable setting falls back to on.
+    """
+    if not waiver_configured():
+        return False
+    return get_setting(_WAIVER_SETTING_KEY, WAIVER_MODE_ON) != WAIVER_MODE_OFF
+
+
+def set_waiver_required(required: bool) -> None:
+    """Persist the organiser's door-waiver on/off switch."""
+    set_setting(_WAIVER_SETTING_KEY, WAIVER_MODE_ON if required else WAIVER_MODE_OFF)
+
+
+def sanitize_signature(name: str) -> str:
+    """Clean a typed waiver signature, or return "" if it isn't a usable name."""
+    name = re.sub(r"\s+", " ", name or "").strip()
+    if len(name) < 2 or len(name) > MAX_NAME_LENGTH:
+        return ""
+    return name if _SIGNATURE_RE.fullmatch(name) else ""
+
+
+def booking_party_names(guest: dict) -> list:
+    """Everyone a booking covers, booker first — the people a waiver speaks for."""
+    names = [guest.get("name") or ""] + guest_names_list(guest.get("plus_one_name") or "")
+    return [n for n in names if n.strip()]
+
+
+def waiver_is_accepted(waiver) -> bool:
+    """True if a get_waiver() result is an acceptance (None = never asked)."""
+    return bool(waiver) and waiver.get("decision") == WAIVER_ACCEPTED
+
+
+def _latest_waiver_row(session, guest_id: int):
+    return (
+        session.query(WaiverSignature)
+        .filter_by(guest_id=guest_id)
+        .order_by(WaiverSignature.id.desc())
+        .first()
+    )
+
+
+def _has_accepted_waiver(session, guest_id: int) -> bool:
+    row = _latest_waiver_row(session, guest_id)
+    return row is not None and row.decision == WAIVER_ACCEPTED
+
+
+def get_waiver(guest_id: int) -> dict:
+    """The booking's latest waiver decision as a dict, or None if never asked."""
+    session = get_db()
+    try:
+        row = _latest_waiver_row(session, guest_id)
+        return row.to_dict() if row else None
+    except Exception as e:
+        print(f"get_waiver({guest_id}) failed: {e}")
+        return None
+    finally:
+        session.close()
+
+
+def record_waiver(guest_id: int, accepted: bool, signed_name: str = "",
+                  device_info: str = "Streamlit Scanner") -> dict:
+    """Record a booking's accept/decline of the door waiver.
+
+    Accepting needs a typed full name — that's the signature. Declining
+    doesn't (a name is kept if one was typed). The booker's name, the whole
+    party and config.WAIVER_VERSION are copied onto the row. Writes nothing
+    else: checking in and wristbands stay separate, deliberate steps.
+
+    Returns {"ok": bool, "message": str, "waiver": dict|None}.
+    """
+    if db_degraded():
+        return {"ok": False, "message": DB_DEGRADED_MESSAGE, "waiver": None}
+
+    signature = sanitize_signature(signed_name)
+    if accepted and not signature:
+        return {
+            "ok": False,
+            "message": "Please type your full name to sign the waiver.",
+            "waiver": None,
+        }
+
+    session = get_db()
+    try:
+        guest = session.query(Guest).filter_by(id=guest_id).first()
+        if not guest:
+            return {"ok": False, "message": GUEST_NOT_FOUND_MESSAGE, "waiver": None}
+
+        row = WaiverSignature(
+            guest_id=guest.id,
+            guest_name=guest.name,
+            party_names="\n".join(booking_party_names(guest.to_dict())),
+            ticket_count=guest.ticket_count,
+            decision=WAIVER_ACCEPTED if accepted else WAIVER_DECLINED,
+            signed_name=signature,
+            waiver_version=config.WAIVER_VERSION,
+            signed_at=_utc_now(),
+            device_info=device_info,
+        )
+        session.add(row)
+        session.commit()
+        if accepted:
+            message = f"Waiver accepted — signed by {signature}."
+        else:
+            message = f"Waiver declined for {guest.name}'s booking."
+        return {"ok": True, "message": message, "waiver": row.to_dict()}
+    except Exception as e:
+        session.rollback()
+        print(f"record_waiver({guest_id}) failed: {e}")
+        return {
+            "ok": False,
+            "message": "Couldn't save the waiver just now — please try again.",
+            "waiver": None,
+        }
+    finally:
+        session.close()
+
+
+def _latest_waivers(session) -> dict:
+    """{guest_id: latest WaiverSignature row} for every booking ever asked."""
+    latest = {}
+    for row in session.query(WaiverSignature).order_by(WaiverSignature.id).all():
+        latest[row.guest_id] = row
+    return latest
+
+
+def waiver_stats() -> dict:
+    """Door-waiver numbers for Admin, by each booking's latest decision.
+
+    People, not bookings, wherever a count is about who's at the party (see
+    get_stats). `admitted_unsigned_people` is anyone checked in without an
+    acceptance on file — admitted from the admin grid, or before the waiver
+    step was switched on.
+    """
+    session = get_db()
+    try:
+        latest = _latest_waivers(session)
+        guests = session.query(Guest.id, Guest.ticket_count, Guest.checked_in).all()
+    finally:
+        session.close()
+
+    stats = {
+        "accepted_bookings": 0,
+        "accepted_people": 0,
+        "declined_bookings": 0,
+        "declined_people": 0,
+        "admitted_unsigned_people": 0,
+    }
+    for guest_id, ticket_count, checked_in in guests:
+        people = max(int(ticket_count or 1), 1)
+        row = latest.get(guest_id)
+        decision = row.decision if row is not None else None
+        if decision == WAIVER_ACCEPTED:
+            stats["accepted_bookings"] += 1
+            stats["accepted_people"] += people
+        else:
+            if decision == WAIVER_DECLINED:
+                stats["declined_bookings"] += 1
+                stats["declined_people"] += people
+            if checked_in:
+                stats["admitted_unsigned_people"] += people
+    return stats
 
 
 def delete_guest(guest_id: int) -> bool:
@@ -3138,11 +3398,19 @@ _BACKUP_SPECS = (
         "Every registration attempt — successful or not — with its failure reason.",
     ),
     (
+        "waiver_signatures",
+        WaiverSignature,
+        ("id", "guest_id", "guest_name", "party_names", "ticket_count", "decision",
+         "signed_name", "waiver_version", "signed_at", "device_info"),
+        "id",
+        "Every door-waiver accept/decline, with the party it covered. guest_id → guests.id.",
+    ),
+    (
         "app_settings",
         AppSetting,
         ("key", "value", "updated_at"),
         "key",
-        "Organiser-wide settings that outlive a restart (currently: checkin_mode).",
+        "Organiser-wide settings that outlive a restart (checkin_mode, waiver_mode).",
     ),
 )
 
@@ -3282,13 +3550,15 @@ def get_table_counts() -> dict:
             "checkin_logs": session.query(CheckInLog).count(),
             "page_visits": session.query(PageVisit).count(),
             "submission_logs": session.query(SubmissionLog).count(),
+            "waiver_signatures": session.query(WaiverSignature).count(),
         }
     finally:
         session.close()
 
 
 def reset_all_data(keep_settings: bool = True) -> dict:
-    """Delete ALL rows from guests, checkin_logs, page_visits, submission_logs.
+    """Delete ALL rows from guests, checkin_logs, page_visits, submission_logs,
+    waiver_signatures.
 
     Does NOT drop any table and does NOT touch the schema — this only empties
     tables that already exist. Everything happens in ONE transaction (a
@@ -3307,7 +3577,8 @@ def reset_all_data(keep_settings: bool = True) -> dict:
     effective behavior is the same either way.
 
     Returns the per-table counts actually deleted, e.g.
-    {"guests": 12, "checkin_logs": 9, "page_visits": 40, "submission_logs": 15}.
+    {"guests": 12, "checkin_logs": 9, "page_visits": 40, "submission_logs": 15,
+     "waiver_signatures": 8}.
     Raises on failure (after rolling back) — callers must not report success
     without catching it.
     """
@@ -3326,6 +3597,7 @@ def reset_all_data(keep_settings: bool = True) -> dict:
         guests_deleted = session.query(Guest).delete(synchronize_session=False)
         page_visits_deleted = session.query(PageVisit).delete(synchronize_session=False)
         submission_logs_deleted = session.query(SubmissionLog).delete(synchronize_session=False)
+        waiver_signatures_deleted = session.query(WaiverSignature).delete(synchronize_session=False)
 
         if keep_settings:
             row = session.query(AppSetting).filter_by(key=_CHECKIN_MODE_SETTING_KEY).first()
@@ -3349,6 +3621,7 @@ def reset_all_data(keep_settings: bool = True) -> dict:
             "checkin_logs": checkin_logs_deleted,
             "page_visits": page_visits_deleted,
             "submission_logs": submission_logs_deleted,
+            "waiver_signatures": waiver_signatures_deleted,
         }
     except Exception:
         session.rollback()

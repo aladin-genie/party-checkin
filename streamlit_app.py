@@ -127,6 +127,11 @@ def _cached_event_day_hourly_checkins():
     return utils.get_event_day_hourly_checkins()
 
 
+@st.cache_data(ttl=10, show_spinner=False)
+def _cached_waiver_stats():
+    return utils.waiver_stats()
+
+
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=500)
 def _cached_qr_image(qr_code: str) -> bytes:
     """Cached QR PNG rendering (27ms of pure CPU per call, uncached).
@@ -1105,7 +1110,12 @@ def _lookup_guest(code: str):
 
 
 def _show_guest_confirmation(guest: dict):
-    """Show who was found and let staff confirm before checking them in."""
+    """Show who was found and let staff confirm before checking them in.
+
+    While the door waiver is on (utils.waiver_required()), a booking that
+    hasn't accepted it gets the waiver instead of the check-in / wristband
+    buttons — accepting it is what checks them in.
+    """
     bands = utils.wristband_count(guest)
     already = bool(guest.get("checked_in"))
 
@@ -1115,12 +1125,34 @@ def _show_guest_confirmation(guest: dict):
     else:
         status_label = "Not checked in yet — confirm the details below"
 
+    waiver_on = utils.waiver_required()
+    waiver = utils.get_waiver(guest["id"]) if waiver_on else None
+    needs_waiver = waiver_on and not utils.waiver_is_accepted(waiver)
+    if not waiver_on:
+        waiver_label = ""
+    elif not needs_waiver:
+        waiver_label = f"✅ Signed by {waiver['signed_name']}"
+    elif waiver:
+        waiver_label = "✖ Declined earlier — not signed"
+    else:
+        waiver_label = "Not signed yet"
+
     st.markdown(
         theme.guest_identity_card(
-            guest, bands, status_label, status="already" if already else "found"
+            guest, bands, status_label, status="already" if already else "found",
+            waiver_label=waiver_label,
         ),
         unsafe_allow_html=True,
     )
+
+    if needs_waiver:
+        if already and guest.get("band_given"):
+            st.caption("✓ Wristbands already handed over.")
+        _render_waiver_form(guest, bands, already)
+        if st.button("🔍 Search for Someone Else", use_container_width=True):
+            st.session_state["scanner_lookup"] = None
+            st.rerun()
+        return
 
     band_label = f"✓ Mark {bands} Wristband{'s' if bands != 1 else ''} Given"
 
@@ -1152,6 +1184,85 @@ def _show_guest_confirmation(guest: dict):
         st.rerun()
 
 
+def _render_waiver_form(guest: dict, bands: int, already: bool):
+    """The door waiver: the guest reads it on the iPad, ticks, types their
+    name as the signature, and accepts — or declines.
+
+    Accepting a booking that isn't checked in yet checks it in straight away
+    (the success screen then shows the wristbands). Declining records the
+    decline and stops there: no check-in, no wristbands, organiser decides.
+
+    Widget keys carry the guest id so the next guest never inherits the
+    previous guest's tick or typed name.
+    """
+    gid = guest["id"]
+    party = utils.booking_party_names(guest)
+    st.markdown(
+        f"**📜 Waiver needed before wristbands.** Hand this screen to "
+        f"{guest.get('name') or 'the guest'} to read and accept."
+    )
+    st.markdown(
+        theme.waiver_panel(config.WAIVER_TITLE, config.WAIVER_SECTIONS, party, bands,
+                           intro=config.WAIVER_INTRO),
+        unsafe_allow_html=True,
+    )
+
+    people = "myself" if bands == 1 else f"myself and everyone in my booking ({bands} people)"
+    with st.form(f"waiver_form_{gid}"):
+        agreed = st.checkbox(
+            f"I have read this waiver and accept it for {people}.",
+            key=f"waiver_agree_{gid}",
+        )
+        signed_name = st.text_input(
+            "Type your full name to sign",
+            max_chars=utils.MAX_NAME_LENGTH,
+            placeholder="Your full name",
+            key=f"waiver_name_{gid}",
+        )
+        accept_col, decline_col = st.columns([2, 1])
+        with accept_col:
+            accepted = st.form_submit_button(
+                "✅ I Accept" if already else "✅ I Accept & Check In",
+                type="primary",
+                use_container_width=True,
+            )
+        with decline_col:
+            declined = st.form_submit_button("✖ I Decline", use_container_width=True)
+
+    if accepted:
+        if not agreed:
+            st.error("Please tick the box to confirm you've read and accept the waiver.")
+            return
+        result = utils.record_waiver(gid, accepted=True, signed_name=signed_name)
+        if not result["ok"]:
+            st.error(result["message"])
+            return
+        _cached_waiver_stats.clear()
+        _set_flash("success", f"📜 {result['message']}")
+        if already:
+            # Stay on this guest — the refreshed card now offers the wristbands.
+            st.session_state["scanner_lookup"] = utils.get_guest(gid) or guest
+            st.rerun()
+        else:
+            _process_checkin_confirmed(gid)
+    elif declined:
+        result = utils.record_waiver(gid, accepted=False, signed_name=signed_name)
+        if not result["ok"]:
+            st.error(result["message"])
+            return
+        _cached_waiver_stats.clear()
+        st.session_state["scanner_lookup"] = None
+        st.session_state["scanner_result"] = {
+            "type": "declined",
+            "guest": guest,
+            "message": (
+                f"Do not hand over the {bands} wristband{'s' if bands != 1 else ''}. "
+                "Please get an organiser — they can still accept it here if they change their mind."
+            ),
+        }
+        st.rerun()
+
+
 def _process_checkin_confirmed(guest_id: int):
     """Check in the guest staff just confirmed on screen.
 
@@ -1160,7 +1271,7 @@ def _process_checkin_confirmed(guest_id: int):
     whose details staff just read back to the guest.
     """
     st.session_state["scanner_lookup"] = None
-    _apply_checkin_result(utils.check_in_guest(guest_id))
+    _apply_checkin_result(utils.check_in_guest(guest_id, require_waiver=True))
 
 
 def _apply_checkin_result(result: dict):
@@ -1194,6 +1305,16 @@ def _apply_checkin_result(result: dict):
             "type": "error",
             "message": result["message"],
         }
+        st.rerun()
+        return
+
+    if result["status"] == "waiver_required":
+        # Defensive: the confirm button is only shown once the waiver is
+        # accepted, but it can be switched on between render and click.
+        # Back to the guest's card, which now shows the waiver.
+        st.session_state["scanner_lookup"] = result["guest"]
+        st.session_state["scanner_result"] = None
+        _set_flash("warning", result["message"])
         st.rerun()
         return
 
@@ -1259,6 +1380,17 @@ def _show_scanner_result(result):
             st.session_state["scanner_result"] = None
             st.rerun()
 
+    elif result_type == "declined":
+        guest = result["guest"]
+        st.markdown(
+            theme.guest_result_card(guest["name"], guest["ticket_count"], "declined", result["message"]),
+            unsafe_allow_html=True,
+        )
+
+        if st.button("🔄 Scan Next Guest", use_container_width=True):
+            st.session_state["scanner_result"] = None
+            st.rerun()
+
     elif result_type == "error":
         st.markdown(
             theme.guest_result_card("Unknown", None, "error", result["message"]),
@@ -1277,7 +1409,7 @@ def _mark_band_given(guest_id: int):
     directly — a st.rerun() follows immediately below, which used to discard
     the message before staff ever saw it (see PART 6).
     """
-    result = utils.mark_band_given(guest_id)
+    result = utils.mark_band_given(guest_id, require_waiver=True)
     _cached_stats.clear()
     if result["ok"]:
         _set_flash("success", result["message"])
@@ -1381,7 +1513,7 @@ def _admin_danger_zone():
         st.markdown(
             '<div class="danger-zone-warning">'
             "🚨 <strong>This permanently deletes every guest, check-in log, page-visit "
-            "record, and submission log — for everyone, with no undo.</strong> The check-in "
+            "record, submission log, and waiver record — for everyone, with no undo.</strong> The check-in "
             "window is also reset back to Auto. Take a backup first — the section directly "
             "below downloads every table as CSV, and it is the only way back."
             "</div>",
@@ -1402,6 +1534,7 @@ def _admin_danger_zone():
                     {"label": "Check-in Logs", "value": counts["checkin_logs"], "icon": "🧾", "accent": "err"},
                     {"label": "Page Visits", "value": counts["page_visits"], "icon": "👣", "accent": "err"},
                     {"label": "Submissions", "value": counts["submission_logs"], "icon": "📝", "accent": "err"},
+                    {"label": "Waiver Records", "value": counts["waiver_signatures"], "icon": "📜", "accent": "err"},
                 ]
             ),
             unsafe_allow_html=True,
@@ -1441,7 +1574,8 @@ def _admin_danger_zone():
                 summary = (
                     f"✅ Reset complete — deleted {result['guests']} guest(s), "
                     f"{result['checkin_logs']} check-in log(s), {result['page_visits']} page visit(s), "
-                    f"{result['submission_logs']} submission log(s). Check-in mode is back to Auto."
+                    f"{result['submission_logs']} submission log(s), "
+                    f"{result['waiver_signatures']} waiver record(s). Check-in mode is back to Auto."
                 )
                 _set_flash("success", summary)
                 st.rerun()
@@ -1549,6 +1683,7 @@ def _clear_all_caches_and_state_after_reset() -> None:
     _cached_registration_daily_counts.clear()
     _cached_event_day_hourly_checkins.clear()
     _cached_availability.clear()
+    _cached_waiver_stats.clear()
     st.session_state["registered_guest_id"] = None
     st.session_state["scanner_result"] = None
     st.session_state["admin_pending_changes"] = None
@@ -1652,6 +1787,8 @@ def _admin_overview_tab():
         _set_flash("success", f"Check-in mode set to “{chosen_label}”.")
         st.rerun()
 
+    _admin_waiver_section()
+
     # ── Party Buzz ──────────────────────────────────────────────────────────
     # Public, aggregate-only site activity — no guest names/emails/phones/
     # Zelle refs ever appear here. Moved off Home: guests coming from the
@@ -1704,6 +1841,75 @@ def _admin_overview_tab():
         _render_bar_chart(checkin_df)
     else:
         st.info(f"Check-ins will show up here live once doors open on {config.EVENT_DATE_SHORT}.")
+
+
+def _admin_waiver_section():
+    """Door waiver: the on/off switch, and who has / hasn't signed."""
+    st.markdown(
+        theme.section_header(
+            "📜 Door Waiver",
+            "Guests accept the mechanical-bull waiver on the Scanner before check-in and wristbands.",
+        ),
+        unsafe_allow_html=True,
+    )
+    if not utils.waiver_configured():
+        st.caption("No waiver text is set in config.py, so the Scanner skips this step.")
+        return
+
+    required = utils.waiver_required()
+    st.markdown(
+        theme.checkin_window_banner(
+            required,
+            "required at the door before check-in and wristbands" if required
+            else "switched off — the Scanner checks guests in without it",
+            subject="Waiver step",
+            open_label="ON",
+            closed_label="OFF",
+        ),
+        unsafe_allow_html=True,
+    )
+    waiver_options = {"On — required at the door": True, "Off": False}
+    waiver_labels = list(waiver_options)
+
+    def _on_waiver_switch():
+        chosen = st.session_state["admin_waiver_mode_radio"]
+        utils.set_waiver_required(waiver_options[chosen])
+        _cached_waiver_stats.clear()
+        _set_flash("success", f"Door waiver step set to “{chosen}”.")
+
+    # Re-seeded from the database on every run and written only from the
+    # change callback, so a radio left showing an old value in one admin's
+    # tab can never flip back a switch someone else just changed.
+    st.session_state["admin_waiver_mode_radio"] = waiver_labels[0 if required else 1]
+    st.radio(
+        "Waiver step",
+        waiver_labels,
+        horizontal=True,
+        key="admin_waiver_mode_radio",
+        on_change=_on_waiver_switch,
+    )
+
+    ws = _cached_waiver_stats()
+    st.markdown(
+        theme.stat_tiles(
+            [
+                {"label": "Waivers Signed", "value": ws["accepted_people"], "caption": f"{ws['accepted_bookings']} booking{'s' if ws['accepted_bookings'] != 1 else ''}", "icon": "📜", "accent": "ok"},
+                {"label": "Declined", "value": ws["declined_people"], "caption": f"{ws['declined_bookings']} booking{'s' if ws['declined_bookings'] != 1 else ''}", "icon": "✖", "accent": "err"},
+                {"label": "Admitted Unsigned", "value": ws["admitted_unsigned_people"], "caption": "checked in without a waiver", "icon": "⚠️", "accent": "warn"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Wording version {config.WAIVER_VERSION}. Each guest's latest decision is in the "
+        "Guests CSV; every accept/decline is in the backup's waiver_signatures.csv."
+    )
+    with st.expander("Preview the waiver text"):
+        st.markdown(
+            theme.waiver_panel(config.WAIVER_TITLE, config.WAIVER_SECTIONS, ["Booker Name"], 1,
+                               intro=config.WAIVER_INTRO),
+            unsafe_allow_html=True,
+        )
 
 
 def _admin_guests_tab():
