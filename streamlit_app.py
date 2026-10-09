@@ -980,27 +980,9 @@ def page_scanner():
     with header_col2:
         _home_button(key="home_scanner")
 
-    stats = _cached_stats()
-    if stats["total_guests"] == 0:
-        st.markdown(
-            theme.empty_state(
-                "🎟️", "No guests yet",
-                "Once people register, this will show who's checked in and how many "
-                "are still on their way.",
-            ),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            theme.stat_tiles(
-                [
-                    {"label": "Checked In", "value": stats["admitted_tickets"], "icon": "✅", "accent": "ok", "emphasis": "hero"},
-                    {"label": "Total Guests", "value": stats["total_tickets"], "icon": "👥", "accent": "gold", "emphasis": "hero"},
-                ]
-            ),
-            unsafe_allow_html=True,
-        )
-
+    # No headcount tiles here: this is the guest-facing door screen, and the
+    # organiser's numbers (checked in, wristbands, still to arrive) live on
+    # Admin → Overview.
     st.divider()
 
     # ── Check-in window gate (see PART 3) ──────────────────────────────────

@@ -38,8 +38,7 @@ def test_scanner_checkin_by_qr_code_then_already_checked_in(page, base_url, rese
     # welcome message and the audio-announcement caption on the same card,
     # which would otherwise be a Playwright strict-mode multi-match.
     expect(page.get_by_text("Scan Qr Guest", exact=True)).to_be_visible(timeout=10000)
-    # The literal "✅ Checked In" status label, not the "Checked In" stat
-    # tile that's also on this page -- the emoji prefix disambiguates them.
+    # The literal "✅ Checked In" status label on the result card.
     expect(page.get_by_text("✅ Checked In", exact=False)).to_be_visible(timeout=10000)
 
     updated = reset_db.get_guest(guest["id"])
@@ -68,6 +67,8 @@ def test_scanner_checkin_by_email(page, base_url, reset_db, seed_guest, force_ch
                         zelle_ref="ZELLE-SCANEML1")
 
     goto(page, base_url, "Scanner")
+    # Headcounts are for Admin, not the door screen.
+    expect(page.get_by_text("Total Guests", exact=True)).to_have_count(0)
     # The manual search is a fallback: collapsed until someone opens it.
     expect(page.get_by_text(SCANNER_FIND_EXPANDER, exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_label(SCANNER_LOOKUP_FIELD)).to_be_hidden()
