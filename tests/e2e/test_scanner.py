@@ -18,7 +18,7 @@ from playwright.sync_api import expect
 from .helpers import (
     SCANNER_LOOKUP_FIELD,
     WAIVER_ACCEPT_AND_CHECKIN,
-    WAIVER_SIGNATURE_FIELD,
+    WAIVER_AGREE_TEXT,
     goto,
     scanner_checkin,
     scanner_find,
@@ -54,7 +54,7 @@ def test_scanner_checkin_by_qr_code_then_already_checked_in(page, base_url, rese
     expect(page.get_by_text("Already checked in at", exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_role("button", name="✅ Confirm & Check In")).to_have_count(0)
     # Signed on the way in, so the waiver isn't asked for a second time.
-    expect(page.get_by_text("✅ Signed by Door Signer", exact=True)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("✅ Signed by Scan Qr Guest", exact=True)).to_be_visible(timeout=10000)
     expect(page.get_by_role("button", name=WAIVER_ACCEPT_AND_CHECKIN)).to_have_count(0)
     still = reset_db.get_guest(guest["id"])
     assert still["checked_in"] is True
@@ -103,14 +103,16 @@ def test_scanner_lookup_by_phone_shows_details_and_checks_nobody_in(
     # 3 tickets => 3 wristbands, stated rather than left for staff to infer
     expect(page.get_by_text("Wristbands", exact=True)).to_be_visible(timeout=10000)
     # ...and the waiver says it covers all 3 of them.
-    expect(page.get_by_text("This covers everyone in the booking — 3 people", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("The purchaser accepts for everyone in this booking — 3 people", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_text("I, Phone Door Guest, have read this waiver and accept it for myself and my group (3 people).", exact=True)).to_be_visible(timeout=10000)
+    expect(page.get_by_label("Type your full name to sign")).to_have_count(0)
 
     # The whole point: found, but untouched until someone confirms.
     pending = reset_db.get_guest(guest["id"])
     assert pending["checked_in"] is False
     assert pending["checkin_time"] is None
 
-    scanner_sign_waiver(page, signer="Phone Door Guest")
+    scanner_sign_waiver(page)
     expect(page.get_by_text("✅ Checked In", exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_text("Hand over 3 wristbands", exact=False)).to_be_visible(timeout=10000)
     assert reset_db.get_guest(guest["id"])["checked_in"] is True
@@ -184,34 +186,34 @@ def test_waiver_lists_the_party_and_records_the_signature(
     # Nobody gets the old one-tap check-in while the waiver is unsigned.
     expect(page.get_by_role("button", name="✅ Confirm & Check In")).to_have_count(0)
 
-    scanner_sign_waiver(page, signer="Ann Lee")
+    scanner_sign_waiver(page)
     expect(page.get_by_text("✅ Checked In", exact=False)).to_be_visible(timeout=15000)
 
     waiver = reset_db.get_waiver(guest["id"])
     assert waiver["decision"] == reset_db.WAIVER_ACCEPTED
-    assert waiver["signed_name"] == "Ann Lee"
+    assert waiver["signed_name"] == "Party Booker"  # the purchaser, for the group
     assert waiver["party_names"].split("\n") == ["Party Booker", "Ann Lee", "Bob Ray"]
     assert reset_db.get_guest(guest["id"])["checked_in"] is True
 
 
-def test_waiver_accept_needs_the_tick_and_a_name(page, base_url, reset_db, seed_guest, force_checkin_open):
+def test_waiver_accept_needs_the_tick(page, base_url, reset_db, seed_guest, force_checkin_open):
     guest = seed_guest(name="Half Signed", email="halfsigned@example.com",
                         zelle_ref="ZELLE-HALFSG01")
 
     goto(page, base_url, "Scanner")
     scanner_find(page, guest["qr_code"])
 
-    # No tick, no name -> refused, nothing written.
+    # No tick -> refused, nothing written.
     page.get_by_role("button", name=WAIVER_ACCEPT_AND_CHECKIN).click()
     expect(page.get_by_text("Please tick the box", exact=False)).to_be_visible(timeout=10000)
-
-    # Tick but no name -> still refused.
-    page.get_by_text("I have read this waiver and accept it", exact=False).click()
-    page.get_by_role("button", name=WAIVER_ACCEPT_AND_CHECKIN).click()
-    expect(page.get_by_text("type your full name", exact=False)).to_be_visible(timeout=10000)
-
     assert reset_db.get_waiver(guest["id"]) is None
     assert reset_db.get_guest(guest["id"])["checked_in"] is False
+
+    # Tick -> accepted in the purchaser's name, and checked in.
+    page.get_by_text(WAIVER_AGREE_TEXT, exact=False).click()
+    page.get_by_role("button", name=WAIVER_ACCEPT_AND_CHECKIN).click()
+    expect(page.get_by_text("✅ Checked In", exact=False).first).to_be_visible(timeout=15000)
+    assert reset_db.get_waiver(guest["id"])["signed_name"] == "Half Signed"
 
 
 def test_waiver_decline_blocks_checkin_and_can_be_reversed(
@@ -235,7 +237,7 @@ def test_waiver_decline_blocks_checkin_and_can_be_reversed(
     page.get_by_role("button", name="🔄 Scan Next Guest").click()
     scanner_find(page, guest["qr_code"])
     expect(page.get_by_text("Declined earlier", exact=False)).to_be_visible(timeout=10000)
-    scanner_sign_waiver(page, signer="Decline Guest")
+    scanner_sign_waiver(page)
     expect(page.get_by_text("✅ Checked In", exact=False)).to_be_visible(timeout=15000)
     assert reset_db.get_waiver(guest["id"])["decision"] == reset_db.WAIVER_ACCEPTED
     assert reset_db.get_guest(guest["id"])["checked_in"] is True
@@ -255,7 +257,7 @@ def test_admitted_without_waiver_must_sign_before_wristbands(
     expect(page.get_by_text("Already checked in at", exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_role("button", name="✓ Mark 1 Wristband Given")).to_have_count(0)
 
-    scanner_sign_waiver(page, signer="Early Bird", button="✅ I Accept")
+    scanner_sign_waiver(page, button="✅ I Accept")
     band_button = page.get_by_role("button", name="✓ Mark 1 Wristband Given")
     expect(band_button).to_be_visible(timeout=10000)
     band_button.click()
@@ -273,7 +275,7 @@ def test_waiver_switched_off_restores_the_plain_confirm(
 
     goto(page, base_url, "Scanner")
     scanner_find(page, guest["qr_code"])
-    expect(page.get_by_label(WAIVER_SIGNATURE_FIELD)).to_have_count(0)
+    expect(page.get_by_text(WAIVER_AGREE_TEXT, exact=False)).to_have_count(0)
     page.get_by_role("button", name="✅ Confirm & Check In").click()
     expect(page.get_by_text("✅ Checked In", exact=False)).to_be_visible(timeout=10000)
     assert reset_db.get_guest(guest["id"])["checked_in"] is True

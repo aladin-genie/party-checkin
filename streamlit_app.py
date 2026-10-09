@@ -1185,39 +1185,36 @@ def _show_guest_confirmation(guest: dict):
 
 
 def _render_waiver_form(guest: dict, bands: int, already: bool):
-    """The door waiver: the guest reads it on the iPad, ticks, types their
-    name as the signature, and accepts — or declines.
+    """The door waiver: the purchaser reads it on the iPad, ticks, and
+    accepts for their whole group — or declines. Their name comes from the
+    booking, so nothing is typed.
 
     Accepting a booking that isn't checked in yet checks it in straight away
     (the success screen then shows the wristbands). Declining records the
     decline and stops there: no check-in, no wristbands, organiser decides.
 
-    Widget keys carry the guest id so the next guest never inherits the
-    previous guest's tick or typed name.
+    The widget key carries the guest id so the next guest never inherits the
+    previous guest's tick.
     """
     gid = guest["id"]
+    name = guest.get("name") or "the purchaser"
     party = utils.booking_party_names(guest)
-    st.markdown(
-        f"**📜 Waiver needed before wristbands.** Hand this screen to "
-        f"{guest.get('name') or 'the guest'} to read and accept."
-    )
+    if bands == 1:
+        handoff = f"Hand this screen to {name} to read and accept."
+    else:
+        handoff = f"Hand this screen to {name} — as the purchaser, they accept for their whole group."
+    st.markdown(f"**📜 Waiver needed before wristbands.** {handoff}")
     st.markdown(
         theme.waiver_panel(config.WAIVER_TITLE, config.WAIVER_SECTIONS, party, bands,
                            intro=config.WAIVER_INTRO),
         unsafe_allow_html=True,
     )
 
-    people = "myself" if bands == 1 else f"myself and everyone in my booking ({bands} people)"
+    covers = "" if bands == 1 else f" for myself and my group ({bands} people)"
     with st.form(f"waiver_form_{gid}"):
         agreed = st.checkbox(
-            f"I have read this waiver and accept it for {people}.",
+            f"I, {name}, have read this waiver and accept it{covers}.",
             key=f"waiver_agree_{gid}",
-        )
-        signed_name = st.text_input(
-            "Type your full name to sign",
-            max_chars=utils.MAX_NAME_LENGTH,
-            placeholder="Your full name",
-            key=f"waiver_name_{gid}",
         )
         accept_col, decline_col = st.columns([2, 1])
         with accept_col:
@@ -1233,7 +1230,7 @@ def _render_waiver_form(guest: dict, bands: int, already: bool):
         if not agreed:
             st.error("Please tick the box to confirm you've read and accept the waiver.")
             return
-        result = utils.record_waiver(gid, accepted=True, signed_name=signed_name)
+        result = utils.record_waiver(gid, accepted=True)
         if not result["ok"]:
             st.error(result["message"])
             return
@@ -1246,7 +1243,7 @@ def _render_waiver_form(guest: dict, bands: int, already: bool):
         else:
             _process_checkin_confirmed(gid)
     elif declined:
-        result = utils.record_waiver(gid, accepted=False, signed_name=signed_name)
+        result = utils.record_waiver(gid, accepted=False)
         if not result["ok"]:
             st.error(result["message"])
             return

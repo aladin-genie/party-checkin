@@ -1037,28 +1037,16 @@ class TestPartyCheckIn(unittest.TestCase):
             self.assertFalse(utils.waiver_configured())
             self.assertFalse(utils.waiver_required())
 
-    def test_sanitize_signature_accepts_real_names_and_rejects_junk(self):
-        for good in ("Ravi Kumar", "Mary-Jane O’Brien", "Jean-Luc O'Neil", "Dr. A. Rao", "José Núñez"):
-            self.assertEqual(utils.sanitize_signature(good), good)
-        self.assertEqual(utils.sanitize_signature("  Ravi    Kumar  "), "Ravi Kumar")
-        for bad in ("", " ", "R", "=cmd()", "Ravi 123", "<b>Ravi</b>", "-Ravi", "x" * 101):
-            self.assertEqual(utils.sanitize_signature(bad), "", bad)
-
-    def test_record_waiver_accept_needs_a_signature(self):
-        gid = self._waiver_guest()
-        result = utils.record_waiver(gid, accepted=True, signed_name="  ")
-        self.assertFalse(result["ok"])
-        self.assertIn("full name", result["message"])
-        self.assertIsNone(utils.get_waiver(gid))
-
     def test_record_waiver_snapshots_party_and_version(self):
+        """The purchaser accepts for the group, so they're the recorded signer."""
         gid = self._waiver_guest(ticket_count=3, plus_one_name="Ann Lee\nBob Ray")
-        result = utils.record_waiver(gid, accepted=True, signed_name="Ann Lee")
+        result = utils.record_waiver(gid, accepted=True)
         self.assertTrue(result["ok"], result)
+        self.assertIn("Waiver Booker", result["message"])
 
         waiver = utils.get_waiver(gid)
         self.assertEqual(waiver["decision"], utils.WAIVER_ACCEPTED)
-        self.assertEqual(waiver["signed_name"], "Ann Lee")
+        self.assertEqual(waiver["signed_name"], "Waiver Booker")
         self.assertEqual(waiver["guest_name"], "Waiver Booker")
         self.assertEqual(waiver["party_names"].split("\n"), ["Waiver Booker", "Ann Lee", "Bob Ray"])
         self.assertEqual(waiver["ticket_count"], 3)
@@ -1071,7 +1059,7 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertFalse(utils.waiver_is_accepted(utils.get_waiver(gid)))
         self.assertEqual(utils.get_waiver(gid)["decision"], utils.WAIVER_DECLINED)
 
-        self.assertTrue(utils.record_waiver(gid, accepted=True, signed_name="Waiver Booker")["ok"])
+        self.assertTrue(utils.record_waiver(gid, accepted=True)["ok"])
         self.assertTrue(utils.waiver_is_accepted(utils.get_waiver(gid)))
 
         session = get_db()
@@ -1081,14 +1069,14 @@ class TestPartyCheckIn(unittest.TestCase):
             session.close()
 
     def test_record_waiver_unknown_guest(self):
-        result = utils.record_waiver(999999, accepted=True, signed_name="Nobody Here")
+        result = utils.record_waiver(999999, accepted=True)
         self.assertFalse(result["ok"])
         self.assertIsNone(utils.get_waiver(999999))
 
     def test_record_waiver_writes_nothing_else(self):
         """Signing is not checking in — that stays a separate step."""
         gid = self._waiver_guest()
-        utils.record_waiver(gid, accepted=True, signed_name="Waiver Booker")
+        utils.record_waiver(gid, accepted=True)
         guest = get_guest(gid)
         self.assertFalse(guest["checked_in"])
         self.assertFalse(guest["band_given"])
@@ -1103,7 +1091,7 @@ class TestPartyCheckIn(unittest.TestCase):
         utils.record_waiver(gid, accepted=False)
         self.assertEqual(check_in_guest(gid, require_waiver=True)["status"], "waiver_required")
 
-        utils.record_waiver(gid, accepted=True, signed_name="Waiver Booker")
+        utils.record_waiver(gid, accepted=True)
         self.assertEqual(check_in_guest(gid, require_waiver=True)["status"], "success")
         self.assertTrue(get_guest(gid)["checked_in"])
 
@@ -1129,7 +1117,7 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertIn("waiver", blocked["message"].lower())
         self.assertFalse(get_guest(gid)["band_given"])
 
-        utils.record_waiver(gid, accepted=True, signed_name="Waiver Booker")
+        utils.record_waiver(gid, accepted=True)
         self.assertTrue(mark_band_given(gid, require_waiver=True)["ok"])
         self.assertTrue(get_guest(gid)["band_given"])
 
@@ -1140,7 +1128,7 @@ class TestPartyCheckIn(unittest.TestCase):
         self._waiver_guest(email="w4@test.com")  # never asked, not here yet
 
         utils.record_waiver(signed, accepted=False)
-        utils.record_waiver(signed, accepted=True, signed_name="Ann Lee")
+        utils.record_waiver(signed, accepted=True)
         utils.record_waiver(declined, accepted=False)
         check_in_guest(signed)
         check_in_guest(admitted)  # admin admit, no waiver
@@ -1156,11 +1144,11 @@ class TestPartyCheckIn(unittest.TestCase):
         signed = self._waiver_guest(email="csvw1@test.com")
         self._waiver_guest(email="csvw2@test.com")
         utils.record_waiver(signed, accepted=False)
-        utils.record_waiver(signed, accepted=True, signed_name="Mary-Jane O’Brien")
+        utils.record_waiver(signed, accepted=True)
 
         rows = {r["Email"]: r for r in csv.DictReader(io.StringIO(generate_csv()))}
         self.assertEqual(rows["csvw1@test.com"]["Waiver"], "Accepted")
-        self.assertEqual(rows["csvw1@test.com"]["Waiver Signed By"], "Mary-Jane O’Brien")
+        self.assertEqual(rows["csvw1@test.com"]["Waiver Signed By"], "Waiver Booker")
         self.assertTrue(rows["csvw1@test.com"]["Waiver Time"])
         self.assertEqual(rows["csvw2@test.com"]["Waiver"], "Not signed")
         self.assertEqual(rows["csvw2@test.com"]["Waiver Signed By"], "")
@@ -1168,7 +1156,7 @@ class TestPartyCheckIn(unittest.TestCase):
     def test_waiver_record_survives_guest_deletion(self):
         """It's the record of who agreed to what — deleting the booking keeps it."""
         gid = self._waiver_guest()
-        utils.record_waiver(gid, accepted=True, signed_name="Waiver Booker")
+        utils.record_waiver(gid, accepted=True)
         self.assertTrue(delete_guest(gid))
         self.assertEqual(utils.get_waiver(gid)["signed_name"], "Waiver Booker")
 
@@ -2144,7 +2132,7 @@ class TestPartyCheckIn(unittest.TestCase):
             session.commit()
         finally:
             session.close()
-        self.assertTrue(utils.record_waiver(gid, accepted=True, signed_name="Reset Me")["ok"])
+        self.assertTrue(utils.record_waiver(gid, accepted=True)["ok"])
         record_visit("reset-token", "Home")
         record_submission("Reset Me", "reset.me@test.com", "", 2, "", "ZELLE-RESET1",
                           status="registered", guest_id=gid)

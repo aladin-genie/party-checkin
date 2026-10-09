@@ -1534,6 +1534,7 @@ a.sponsor-card:hover {
 }
 .waiver-party { margin: 6px 0 0 0; padding-left: 1.2em; color: var(--text); font-weight: 600; }
 .waiver-party li.is-unnamed { color: var(--warn); font-weight: 500; }
+.waiver-purchaser { color: var(--text-dim); font-weight: 500; }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
 .app-footer {
@@ -2609,7 +2610,8 @@ def waiver_panel(title: str, sections, party_names: list, ticket_count: int, int
     a blank heading renders the body alone, a blank body is skipped. Lists
     everyone the acceptance covers — the booker plus every named guest — so
     whoever signs can see exactly who they're signing for, and says so
-    plainly when a booking has fewer names on file than tickets.
+    plainly when a booking has fewer names on file than tickets. The first
+    name is the purchaser, who accepts for the group.
     """
     try:
         tickets = max(int(ticket_count or 1), 1)
@@ -2631,13 +2633,15 @@ def waiver_panel(title: str, sections, party_names: list, ticket_count: int, int
             parts.append(f'<div class="waiver-heading">{html.escape(heading.strip())}</div>')
         parts.append(f"<p>{html.escape(body.strip())}</p>")
     parts.append("</div>")
-    people = "person" if tickets == 1 else "people"
-    parts.append(
-        f'<div class="waiver-party-label">This covers everyone in the booking — {tickets} {people}:</div>'
-    )
+    if tickets == 1:
+        label = "This covers 1 person:"
+    else:
+        label = f"The purchaser accepts for everyone in this booking — {tickets} people:"
+    parts.append(f'<div class="waiver-party-label">{label}</div>')
     parts.append('<ul class="waiver-party">')
-    for name in names:
-        parts.append(f"<li>{html.escape(name.strip())}</li>")
+    for i, name in enumerate(names):
+        purchaser = ' <span class="waiver-purchaser">(purchaser)</span>' if i == 0 and tickets > 1 else ""
+        parts.append(f"<li>{html.escape(name.strip())}{purchaser}</li>")
     unnamed = tickets - len(names)
     if unnamed > 0:
         parts.append(f'<li class="is-unnamed">+ {unnamed} guest{"s" if unnamed != 1 else ""} not named on the booking</li>')

@@ -114,7 +114,8 @@ locks everyone out of the admin dashboard rather than letting everyone in.
 - **The door waiver gates check-in and wristbands on the Scanner.** While
   `config.WAIVER_SECTIONS` is non-empty and the Admin → Overview "Waiver step" switch is
   on (`app_settings.waiver_mode`, default on), a booking with no acceptance on file gets the
-  waiver (tick + typed full name) instead of the Confirm/Wristband buttons; accepting checks
+  waiver (the purchaser ticks to accept for their whole group; their booking name is recorded
+  as the signer) instead of the Confirm/Wristband buttons; accepting checks
   them in. Decisions go to the append-only `waiver_signatures` table (latest row wins; no FK,
   party snapshot + `WAIVER_VERSION` copied in) — a new table, so the rollout never ALTERs
   `guests`. The Scanner passes `require_waiver=True` to `check_in_guest()` /

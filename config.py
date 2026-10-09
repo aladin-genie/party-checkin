@@ -76,16 +76,15 @@ APP_URL = get_secret("APP_URL", _DEFAULT_APP_URL).rstrip("/")
 
 # ── Door waiver (mechanical bull ride) ───────────────────────────────────────
 # Shown on the Scanner page when a guest is pulled up at the door: the guest
-# reads it on the door iPad and accepts it — tick + typed full name as the
-# signature — before they're checked in and handed wristbands. One acceptance
-# covers the whole booking (the accept box says so and the party is listed
-# under the text), as with the Terms & Conditions guests agreed to at
-# registration.
+# reads it on the door iPad and ticks to accept it before they're checked in
+# and handed wristbands. The purchaser (booker) accepts for their whole group
+# — the accept box names them and the party is listed under the text — as
+# with the Terms & Conditions guests agreed to at registration.
 #
 # The four sections are the organisers' own wording, verbatim. The paper
 # form's blanks are covered by the booking and the signature record instead:
-# event/date come from WAIVER_INTRO, the typed name is the printed name and
-# signature, and the time it was signed is stored with it.
+# event/date come from WAIVER_INTRO, the purchaser's name on the booking is
+# recorded as the signer, and the time it was accepted is stored with it.
 #
 # Organisers can switch the step off from Admin → Overview without a redeploy
 # (utils.waiver_required()); emptying WAIVER_SECTIONS switches it off for

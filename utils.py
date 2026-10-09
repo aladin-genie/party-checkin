@@ -204,7 +204,7 @@ class WaiverSignature(Base):
     party_names = Column(Text, default="")  # everyone the decision covers, newline-joined, booker first
     ticket_count = Column(Integer, default=1)
     decision = Column(String(20), nullable=False)  # 'accepted' | 'declined'
-    signed_name = Column(String(100), default="")  # typed full name = the signature
+    signed_name = Column(String(100), default="")  # the purchaser, who decides for the group
     waiver_version = Column(String(50), default="")
     signed_at = Column(DateTime, default=_utc_now)
     device_info = Column(String(200), default="")
@@ -2967,13 +2967,6 @@ WAIVER_REQUIRED_MESSAGE = (
     "check-in and wristbands."
 )
 
-# A typed signature: letters (any script) with the spaces, hyphens, periods
-# and apostrophes real names carry — including the curly ’ an iPad keyboard
-# substitutes for '. Laxer than sanitize_name() on purpose: whoever signs at
-# the door may not be the booker, and a door queue is no place to argue
-# with "O’Brien".
-_SIGNATURE_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ .'’\-])*")
-
 
 def waiver_configured() -> bool:
     """True when config carries waiver text to show at all."""
@@ -2995,14 +2988,6 @@ def waiver_required() -> bool:
 def set_waiver_required(required: bool) -> None:
     """Persist the organiser's door-waiver on/off switch."""
     set_setting(_WAIVER_SETTING_KEY, WAIVER_MODE_ON if required else WAIVER_MODE_OFF)
-
-
-def sanitize_signature(name: str) -> str:
-    """Clean a typed waiver signature, or return "" if it isn't a usable name."""
-    name = re.sub(r"\s+", " ", name or "").strip()
-    if len(name) < 2 or len(name) > MAX_NAME_LENGTH:
-        return ""
-    return name if _SIGNATURE_RE.fullmatch(name) else ""
 
 
 def booking_party_names(guest: dict) -> list:
@@ -3043,27 +3028,19 @@ def get_waiver(guest_id: int) -> dict:
         session.close()
 
 
-def record_waiver(guest_id: int, accepted: bool, signed_name: str = "",
-                  device_info: str = "Streamlit Scanner") -> dict:
+def record_waiver(guest_id: int, accepted: bool, device_info: str = "Streamlit Scanner") -> dict:
     """Record a booking's accept/decline of the door waiver.
 
-    Accepting needs a typed full name — that's the signature. Declining
-    doesn't (a name is kept if one was typed). The booker's name, the whole
-    party and config.WAIVER_VERSION are copied onto the row. Writes nothing
-    else: checking in and wristbands stay separate, deliberate steps.
+    The purchaser (the booker) decides for their whole group, so their name
+    on the booking is recorded as the signer — nothing is typed at the door.
+    The whole party and config.WAIVER_VERSION are copied onto the row too.
+    Writes nothing else: checking in and wristbands stay separate,
+    deliberate steps.
 
     Returns {"ok": bool, "message": str, "waiver": dict|None}.
     """
     if db_degraded():
         return {"ok": False, "message": DB_DEGRADED_MESSAGE, "waiver": None}
-
-    signature = sanitize_signature(signed_name)
-    if accepted and not signature:
-        return {
-            "ok": False,
-            "message": "Please type your full name to sign the waiver.",
-            "waiver": None,
-        }
 
     session = get_db()
     try:
@@ -3077,7 +3054,7 @@ def record_waiver(guest_id: int, accepted: bool, signed_name: str = "",
             party_names="\n".join(booking_party_names(guest.to_dict())),
             ticket_count=guest.ticket_count,
             decision=WAIVER_ACCEPTED if accepted else WAIVER_DECLINED,
-            signed_name=signature,
+            signed_name=guest.name,
             waiver_version=config.WAIVER_VERSION,
             signed_at=_utc_now(),
             device_info=device_info,
@@ -3085,7 +3062,7 @@ def record_waiver(guest_id: int, accepted: bool, signed_name: str = "",
         session.add(row)
         session.commit()
         if accepted:
-            message = f"Waiver accepted — signed by {signature}."
+            message = f"Waiver accepted by {guest.name} for their booking."
         else:
             message = f"Waiver declined for {guest.name}'s booking."
         return {"ok": True, "message": message, "waiver": row.to_dict()}

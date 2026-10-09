@@ -173,7 +173,7 @@ def test_admin_door_waiver_switch_persists_and_shows_counts(page, base_url, rese
     signed-count tile it sits above."""
     guest = seed_guest(name="Signed Guest", email="signedguest@example.com",
                         ticket_count=2, plus_one_name="Pat Doe", zelle_ref="ZELLE-SIGNED001")
-    assert reset_db.record_waiver(guest["id"], accepted=True, signed_name="Pat Doe")["ok"]
+    assert reset_db.record_waiver(guest["id"], accepted=True)["ok"]
     assert reset_db.waiver_required() is True
 
     goto(page, base_url, "Admin")

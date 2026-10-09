@@ -178,21 +178,20 @@ def scanner_find(page: Page, code: str) -> None:
     page.get_by_role("button", name="🔍 Find Guest").click()
 
 
-WAIVER_SIGNATURE_FIELD = "Type your full name to sign"
-WAIVER_AGREE_TEXT = "I have read this waiver and accept it"
+WAIVER_AGREE_TEXT = "have read this waiver and accept it"
 WAIVER_ACCEPT_AND_CHECKIN = "✅ I Accept & Check In"
 
 
-def scanner_sign_waiver(page: Page, signer: str = "Door Signer", button: str = WAIVER_ACCEPT_AND_CHECKIN) -> None:
-    """Fill in the door waiver on the guest card and press `button`.
+def scanner_sign_waiver(page: Page, button: str = WAIVER_ACCEPT_AND_CHECKIN) -> None:
+    """Tick the door waiver on the guest card (the purchaser accepting for
+    their group) and press `button`.
 
     The tick goes through the checkbox's visible label (see the module
-    docstring on Streamlit checkboxes). It's an st.form, so the typed name
-    commits with the button press — no blur needed."""
+    docstring on Streamlit checkboxes). It's an st.form, so the tick commits
+    with the button press."""
     accept = page.get_by_role("button", name=button)
     accept.wait_for(timeout=10000)
     page.get_by_text(WAIVER_AGREE_TEXT, exact=False).click()
-    page.get_by_label(WAIVER_SIGNATURE_FIELD).fill(signer)
     accept.click()
 
 
