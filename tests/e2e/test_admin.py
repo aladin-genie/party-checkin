@@ -189,9 +189,11 @@ def test_admin_door_waiver_switch_persists_and_shows_counts(page, base_url, rese
     # Switched back on from somewhere else: this tab's radio still shows
     # "Off", and its next rerun must not quietly switch it off again.
     reset_db.set_waiver_required(True)
-    # Streamlit's "r" rerun hotkey is ignored while the radio has focus.
-    page.get_by_role("heading", name="📊 Admin Dashboard").click()
-    page.keyboard.press("r")
+    # Any rerun of this same session will do; a search in the Guests tab is
+    # a dependable one (the "r" hotkey is sometimes swallowed).
+    page.get_by_role("tab", name="Guests").click()
+    fill_and_blur(page, "🔍 Search by name, email, phone, or Zelle ref", "Signed")
+    page.get_by_role("tab", name="Overview").click()
     expect(page.get_by_text("ON", exact=True)).to_be_visible(timeout=10000)
     page.wait_for_timeout(1000)
     assert reset_db.waiver_required() is True
