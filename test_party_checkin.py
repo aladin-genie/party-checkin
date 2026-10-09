@@ -1138,6 +1138,26 @@ class TestPartyCheckIn(unittest.TestCase):
         second = self._waiver_guest(email="waiver.b@test.com")
         self.assertEqual(check_in_guest(second, require_waiver=True)["status"], "success")
 
+    def test_check_in_guest_with_bands_records_both_in_one_step(self):
+        gid = self._waiver_guest()
+        utils.record_waiver(gid, accepted=True)
+        result = check_in_guest(gid, require_waiver=True, with_bands=True)
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["guest"]["checked_in"])
+        self.assertTrue(result["guest"]["band_given"])
+        session = get_db()
+        try:
+            actions = [l.action for l in session.query(CheckInLog).filter_by(guest_id=gid)]
+        finally:
+            session.close()
+        self.assertEqual(sorted(actions), ["band_given", "checkin"])
+
+    def test_check_in_guest_leaves_bands_alone_by_default(self):
+        """Admin admits don't imply the wristbands went over."""
+        gid = self._waiver_guest()
+        check_in_guest(gid)
+        self.assertFalse(get_guest(gid)["band_given"])
+
     def test_check_in_guest_already_checked_in_wins_over_waiver(self):
         gid = self._waiver_guest()
         check_in_guest(gid)

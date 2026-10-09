@@ -1232,12 +1232,19 @@ def _render_waiver_form(guest: dict, bands: int, already: bool):
             return
         _cached_waiver_stats.clear()
         _set_flash("success", f"📜 {result['message']}")
-        if already:
-            # Stay on this guest — the refreshed card now offers the wristbands.
+        if not already:
+            _process_checkin_confirmed(gid)
+        elif guest.get("band_given"):
+            # Admitted with wristbands before the waiver step existed: only
+            # the waiver was missing. The refreshed card says not to give more.
             st.session_state["scanner_lookup"] = utils.get_guest(gid) or guest
             st.rerun()
         else:
-            _process_checkin_confirmed(gid)
+            # Admitted from Admin without wristbands: accepting here is when
+            # they're handed over, same as a fresh check-in.
+            utils.mark_band_given(gid, require_waiver=True)
+            st.session_state["scanner_lookup"] = None
+            _show_admitted(utils.get_guest(gid) or guest, f"Welcome {guest['name']}!")
     elif declined:
         result = utils.record_waiver(gid, accepted=False)
         if not result["ok"]:
@@ -1264,7 +1271,7 @@ def _process_checkin_confirmed(guest_id: int):
     whose details staff just read back to the guest.
     """
     st.session_state["scanner_lookup"] = None
-    _apply_checkin_result(utils.check_in_guest(guest_id, require_waiver=True))
+    _apply_checkin_result(utils.check_in_guest(guest_id, require_waiver=True, with_bands=True))
 
 
 def _apply_checkin_result(result: dict):
@@ -1321,14 +1328,19 @@ def _apply_checkin_result(result: dict):
         return
 
     # success
-    guest = result["guest"]
+    _show_admitted(result["guest"], result["message"])
+
+
+def _show_admitted(guest: dict, message: str):
+    """Switch the Scanner to the welcome screen for a guest who's in and
+    whose wristbands are being handed over now, then rerun."""
     _cached_stats.clear()
     _cached_event_day_hourly_checkins.clear()
     announcement = utils.generate_welcome_announcement(guest["name"], guest["ticket_count"])
     st.session_state["scanner_result"] = {
         "type": "success",
         "guest": guest,
-        "message": result["message"],
+        "message": message,
         "announcement": announcement,
         "guest_id": guest["id"],
     }
@@ -1347,11 +1359,13 @@ def _show_scanner_result(result):
             theme.guest_result_card(guest["name"], guest["ticket_count"], "success", result["message"]),
             unsafe_allow_html=True,
         )
-        st.info(f"🎗️ Hand over **{bands}** wristband{'s' if bands != 1 else ''} — one per ticket.")
-
-        if st.button(f"✓ Mark {bands} Wristband{'s' if bands != 1 else ''} Given",
-                     type="primary", use_container_width=True):
-            _mark_band_given(result["guest_id"])
+        # Checking in records the wristbands too (check_in_guest(with_bands=
+        # True)) — they go across the table as the guest is welcomed, so
+        # there's no second tap to forget.
+        st.info(
+            f"🎗️ Hand over **{bands}** wristband{'s' if bands != 1 else ''} now — one per ticket. "
+            "Already marked as given."
+        )
 
         announcement = result.get("announcement", "")
         if announcement:

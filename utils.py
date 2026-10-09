@@ -2881,7 +2881,8 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
         session.close()
 
 
-def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: bool = False) -> dict:
+def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: bool = False,
+                   with_bands: bool = False) -> dict:
     """Check in one specific, already-identified guest.
 
     The second half of the door flow (see find_guest_by_code): staff have
@@ -2895,6 +2896,10 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
     is switched on (waiver_required()), nobody is checked in until their
     booking has accepted it — status "waiver_required", nothing written.
     Admin paths leave it False: the organiser can always admit someone.
+
+    with_bands: the Scanner passes True — wristbands go across the table as
+    the guest is checked in, so both are recorded together (one commit,
+    with a log row for each) instead of needing a second tap.
 
     Same contract as check_in_by_code(): {"status": "success"|"already"|
     "not_found"|"not_open"|"waiver_required"|"db_unavailable", "guest":
@@ -2927,8 +2932,10 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
 
         guest.checked_in = True
         guest.checkin_time = _utc_now()
-        log = CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner")
-        session.add(log)
+        session.add(CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner"))
+        if with_bands and not guest.band_given:
+            guest.band_given = True
+            session.add(CheckInLog(guest_id=guest.id, action="band_given", device_info="Streamlit Scanner"))
         session.commit()
 
         return {

@@ -149,29 +149,22 @@ def test_scanner_invalid_code_shows_error(page, base_url, reset_db, force_checki
     expect(page.get_by_text("No guest found", exact=False)).to_be_visible(timeout=10000)
 
 
-def test_wristband_mark_band_given_after_checkin(page, base_url, reset_db, seed_guest, force_checkin_open):
+def test_checkin_marks_wristbands_given_without_a_second_tap(
+    page, base_url, reset_db, seed_guest, force_checkin_open
+):
+    """Accepting at the door checks the guest in and records the wristbands
+    in the same step — staff just hand them over."""
     guest = seed_guest(name="Band Guest", email="bandguest@example.com",
                         zelle_ref="ZELLE-BANDG0001")
 
     goto(page, base_url, "Scanner")
     scanner_checkin(page, guest["qr_code"])
-    band_button = page.get_by_role("button", name="✓ Mark 1 Wristband Given")
-    expect(band_button).to_be_visible(timeout=10000)
+    expect(page.get_by_text("Hand over 1 wristband now", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_role("button", name="✓ Mark 1 Wristband Given")).to_have_count(0)
 
-    assert reset_db.get_guest(guest["id"])["band_given"] is False
-
-    # NOTE: not asserting the "Band marked as given" success text here.
-    # `_mark_band_given()` in streamlit_app.py calls st.success(message)
-    # immediately followed by st.rerun() in the same function -- the rerun
-    # appears to supersede the frame before the success message is ever
-    # flushed to the browser, so it never becomes visible (confirmed: DB
-    # state below still updates correctly). Filed as a real bug in the
-    # test-suite report; the task's acceptance criterion for this flow is
-    # the DB assertion, which we do check.
-    band_button.click()
-    page.wait_for_timeout(2000)
-
-    assert reset_db.get_guest(guest["id"])["band_given"] is True
+    updated = reset_db.get_guest(guest["id"])
+    assert updated["checked_in"] is True
+    assert updated["band_given"] is True
 
     # The same QR code comes through again: a plain "don't give any more",
     # and nothing to press that would check in or hand out bands twice.
@@ -274,11 +267,10 @@ def test_admitted_without_waiver_must_sign_before_wristbands(
     expect(page.get_by_text("Already checked in at", exact=False)).to_be_visible(timeout=10000)
     expect(page.get_by_role("button", name="✓ Mark 1 Wristband Given")).to_have_count(0)
 
+    # Accepting here is when their wristbands go over — recorded right away.
     scanner_sign_waiver(page, button="✅ I Accept")
-    band_button = page.get_by_role("button", name="✓ Mark 1 Wristband Given")
-    expect(band_button).to_be_visible(timeout=10000)
-    band_button.click()
-    expect(band_button).to_have_count(0, timeout=10000)
+    expect(page.get_by_text("Hand over 1 wristband now", exact=False)).to_be_visible(timeout=10000)
+    expect(page.get_by_role("button", name="✓ Mark 1 Wristband Given")).to_have_count(0)
     assert reset_db.get_guest(guest["id"])["band_given"] is True
 
 
