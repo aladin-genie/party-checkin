@@ -1500,6 +1500,20 @@ a.sponsor-card:hover {
 }
 .guest-identity-value.is-strong { font-size: 1.05rem; color: var(--gold); }
 
+/* ── Camera scan button (scanner) ──────────────────────────────────────── */
+/* st.camera_input's "Take Photo" label is fixed in Streamlit 1.40, so it is
+   relabelled here. The same button also reads "Clear photo" / "Uploading...",
+   but only the take-photo state holds bare text with no child elements —
+   :not(:has(*)) picks it out and leaves the other states alone. Scoped
+   under stCameraInput to outrank the global button font-size rule above. */
+[data-testid="stCameraInput"] button[data-testid="stCameraInputButton"]:not(:has(*)) {
+    font-size: 0 !important;
+}
+[data-testid="stCameraInput"] button[data-testid="stCameraInputButton"]:not(:has(*))::after {
+    content: "📸 Take Photo of QR Code";
+    font-size: 1rem;
+}
+
 /* ── Door waiver (scanner) ─────────────────────────────────────────────── */
 /* Read by the guest on the door iPad: body-size type (Inter, not Rye), and
    the whole text on the page — no inner scroll box hiding the last section. */

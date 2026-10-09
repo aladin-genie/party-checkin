@@ -1019,7 +1019,7 @@ def page_scanner():
 
     # ── Camera Scan ──────────────────────────────────────────────────────────
     st.subheader("📸 Camera Scan")
-    st.write("Hold your QR code up to the camera and click 'Take Photo'")
+    st.write("Hold your QR code up to the camera and tap 'Take Photo of QR Code'")
 
     camera_image = st.camera_input("Capture QR code")
 
