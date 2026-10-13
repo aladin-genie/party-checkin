@@ -882,6 +882,32 @@ class TestPartyCheckIn(unittest.TestCase):
         self.assertEqual(second["status"], "already")
         self.assertIn("already checked in", second["message"])
 
+    def test_group_checkin_needs_a_collector_and_records_them(self):
+        group = self._register(name="Group Lead", email="grp@test.com", phone="+1-555-404-6060",
+                               ticket_count=2, plus_one_name="Friend One",
+                               zelle_ref="ZELLE-GROUP001")["guest"]
+        blocked = check_in_guest(group["id"], require_collector=True)
+        self.assertEqual(blocked["status"], "collector_required")
+        self.assertFalse(get_guest(group["id"])["checked_in"])
+
+        ok = check_in_guest(group["id"], require_collector=True, collected_by="  Ravi K  ")
+        self.assertEqual(ok["status"], "success")
+        self.assertEqual(get_guest(group["id"])["collected_by"], "Ravi K")
+        self.assertEqual([g["id"] for g in utils.list_group_bookings()], [group["id"]])
+
+    def test_single_ticket_checkin_never_needs_a_collector(self):
+        solo = self._register(name="Solo", email="solo@test.com", phone="+1-555-404-7070",
+                              zelle_ref="ZELLE-SOLO0001")["guest"]
+        self.assertEqual(check_in_guest(solo["id"], require_collector=True)["status"], "success")
+        self.assertEqual(utils.list_group_bookings(), [])
+
+    def test_set_group_collector_rejects_blank(self):
+        group = self._register(name="Group Two", email="grp2@test.com", phone="+1-555-404-8080",
+                               ticket_count=2, plus_one_name="Pal", zelle_ref="ZELLE-GROUP002")["guest"]
+        self.assertFalse(utils.set_group_collector(group["id"], "  ")["ok"])
+        self.assertTrue(utils.set_group_collector(group["id"], "Sam")["ok"])
+        self.assertEqual(get_guest(group["id"])["collected_by"], "Sam")
+
     def test_check_in_guest_unknown_id(self):
         result = check_in_guest(999999)
         self.assertEqual(result["status"], "not_found")

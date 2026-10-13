@@ -58,6 +58,15 @@ EVENT_DATE_SHORT = "Fri, Oct 9, 2026"
 # This year's dress-up theme, straight off the flyer. Drives the app's whole
 # look (see theme.py) as well as the badge on the hero, so guests arriving
 # from the flyer land somewhere that looks like the flyer.
+# Flip to False to reopen registration and show the countdown again. While
+# True the app says the party is over and Register stops taking bookings.
+EVENT_OVER = get_secret("EVENT_OVER", "true").strip().lower() != "false"  # e2e sandbox sets "false"
+EVENT_OVER_TITLE = "Thank you for celebrating with us!"
+EVENT_OVER_MESSAGE = (
+    "The party is over — it was a night to remember. Thank you for joining us; "
+    "we'll see you all next year!"
+)
+
 EVENT_THEME = "Texas Cowboys"
 EVENT_THEME_NOTE = "Boots, hats, and denim encouraged"
 

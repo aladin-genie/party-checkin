@@ -2447,6 +2447,18 @@ def closed_notice(message: str) -> str:
     """
 
 
+def event_over_notice(title: str, message: str) -> str:
+    """The "party's over, see you next year" notice shown across the app once
+    config.EVENT_OVER is on. Reuses the closed-notice styling."""
+    return f"""
+    <div class="closed-notice">
+        <div class="closed-notice-icon">🤠</div>
+        <div class="closed-notice-title">{html.escape(title)}</div>
+        <div class="closed-notice-message">{html.escape(message)}</div>
+    </div>
+    """
+
+
 def checkin_window_banner(is_open: bool, detail: str = "", subject: str = "Check-in",
                           open_label: str = "OPEN", closed_label: str = "CLOSED") -> str:
     """A prominent banner showing the current check-in gate status (admin).
@@ -2583,6 +2595,8 @@ def guest_identity_card(guest: dict, bands: int, status_label: str, status: str 
         ("Tickets", str(tickets), True),
         ("Wristbands", f"{bands} — already given" if guest.get("band_given") else str(bands), True),
     ]
+    if tickets > 1:
+        rows.append(("Tickets collected by", guest.get("collected_by") or "— not recorded yet", True))
 
     # Names are collected at registration, one per ticket beyond the booker
     # (see utils.additional_guests_expected), so door staff can read the

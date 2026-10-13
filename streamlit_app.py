@@ -243,6 +243,10 @@ def page_home():
     if st.session_state.get("just_registered"):
         _render_registration_confirmation()
 
+    if config.EVENT_OVER:
+        st.markdown(theme.event_over_notice(config.EVENT_OVER_TITLE, config.EVENT_OVER_MESSAGE),
+                    unsafe_allow_html=True)
+
     st.markdown(theme.hero(), unsafe_allow_html=True)
 
     # Warn if running on fallback SQLite (e.g., Cloud secret missing or DB unreachable)
@@ -444,6 +448,11 @@ def page_register():
         st.title("📝 Register Guest")
     with header_col2:
         _home_button(key="home_register")
+
+    if config.EVENT_OVER:
+        st.markdown(theme.event_over_notice(config.EVENT_OVER_TITLE, config.EVENT_OVER_MESSAGE),
+                    unsafe_allow_html=True)
+        return
 
     # ── Ticket capacity ────────────────────────────────────────────────────
     # Checked before anything else on the page: there's no point walking a
@@ -983,6 +992,9 @@ def page_scanner():
     # No headcount tiles here: this is the guest-facing door screen, and the
     # organiser's numbers (checked in, wristbands, still to arrive) live on
     # Admin → Overview.
+    if config.EVENT_OVER:
+        st.markdown(theme.event_over_notice(config.EVENT_OVER_TITLE, config.EVENT_OVER_MESSAGE),
+                    unsafe_allow_html=True)
     st.divider()
 
     # ── Check-in window gate (see PART 3) ──────────────────────────────────
@@ -997,6 +1009,7 @@ def page_scanner():
             theme.closed_notice(status["message"] or f"Opens {status['opens_at_text']}."),
             unsafe_allow_html=True,
         )
+        _render_group_collectors()
         return
 
     # ── Camera Scan ──────────────────────────────────────────────────────────
@@ -1089,6 +1102,39 @@ def page_scanner():
             else:
                 st.error("Please enter a phone number, email, ticket ID, or QR code.")
 
+    _render_group_collectors()
+
+
+def _render_group_collectors():
+    """Table of group bookings and who collected each group's tickets.
+
+    People turn up saying "I'm with so-and-so's group", sometimes holding the
+    group's ticket — this is where staff look that up, and who to ask to
+    contact the rest of the group when they appear.
+    """
+    groups = utils.list_group_bookings()
+    if not groups:
+        return
+    st.divider()
+    st.subheader("👥 Groups — who collected the tickets")
+    st.caption("Search by group name or collector. Ask the collector to get in touch when their group arrives.")
+    needle = st.text_input("Find a group", key="group_filter", placeholder="Group name or collector…",
+                           label_visibility="collapsed").strip().lower()
+    rows = []
+    for g in groups:
+        collector = g.get("collected_by") or ""
+        if needle and needle not in (g.get("name") or "").lower() and needle not in collector.lower():
+            continue
+        rows.append({
+            "Group (booked by)": g.get("name"),
+            "People": utils.party_size(g),
+            "Phone": g.get("phone") or "—",
+            "Collected by": collector or "— not recorded",
+            "Checked in": ("✅ " + _fmt_checkin_iso(g.get("checkin_time"))) if g.get("checked_in") else "—",
+        })
+    st.caption(f"{len(rows)} of {len(groups)} groups shown")
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
 
 def _lookup_guest(code: str):
     """Find the guest behind a scanned/typed code — without checking anyone in.
@@ -1150,6 +1196,27 @@ def _show_guest_confirmation(guest: dict):
         ),
         unsafe_allow_html=True,
     )
+
+    # A group needs a name against it: whoever collects the tickets is who
+    # staff ask to pass the word on when the rest of the group shows up.
+    if bands > 1:
+        collector_key = f"collector_{guest['id']}"
+        st.session_state.setdefault(collector_key, guest.get("collected_by") or "")
+        st.text_input(
+            "Who is collecting this group's tickets?",
+            key=collector_key,
+            max_chars=utils.MAX_NAME_LENGTH,
+            placeholder="Full name of the person collecting",
+        )
+        if already and st.session_state[collector_key].strip() != (guest.get("collected_by") or ""):
+            if st.button("💾 Save collector", use_container_width=True):
+                saved = utils.set_group_collector(guest["id"], st.session_state[collector_key])
+                if saved["ok"]:
+                    _set_flash("success", saved["message"])
+                    st.session_state["scanner_lookup"] = utils.get_guest(guest["id"]) or guest
+                    st.rerun()
+                else:
+                    st.error(saved["message"])
 
     if needs_waiver:
         if already and guest.get("band_given"):
@@ -1288,8 +1355,17 @@ def _process_checkin_confirmed(guest_id: int):
     number at confirm time could land on a different booking than the one
     whose details staff just read back to the guest.
     """
+    collector = st.session_state.get(f"collector_{guest_id}", "")
+    result = utils.check_in_guest(guest_id, require_waiver=True, with_bands=True,
+                                  collected_by=collector, require_collector=True)
+    if result["status"] == "collector_required":
+        # Stay on the guest's card so the name can be typed.
+        st.session_state["scanner_lookup"] = result["guest"]
+        _set_flash("warning", result["message"])
+        st.rerun()
+        return
     st.session_state["scanner_lookup"] = None
-    _apply_checkin_result(utils.check_in_guest(guest_id, require_waiver=True, with_bands=True))
+    _apply_checkin_result(result)
 
 
 def _apply_checkin_result(result: dict):

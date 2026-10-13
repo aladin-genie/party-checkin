@@ -98,6 +98,7 @@ def sandbox_dir(tmp_path_factory):
 MAIL_USERNAME = ""
 MAIL_PASSWORD = ""
 ADMIN_PASSWORD = "{ADMIN_PASSWORD}"
+EVENT_OVER = "false"
 ZELLE_INFO = "{ZELLE_INFO_TEST}"
 '''
     (st_dir / "secrets.toml").write_text(secrets)

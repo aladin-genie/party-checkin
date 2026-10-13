@@ -105,6 +105,7 @@ class Guest(Base):
     created_at = Column(DateTime, default=_utc_now, index=True)
     veg_count = Column(Integer, default=0)
     non_veg_count = Column(Integer, default=0)
+    collected_by = Column(String(100), default="")  # who picked up a group's tickets/wristbands at the door
 
     def to_dict(self):
         return {
@@ -122,6 +123,7 @@ class Guest(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "veg_count": self.veg_count,
             "non_veg_count": self.non_veg_count,
+            "collected_by": self.collected_by or "",
         }
 
 
@@ -451,6 +453,11 @@ def init_db():
             from sqlalchemy import text
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE guests ADD COLUMN non_veg_count INTEGER DEFAULT 0"))
+                conn.commit()
+        if "collected_by" not in cols:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE guests ADD COLUMN collected_by VARCHAR(100) DEFAULT ''"))
                 conn.commit()
 
     # Migration for existing submission_logs tables that pre-date the meal
@@ -2945,7 +2952,7 @@ def check_in_by_code(code: str, bypass_window: bool = False) -> dict:
 
 
 def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: bool = False,
-                   with_bands: bool = False) -> dict:
+                   with_bands: bool = False, collected_by: str = "", require_collector: bool = False) -> dict:
     """Check in one specific, already-identified guest.
 
     The second half of the door flow (see find_guest_by_code): staff have
@@ -2964,9 +2971,16 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
     the guest is checked in, so both are recorded together (one commit,
     with a log row for each) instead of needing a second tap.
 
+    collected_by / require_collector: for a group booking (more than one
+    ticket) the Scanner records who collected the group's tickets and
+    wristbands, so staff can find that person when the rest of the group
+    turns up. With require_collector=True a group with no collector on file
+    and none supplied gets status "collector_required" and nothing is
+    written. Single-ticket bookings never need one.
+
     Same contract as check_in_by_code(): {"status": "success"|"already"|
-    "not_found"|"not_open"|"waiver_required"|"db_unavailable", "guest":
-    dict|None, "message": str}.
+    "not_found"|"not_open"|"waiver_required"|"collector_required"|
+    "db_unavailable", "guest": dict|None, "message": str}.
     """
     if db_degraded():
         return {"status": "db_unavailable", "guest": None, "message": DB_DEGRADED_MESSAGE}
@@ -2993,8 +3007,14 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
         if require_waiver and waiver_required() and not _has_accepted_waiver(session, guest.id):
             return {"status": "waiver_required", "guest": guest.to_dict(), "message": WAIVER_REQUIRED_MESSAGE}
 
+        collector = (collected_by or "").strip()[:MAX_NAME_LENGTH]
+        if require_collector and (guest.ticket_count or 1) > 1 and not (collector or guest.collected_by):
+            return {"status": "collector_required", "guest": guest.to_dict(), "message": COLLECTOR_REQUIRED_MESSAGE}
+
         guest.checked_in = True
         guest.checkin_time = _utc_now()
+        if collector:
+            guest.collected_by = collector
         session.add(CheckInLog(guest_id=guest.id, action="checkin", device_info="Streamlit Scanner"))
         if with_bands and not guest.band_given:
             guest.band_given = True
@@ -3006,6 +3026,50 @@ def check_in_guest(guest_id: int, bypass_window: bool = False, require_waiver: b
             "guest": guest.to_dict(),
             "message": f"Welcome {guest.name}!",
         }
+    finally:
+        session.close()
+
+
+COLLECTOR_REQUIRED_MESSAGE = (
+    "Enter the name of the person collecting this group's tickets before checking them in."
+)
+
+
+def set_group_collector(guest_id: int, collected_by: str) -> dict:
+    """Record (or correct) who collected a group booking's tickets.
+
+    Returns {"ok": bool, "message": str}. Blank names are refused — use it
+    to set a name, not to clear one.
+    """
+    name = (collected_by or "").strip()
+    if not name:
+        return {"ok": False, "message": "Enter the collector's name."}
+    if len(name) > MAX_NAME_LENGTH:
+        return {"ok": False, "message": f"Name must be {MAX_NAME_LENGTH} characters or fewer."}
+    session = get_db()
+    try:
+        guest = session.query(Guest).filter_by(id=guest_id).first()
+        if not guest:
+            return {"ok": False, "message": "Guest not found."}
+        guest.collected_by = name
+        session.commit()
+        return {"ok": True, "message": f"Recorded {name} as the collector for {guest.name}'s group."}
+    finally:
+        session.close()
+
+
+def list_group_bookings() -> list:
+    """Group bookings (more than one ticket), as plain dicts, for the Scanner's
+    "who collected which group" table. Collected groups first, then by name.
+    Returns [] when the database is unreachable."""
+    if db_degraded():
+        return []
+    session = get_db()
+    try:
+        rows = session.query(Guest).filter(Guest.ticket_count > 1).order_by(Guest.name).all()
+        return [g.to_dict() for g in rows]
+    except Exception:
+        return []
     finally:
         session.close()
 
